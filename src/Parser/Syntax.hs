@@ -1,5 +1,7 @@
 module Parser.Syntax where
-
+import Types.Type
+import Types.Kind
+import Types.Ident
 {-
 rpnccVI Grammar Specification
 
@@ -65,21 +67,14 @@ declaration
 
 data TypeToken
     = TTFun
-    | TTNam String
-    | TTVar String
+    | TTNam Identifier
+    | TTVar Name
     | TTPar [TypeToken]
     | TTSeq [[TypeToken]]
     deriving(Eq, Show)
 
-data Type
-    = TypeApp Type [Type]
-    | FunctionType
-    | NamedType String
-    | TypeVar String
-    deriving(Eq, Show)
-
 data Expr
-    = ENam String
+    = ENam Identifier
     | ELam Lambda
     | ECse LCase
     deriving(Eq, Show)
@@ -87,16 +82,15 @@ data Expr
 data Stmt
     = SExp Expr
     | SPsh Expr
-    | SApp Expr
     | SLet LetExpr
     deriving(Eq, Show)
 
 data Lambda
-    = Lambda [String] [Stmt]
+    = Lambda [Name] [Stmt]
     deriving(Eq, Show)
 
 data Pattern
-    = PNam String
+    = PNam Identifier
     deriving(Eq, Show)
 
 data LCase
@@ -104,15 +98,15 @@ data LCase
     deriving(Eq, Show)
 
 data LetExpr
-    = LetExpr String (Maybe Type) [Stmt]
+    = LetExpr Name (Maybe Type) [Stmt]
     deriving(Eq, Show)
 
 data Data
-    = Data String [(String, Type)]
+    = Data Name Kind [(Name, Type)]
     deriving(Eq, Show)
 
 data Function
-    = Func String Type [Stmt]
+    = Func Name Type [Stmt]
     deriving(Eq, Show)
 
 data TopLevel
@@ -123,11 +117,11 @@ data TopLevel
     deriving(Eq, Show)
 
 data Declaration
-    = Import String
-    | Include String
-    | IncludeWith String [String]
+    = Import Module
+    | Include Module
+    | IncludeWith Module [Identifier]
     deriving(Eq, Show)
 
 data Library
-    = Lib String [Declaration] [TopLevel]
+    = Lib Identifier [Declaration] [TopLevel]
     deriving(Eq, Show)

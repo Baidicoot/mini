@@ -17,10 +17,20 @@ cabal-version:       >=1.10
 
 executable mini
   main-is:             Main.hs
-  -- other-modules:       
+  other-modules:
+    Parser.Parser,
+    Parser.Syntax,
+    Parser.Lexer,
+    Types.Ident,
+    Types.Kind,
+    Types.Type,
+    Checker.Kinds
   -- other-extensions:    
   build-depends:
-    base >=4.9 && <4.10,
-    parsec >=3.1.14
+    base >=4.9,
+    parsec >=3.1.14,
+    containers >=0.6.2.1,
+    transformers >=0.5.6.2,
+    mtl >=2.2.2
   hs-source-dirs:      src
   default-language:    Haskell2010
