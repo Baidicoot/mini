@@ -24,7 +24,9 @@ executable mini
     Types.Ident,
     Types.Kind,
     Types.Type,
-    Checker.Kinds
+    Types.Pattern,
+    Checker.Kinds,
+    Checker.Types
   -- other-extensions:    
   build-depends:
     base >=4.9,

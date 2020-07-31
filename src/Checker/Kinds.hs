@@ -1,6 +1,6 @@
 module Checker.Kinds where
 
-import Types.Type
+import Types.Type (Type(..))
 import Types.Kind
 import Types.Ident
 
@@ -17,6 +17,7 @@ lazyKind :: Kind
 lazyKind = KindFunc KindAny KindStar
 
 desugarseq :: Map.Map Identifier Kind -> Type -> Either [Identifier] TypeUnifier
+-- maybe remove first two cases due to Checker.Types desugaring
 desugarseq env (TypeApp (TypeApp FunctionType (SeqType [])) x) = do
     x' <- desugarseq env x
     pure (UApp (UKind lazyKind) x')
@@ -36,6 +37,7 @@ desugarseq env (NamedType s) = case Map.lookup s env of
     Nothing -> Left [s]
 desugarseq env (TypeVar s) = pure (UVar s)
 desugarseq env FunctionType = pure (UKind funcKind)
+desugarseq env LazyType = pure (UKind lazyKind)
 
 -- Kind Inference Monad
 data KindError

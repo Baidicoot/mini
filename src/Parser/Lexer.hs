@@ -10,7 +10,7 @@ import Types.Ident
 lexer :: T.TokenParser ()
 lexer = T.makeTokenParser style
     where
-        names = ["export", "import", "include", "library", "case", ";", "->", "::"]
+        names = ["export", "import", "include", "library", "case", ";", "->", "::", "_"]
         style = emptyDef
             { T.commentStart      = ""
             , T.commentEnd        = ""

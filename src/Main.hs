@@ -2,7 +2,8 @@ module Main where
 
 import Parser.Parser
 import Text.Parsec (parse, many)
-import Checker.Kinds
+import Checker.Kinds hiding((~~))
+import Checker.Types hiding(infer)
 
 import qualified Data.Map.Strict as Map
 

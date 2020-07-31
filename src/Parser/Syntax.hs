@@ -89,12 +89,14 @@ data Lambda
     = Lambda [Name] [Stmt]
     deriving(Eq, Show)
 
-data Pattern
+data PatternTok
     = PNam Identifier
+    | PVar Name
+    | PAny
     deriving(Eq, Show)
 
 data LCase
-    = Case [([Pattern], [Stmt])]
+    = Case [([PatternTok], [Stmt])]
     deriving(Eq, Show)
 
 data LetExpr

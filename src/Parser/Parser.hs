@@ -76,10 +76,23 @@ lam = do
     stmts <- many stmt
     return (Lambda args stmts)
 
-pat :: Parser Pattern
-pat = fmap PNam ident
+pident :: Parser PatternTok
+pident = do
+    i <- ident
+    case i of
+        ExternalIdentifier _ _ -> pure (PNam i)
+        LocalIdentifier (c:_) | isUpper c -> pure (PNam i)
+        LocalIdentifier s -> pure (PVar s)
 
-pcase :: Parser ([Pattern], [Stmt])
+pany :: Parser PatternTok
+pany = reserved "_" $> PAny
+
+pat :: Parser PatternTok
+pat
+    =   pident
+    <|> pany
+
+pcase :: Parser ([PatternTok], [Stmt])
 pcase = do
     p <- many1 pat
     reserved "->"
