@@ -6,34 +6,23 @@ import Text.Parsec.Language (emptyDef)
 import Text.Parsec.String (Parser)
 
 import Types.Ident
-
-lexer :: T.TokenParser ()
-lexer = T.makeTokenParser style
-    where
-        names = ["export", "import", "include", "library", "case", ";", "->", "::", "_"]
-        style = emptyDef
-            { T.commentStart      = ""
-            , T.commentEnd        = ""
-            , T.commentLine       = "--"
-            , T.identLetter       = noneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b (){}',;."
-            , T.identStart        = noneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b (){}',;."
-            , T.opStart           = oneOf []
-            , T.opLetter          = oneOf []
-            , T.reservedNames     = names
-            }
-
-reserved :: String -> Parser ()
-reserved = T.reserved lexer
-
-whiteSpace :: Parser ()
-whiteSpace = T.whiteSpace lexer
+import Types.SExpr
 
 name :: Parser Name
-name = T.identifier lexer
+name = many1 (noneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b ().")
+
+whiteSpace :: Parser String
+whiteSpace = many (oneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b ")
+
+whiteSep :: Parser a -> Parser a
+whiteSep p = do
+  a <- p
+  whiteSpace
+  pure a
 
 externalident :: Parser Identifier
 externalident = do
-  is <- endBy1 name (reserved ".")
+  is <- endBy1 name (char '.')
   i <- name
   return (ExternalIdentifier is i)
 
@@ -43,14 +32,8 @@ ident
   <|> (LocalIdentifier <$> name)
 
 parens :: Parser a -> Parser a
-parens = T.parens lexer
-
-contents :: Parser a -> Parser a
-contents p = do
-  T.whiteSpace lexer
-  r <- p
-  eof
-  return r
-
-integer :: Parser Integer
-integer = T.integer lexer
+parens p = do
+  char '('
+  a <- p
+  char ')'
+  pure a

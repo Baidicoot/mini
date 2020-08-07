@@ -19,14 +19,15 @@ executable mini
   main-is:             Main.hs
   other-modules:
     Parser.Parser,
-    Parser.Syntax,
     Parser.Lexer,
+    Parser.SExpr,
     Types.Ident,
-    Types.Kind,
-    Types.Type,
     Types.Pattern,
-    Checker.Kinds,
-    Checker.Types
+    Types.SExpr,
+    Types.Syntax,
+    Types.Type,
+    Types.Graph,
+    Frontend.Lift
   -- other-extensions:    
   build-depends:
     base >=4.9,

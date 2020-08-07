@@ -1,40 +1,33 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Types.Type where
 
 import Types.Ident
 import Types.Pattern
+import Types.Graph
 
 import Control.Monad
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
-data Type
-    = TypeApp Type Type
-    | FunctionType
-    | LazyType
+data TypeNode
+    = FunctionType
     | NamedType Identifier
     | TypeVar Name
-    | SeqType [Type]
     deriving(Eq)
 
-type Constraint = (Type, Type)
+type Type = AppGraph TypeNode
 
-data TypeError
-  = UnificationFail Type Type
-  | InfiniteType Name Type
-  | UnboundIdent Identifier
-  | Ambigious [Constraint]
-  | UnificationMismatch [Type] [Type]
-  | PatternUnderflow Pattern [Pattern]
-  deriving(Show)
+type Kind = Type
 
-pshow_type :: Type -> String
-pshow_type f@(TypeApp _ _) = "(" ++ show f ++ ")"
-pshow_type x = show x
-
-instance Show Type where
-    show (TypeApp (TypeApp FunctionType a) b) = pshow_type a ++ " -> " ++ pshow_type b
-    show (TypeApp a b) = pshow_type a ++ " " ++ show b
+instance Show TypeNode where
+    show FunctionType = "->"
     show (NamedType s) = show s
     show (TypeVar s) = s
-    show (SeqType xs) = show xs
-    show FunctionType = "(->)"
+
+instance {-# OVERLAPPING #-} Show Type where
+    show (App () (Node () FunctionType) (Node () x)) = show x ++ " ->"
+    show (App () (Node () FunctionType) x) = "(" ++ show x ++ ") ->"
+    show (App () a (Node () b)) = show a ++ " " ++ show b
+    show (App () a b) = show a ++ " (" ++ show b ++ ")"
+    show (Node () x) = show x

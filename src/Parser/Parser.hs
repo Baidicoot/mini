@@ -1,270 +1,200 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Parser.Parser where
 
-import Parser.Syntax
-import Parser.Lexer
-
-import Control.Monad
 import Data.Functor
-import Data.List (foldl')
-import Data.Char
+import Control.Monad
+import Control.Monad.Except
+import Control.Applicative
 
-import Types.Type
-import Types.Kind
+import Types.SExpr
 import Types.Ident
+import Types.Syntax
+import Types.Type
+import Types.Pattern
+import Types.Graph
 
-import Text.Parsec
-import Text.Parsec.String (Parser)
+import Data.Char (isLower)
 
-import Prelude hiding(mod)
+type ExprS = SExpr Identifier
 
-kother :: Parser Kind
-kother
-    =   parens kind
-    <|> reserved "Seq" $> KindSeq
-    <|> reserved "*" $> KindStar
-    <|> reserved "@" $> KindAny
+data SyntaxError
+    = SyntaxError ExprS String
+    deriving(Eq, Show)
 
-kfunc :: Parser Kind
-kfunc = do
-    ks <- kother
-    reserved "->"
-    (KindFunc ks) <$> kind
+type Parser = Except [SyntaxError]
 
-kind :: Parser Kind
-kind
-    =   try kfunc
-    <|> kother
+syntaxError :: ExprS -> String -> Parser a
+syntaxError e s = throwError [SyntaxError e s]
 
-ttnamed :: Parser TypeToken
-ttnamed = do
-    i <- ident
-    case i of
-        ExternalIdentifier _ _ -> pure (TTNam i)
-        LocalIdentifier (c:_) | isUpper c -> pure (TTNam i)
-        LocalIdentifier s -> pure (TTVar s)
+parseapps :: (ExprS -> Parser a) -> ExprS -> Parser (AppGraph a)
+parseapps p (SExpr (x:xs)) = do
+    xexpr <- parseapp p x
+    foldM (\acc x -> do
+        exp <- parseapp p x
+        pure (App () acc exp)) xexpr xs
+parseapps _ x = syntaxError x "app"
 
-ttfun :: Parser TypeToken
-ttfun = reserved "->" $> TTFun
+parseapp :: (ExprS -> Parser a) -> ExprS -> Parser (AppGraph a)
+parseapp p x
+    =   Node () <$> p x
+    <|> parseapps p x
 
-ttseq :: Parser TypeToken
-ttseq = do
-    whiteSpace
-    char '{'
-    whiteSpace
-    tts <- (many typetoken) `sepBy` (char ',' >> whiteSpace)
-    whiteSpace
-    char '}'
-    whiteSpace
-    return (TTSeq tts)
+class InfixArrow a where
+    arrow :: a
 
-typetoken :: Parser TypeToken
-typetoken
-    =   ttseq
-    <|> fmap TTPar (parens (many typetoken))
-    <|> ttfun
-    <|> ttnamed
+parsearr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> ExprS -> Parser (AppGraph a)
+parsearr p (SExpr (x:xs)) = do
+    xtyp <- p x
+    parseinfixarr p xtyp xs
+parsearr _ x = syntaxError x "arrow"
 
-enam :: Parser Expr
-enam = fmap ENam ident
+parseinfixarr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> (AppGraph a) -> [ExprS] -> Parser (AppGraph a)
+parseinfixarr p typ (SNode (LocalIdentifier "->"):x:xs) = do
+    xtyp <- p x
+    xstyp <- parseinfixarr p xtyp xs
+    pure (App () (App () (Node () arrow) typ) xstyp)
+parseinfixarr _ typ [] = pure typ
+parseinfixarr _ _ x = syntaxError (SExpr x) "infixArrow"
 
-lam :: Parser Lambda
-lam = do
-    args <- many name
-    reserved "->"
-    stmts <- many stmt
-    return (Lambda args stmts)
+instance InfixArrow TypeNode where
+    arrow = FunctionType
 
-pident :: Parser PatternTok
-pident = do
-    i <- ident
-    case i of
-        ExternalIdentifier _ _ -> pure (PNam i)
-        LocalIdentifier (c:_) | isUpper c -> pure (PNam i)
-        LocalIdentifier s -> pure (PVar s)
+parseident :: ExprS -> Parser Identifier
+parseident (SNode x) = pure x
+parseident x = syntaxError x "identifier"
 
-pany :: Parser PatternTok
-pany = reserved "_" $> PAny
+parselet :: ExprS -> Parser Let
+parselet (SExpr (SNode (LocalIdentifier "let"):xs@(_:_))) = do
+    defs <- mapM parsedefn (init xs)
+    expr <- parseexpr (last xs)
+    pure (Let defs expr)
+parselet x = syntaxError x "let"
 
-pat :: Parser PatternTok
-pat
-    =   pident
-    <|> pany
+parsedefn :: ExprS -> Parser Definition
+parsedefn (SExpr [n, args, def]) = do
+    (name, typ) <- (
+        (flip (,) Nothing) <$> parsename n
+        <|> (\(Expl n t) -> (n, Just t)) <$> parseannot parsename n)
+    argns <- parselist parsename args
+    defexp <- parseexpr def
+    pure (Defn typ name argns defexp)
+parsedefn x = syntaxError x "definition"
 
-pcase :: Parser ([PatternTok], [Stmt])
-pcase = do
-    p <- many1 pat
-    reserved "->"
-    stmts <- many stmt
-    return (p, stmts)
+parsedata :: ExprS -> Parser Data
+parsedata (SExpr (SNode (LocalIdentifier "ind"):n:xs)) = do
+    (name, kind) <- (
+        (flip (,) Nothing) <$> parsename n
+        <|> (\(Expl n t) -> (n, Just t)) <$> parseannotpoly parsekind parsename n)
+    cases <- mapM (parseannot parsename) xs
+    pure (Ind name kind cases)
+parsedata x = syntaxError x "inductive"
 
-lcase :: Parser LCase
-lcase = do
-    reserved "case"
-    fmap Case (many1 (parens pcase))
+parsename :: ExprS -> Parser Name
+parsename (SNode (LocalIdentifier n)) = pure n
+parsename x = syntaxError x "name"
 
-expr :: Parser Expr
-expr
-    =   enam
-    <|> try (fmap ELam (parens lam))
-    <|> fmap ECse (parens lcase)
+parsevar :: ExprS -> Parser Name
+parsevar x = do
+    n <- parsename x
+    case n of
+        (c:_) | isLower c -> pure n
+        _ -> syntaxError x "var"
 
-spush :: Parser Stmt
-spush = do
-    char '\''
-    fmap SPsh expr
+parsereserved :: String -> ExprS -> Parser ()
+parsereserved s (SNode (LocalIdentifier n))
+    | s == n = pure ()
+parsereserved s x = syntaxError x s
 
-sexp :: Parser Stmt
-sexp = fmap SExp expr
+parselist :: (ExprS -> Parser a) -> ExprS -> Parser [a]
+parselist p (SExpr xs) = mapM p xs
+parselist _ x = syntaxError x "list"
 
-uletexpr :: Parser LetExpr
-uletexpr = do
-    n <- name
-    reserved ";"
-    fmap (LetExpr n Nothing) stmts
+parselam :: ExprS -> Parser Lam
+parselam (SExpr [SNode (LocalIdentifier "lam"), ns, expr]) = do
+    argns <- parselist parsename ns
+    defexp <- parseexpr expr
+    pure (Lam argns defexp)
+parselam x = syntaxError x "lambda"
 
-tletexpr :: Parser LetExpr
-tletexpr = do
-    n <- name
-    reserved "::"
-    t <- typ
-    reserved ";"
-    fmap (LetExpr n (Just t)) stmts
+parseannotpoly :: (ExprS -> Parser t) -> (ExprS -> Parser a) -> ExprS -> Parser (AnnotationPoly t a)
+parseannotpoly t p (SExpr [SNode (LocalIdentifier "::"), exp, typ]) = do
+    e <- p exp
+    a <- t typ
+    pure (Expl e a)
+parseannotpoly _ _ x = syntaxError x "annotation"
 
-letexpr :: Parser LetExpr
-letexpr
-    =   try tletexpr
-    <|> uletexpr
+parseannot :: (ExprS -> Parser a) -> ExprS -> Parser (Annotation a)
+parseannot = parseannotpoly parsetype
 
-stmt :: Parser Stmt
-stmt
-    =   try (fmap SLet (parens letexpr))
-    <|> spush
-    <|> sexp
+parsepatternnode :: ExprS -> Parser PatternNode
+parsepatternnode x
+    =   parsereserved "_" x  $> PatternWildcard
+    <|> PatternVar          <$> parsevar x
+    <|> PatternCons         <$> parseident x
 
-stmts :: Parser [Stmt]
-stmts
-    =   try (fmap ((: []) . SExp . ELam) lam)
-    <|> many stmt
+parsepattern :: ExprS -> Parser Pattern
+parsepattern = parseapp parsepatternnode
 
-union :: Parser (String, Type)
-union = do
-    n <- name
-    reserved "::"
-    t <- typ
-    return (n, t)
+parsecase :: ExprS -> Parser (Pattern, Expr)
+parsecase (SExpr [p, e]) = do
+    pat <- parsepattern p
+    exp <- parseexpr e
+    pure (pat, exp)
+parsecase x = syntaxError x "case"
 
-dat :: Parser Data
-dat = do
-    n <- name
-    reserved "::"
-    k <- kind
-    reserved ";"
-    cs <- many (parens union)
-    return (Data n k cs)
+parsematch :: ExprS -> Parser Match
+parsematch (SExpr ((SNode (LocalIdentifier "match")):e:ms)) = do
+    expr <- parseexpr e
+    cases <- mapM parsecase ms
+    pure (Match expr cases)
+parsematch x = syntaxError x "match"
 
-fun :: Parser Function
-fun = do
-    n <- name
-    reserved "::"
-    t <- typ
-    reserved ";"
-    s <- stmts
-    return (Func n t s)
+parseexprnode :: ExprS -> Parser ExprNode
+parseexprnode exp
+    =   Lambda  <$> parselam exp
+    <|> LetIn   <$> parselet exp
+    <|> Switch  <$> parsematch exp
+    <|> Annot   <$> parseannot parseexpr exp
+    <|> Var     <$> parseident exp
 
-export :: Parser a -> Parser a
-export p = do
-    reserved "export"
-    p
+parseexpr :: ExprS -> Parser Expr
+parseexpr = parseapp parseexprnode
 
-toplevel :: Parser TopLevel
-toplevel
-    =   try (parens ef)
-    <|> try (parens f)
-    <|> try (parens ed)
-    <|> parens d
-    where
-        f = fmap LocalF fun
-        ef = fmap ExportF (export fun)
-        d = fmap LocalD dat
-        ed = fmap ExportD (export dat)
+parseparensarr :: ExprS -> Parser TypeNode
+parseparensarr (SExpr [SNode (LocalIdentifier "->")]) = pure FunctionType
+parseparensarr x = syntaxError x "parensArrow"
 
-mod :: Parser Module
-mod = many name
+-- when not busy, refactor to use `parsevar`
+parsenamedtype :: ExprS -> Parser TypeNode
+parsenamedtype x@(SNode (LocalIdentifier "->")) = syntaxError x "namedType"
+parsenamedtype (SNode id@(LocalIdentifier s@(c:_)))
+    | isLower c = pure (TypeVar s)
+    | otherwise = pure (NamedType id)
+parsenamedtype (SNode id) = pure (NamedType id)
+parsenamedtype x = syntaxError x "namedType"
 
-imprt :: Parser Declaration
-imprt = do
-    reserved "import"
-    fmap Import mod
+parsetypenode :: ExprS -> Parser TypeNode
+parsetypenode x
+    =   parsenamedtype x
+    <|> parseparensarr x
 
-include :: Parser Declaration
-include = do
-    reserved "include"
-    fmap Include mod
+parsetype :: ExprS -> Parser Type
+parsetype x
+    =   parsearr parsetype x
+    <|> parseapp parsetypenode x
 
-includeWith :: Parser Declaration
-includeWith = do
-    reserved "include"
-    n <- mod
-    ms <- parens (sepBy1 ident (reserved ","))
-    return (IncludeWith n ms)
+parsekindnode :: ExprS -> Parser TypeNode
+parsekindnode x
+    =   parsereserved "*" x $> NamedType (LocalIdentifier "*")
 
-decl :: Parser Declaration
-decl
-    =   try (parens include)
-    <|> try (parens includeWith)
-    <|> try (parens imprt)
-    <?> "import or include"
+parsekind :: ExprS -> Parser Kind
+parsekind x
+    =   parsearr parsekind x
+    <|> parseapp parsekindnode x
 
-lib :: Parser Library
-lib = do
-    n <- parens (reserved "library" >> ident)
-    ds <- many decl
-    ts <- many toplevel
-    return (Lib n ds ts)
+parsetoplevel :: [ExprS] -> Parser [TopLevel]
+parsetoplevel = mapM (\x
+    ->  Func <$> parsedefn x
+    <|> Data <$> parsedata x)
 
-getLocalKinds :: Library -> [(String, Kind)]
-getLocalKinds (Lib _ _ ts) = map (\case
-    LocalD (Data n k _) -> (n, k)
-    ExportD (Data n k _) -> (n, k)) datas
-    where
-        datas = filter (\case
-            (LocalD _) -> True
-            (ExportD _) -> True
-            _ -> False) ts
-
-getExportKinds :: Library -> [(String, Kind)]
-getExportKinds (Lib _ _ ts) = map (\case
-    ExportD (Data n k _) -> (n, k)) datas
-    where
-        datas = filter (\case
-            (ExportD _) -> True
-            _ -> False) ts
-
-convtype :: TypeToken -> Either String Type
-convtype TTFun = Right FunctionType
-convtype (TTNam s) = Right (NamedType s)
-convtype (TTVar s) = Right (TypeVar s)
-convtype (TTPar xs) = parsetype xs
-convtype (TTSeq [[]]) = Right (SeqType [])
-convtype (TTSeq xss) = fmap SeqType (mapM parsetype xss)
-
-apps :: [Type] -> Type -> Type
-apps (x:xs) = TypeApp (foldl' TypeApp x xs)
-apps _ = id
-
-parsetype :: [TypeToken] -> Either String Type
-parsetype [] = Left "empty type not allowed"
-parsetype (x:xs) = convtype x >>= (\x -> internal [x] xs)
-    where
-        internal (s:ss) (TTFun:t:ts) = convtype t >>= (\t -> internal (t:TypeApp FunctionType s:ss) ts)
-        internal (s:ss) (t:ts) = convtype t >>= (\t -> internal (TypeApp s t:ss) ts)
-        internal ss [] = Right (foldl1 (flip TypeApp) ss)
-
-typ :: Parser Type
-typ = do
-    ts <- many typetoken
-    case parsetype ts of
-        Right x -> pure x
-        Left err -> parserFail (err ++ " while parsing type " ++ show ts)
+runParse :: Parser x -> Either [SyntaxError] x
+runParse = runExcept
