@@ -184,7 +184,7 @@ parsetype x
 
 parsekindnode :: ExprS -> Parser TypeNode
 parsekindnode x
-    =   parsereserved "*" x $> NamedType (LocalIdentifier "*")
+    =   parsereserved "*" x $> KindStar
 
 parsekind :: ExprS -> Parser Kind
 parsekind x

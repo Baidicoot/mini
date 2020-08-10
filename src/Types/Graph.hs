@@ -15,10 +15,10 @@ data TaggedAppGraph t a
 type AppGraph = TaggedAppGraph ()
 
 instance (Show t, Show a) => Show (TaggedAppGraph t a) where
-    show (App t a b) = show a ++ " (" ++ show b ++ ") :: " ++ show t
+    show (App t a b) = "(" ++ show a ++ ") (" ++ show b ++ ") :: " ++ show t
     show (Node t a) = show a ++ " :: " ++ show t
 
-instance {-# OVERLAPPING #-} Show a => Show (AppGraph a) where
+instance {-# OVERLAPPING #-} Show a => Show (TaggedAppGraph () a) where
     show (App _ a (Node _ b)) = show a ++ " " ++ show b
     show (App _ a b) = show a ++ " (" ++ show b ++ ")"
     show (Node _ a) = show a

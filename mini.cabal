@@ -27,7 +27,7 @@ executable mini
     Types.Syntax,
     Types.Type,
     Types.Graph,
-    Frontend.Lift
+    Frontend.IRify
   -- other-extensions:    
   build-depends:
     base >=4.9,

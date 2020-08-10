@@ -12,6 +12,7 @@ import qualified Data.Map as Map
 
 data TypeNode
     = FunctionType
+    | KindStar
     | NamedType Identifier
     | TypeVar Name
     deriving(Eq)
@@ -21,13 +22,61 @@ type Type = AppGraph TypeNode
 type Kind = Type
 
 instance Show TypeNode where
-    show FunctionType = "->"
+    show FunctionType = "⟶"
+    show KindStar = "★"
     show (NamedType s) = show s
     show (TypeVar s) = s
 
 instance {-# OVERLAPPING #-} Show Type where
-    show (App () (Node () FunctionType) (Node () x)) = show x ++ " ->"
-    show (App () (Node () FunctionType) x) = "(" ++ show x ++ ") ->"
+    show (App () (Node () FunctionType) (Node () x)) = show x ++ " ⟶"
+    show (App () (Node () FunctionType) x) = "(" ++ show x ++ ") ⟶"
     show (App () a (Node () b)) = show a ++ " " ++ show b
     show (App () a b) = show a ++ " (" ++ show b ++ ")"
     show (Node () x) = show x
+
+data Scheme = Forall (Set.Set Name) Type deriving(Eq)
+
+instance Show Scheme where
+    show (Forall ns t) = "∀" ++ unwords (Set.toList ns) ++ ". " ++ show t
+
+type Monomorphic = Set.Set Name
+type Subst = Map.Map Name Type
+
+class Substitutable a where
+    apply :: Subst -> a -> a
+    ftv   :: a -> Set.Set Name
+
+instance (Substitutable s, Substitutable a) => Substitutable (TaggedAppGraph s a) where
+    apply s (App t a b) = App (apply s t) (apply s a) (apply s b)
+    apply s (Node t a) = Node (apply s t) (apply s a)
+    
+    ftv (App t a b) = ftv t `mappend` ftv a `mappend` ftv b
+    ftv (Node t a) = ftv t `mappend` ftv a
+
+instance Substitutable () where
+    apply _ _ = ()
+    ftv _ = mempty
+
+applyN :: Subst -> TypeNode -> Type
+applyN s t@(TypeVar n) = Map.findWithDefault (Node () t) n s
+applyN _ t = (Node () t)
+
+ftvN :: TypeNode -> Set.Set Name
+ftvN (TypeVar n) = Set.singleton n
+ftvN _ = Set.empty
+
+instance {-# OVERLAPPING #-} Substitutable Type where -- pretty sure they aren't overlapping?
+    apply s = join . fmap (applyN s)
+    ftv = foldr mappend mempty . fmap ftvN
+
+instance Substitutable Scheme where
+    apply s (Forall ns t) = Forall ns (apply s t)
+    ftv (Forall ns t) = ftv t `Set.difference` ns
+
+instance Substitutable a => Substitutable [a] where
+    apply = map . apply
+    ftv = foldr (Set.union . ftv) Set.empty
+
+generalize :: Monomorphic -> Type -> Scheme
+generalize mono t = Forall as t
+    where as = ftv t `Set.difference` mono
