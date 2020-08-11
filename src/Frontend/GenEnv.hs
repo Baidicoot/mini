@@ -11,7 +11,7 @@ data Namespace
     deriving(Eq, Show)
 
 data Typespace
-    = Typespace (Map.Map Identifier Type) (Map.Map Identifier Kind)
+    = Typespace (Map.Map Identifier Scheme) (Map.Map Identifier Scheme)
     deriving(Eq, Show)
 
 data ImportAction

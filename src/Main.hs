@@ -18,18 +18,19 @@ import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
 
-a = let (Right exp) = parse rpncc "" "(lam (m) (let (y () m) (let (x () (y 0)) x)))" in exp
+a = let (Right exp) = parse rpncc "" "(:: (lam (x y z) (x y z)) ((a -> b -> c) -> a -> b -> c))" in exp
 b = let (Right exp) = runParse (parseexpr a) in exp
 
-env = genImportMap . Include $ Namespace ["Prelude"] ["0"] ["Int"]
+typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
+
+env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-"] ["Int"]
+int = Node () (NamedType (ExternalIdentifier ["Prelude"] "Int"))
+pre = ExternalIdentifier ["Prelude"]
+gen = generalize mempty
+typeenv = Map.fromList [(pre "1", gen int), (pre "6", gen int), (pre "0", gen int), (pre "*", gen $ int --> int --> int), (pre "-", gen $ int --> int --> int)]
 (Right x) = evalIRifier names env (irifyExpr b)
 t :: (Type, TaggedAppGraph Type TaggedIRNode)
-(Right (t, n, as, cs)) = runInfer (infer x) names
-
-(Right ((s0, cs0), n0)) = runSolver (solveSingle cs) n
-(Right ((s1, cs1), n1)) = runSolver (solveSingle cs0) n0
-(Right ((s2, cs2), n2)) = runSolver (solveSingle cs1) n1
-(Right ((s3, cs3), n3)) = runSolver (solveSingle cs2) n2
+(Right (t, n, as, cs)) = runInfer (globalEnv typeenv . infer $ x) names
 {-
 prelude = genImportMap . Include $ Namespace ["Prelude"] ["+", "-", "*", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] ["Int"]
 localenv = genImportMap (Include $ genNamespace ["Local"] b)

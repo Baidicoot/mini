@@ -11,11 +11,14 @@ module Frontend.Constraint (
     TaggedIRNode,
     runInfer,
     infer,
-    generalize
+    generalize,
+    globalEnv,
+    (-->)
 ) where
 
 -- derived from: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.18.9348&rep=rep1&type=pdf
 
+import Frontend.GenEnv
 import Types.Graph
 import Types.Type
 import Types.Pattern
@@ -33,33 +36,37 @@ import Data.List (intercalate)
 
 data Constraint
     = Unify Type Type
-    | Inst Type Type Monomorphic
-    | Rigid Type Scheme
+    | Gen Type Type Monomorphic
+    | Inst Type Scheme
+    | Subs Type Scheme
     deriving(Eq)
 
 instance Show Constraint where
-    show (Unify t0 t1) = show t0 ++ " ~~ " ++ show t1
-    show (Inst t0 t1 m) = show t0 ++ " <~{" ++ intercalate "," (Set.toList m) ++ "} " ++ show t1
-    show (Rigid t0 s) = show t0 ++ " <~ " ++ show s
+    show (Unify t0 t1) = show t0 ++ " ~ " ++ show t1
+    show (Gen t0 t1 m) = show t0 ++ " <~{" ++ intercalate "," (Set.toList m) ++ "} " ++ show t1
+    show (Inst t0 s) = show t0 ++ " <~ " ++ show s
+    show (Subs t0 s) = show t0 ++ " ≥ " ++ show s
 
 type AssumptionSet = [(Identifier, Type)]
 
 instance Substitutable Constraint where
     apply s (Unify t0 t1) = Unify (apply s t0) (apply s t1)
-    apply s (Inst t0 t1 m) = Inst (apply s t0) (apply s t1) sm
+    apply s (Gen t0 t1 m) = Gen (apply s t0) (apply s t1) sm
         where
             sm = Set.unions . Set.map (\n -> ftv $ Map.findWithDefault (Node () (TypeVar n)) n s) $ m
-    apply s (Rigid tau sigma) = Rigid (apply s tau) (apply s sigma)
+    apply s (Inst tau sigma) = Inst (apply s tau) (apply s sigma)
+    apply s (Subs tau sigma) = Subs (apply s tau) (apply s sigma)
 
     ftv (Unify t0 t1) = ftv t0 `Set.union` ftv t1
-    ftv (Inst t0 t1 m) = ftv t0 `Set.union` (ftv t1 `Set.difference` m)
-    ftv (Rigid tau sigma) = ftv tau `Set.union` ftv sigma
+    ftv (Gen t0 t1 m) = ftv t0 `Set.union` (ftv t1 `Set.difference` m)
+    ftv (Inst tau sigma) = ftv tau `Set.union` ftv sigma
 
 data TypeError
     = UnificationFail Type Type
     | InfiniteType Name Type
     | Ambigious [Constraint]
     | UnificationMismatch [Type] [Type]
+    | RigidityFail Type Type (Set.Set Name)
     deriving(Eq, Show)
 
 type InferState = ([Name], AssumptionSet)
@@ -93,7 +100,12 @@ letabst :: Name -> Type -> Infer ()
 letabst n t = do
     mono <- ask
     (_, as) <- get
-    mapM_ (constrain . (\t0 -> Inst t0 t mono) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
+    mapM_ (constrain . (\t0 -> Gen t0 t mono) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
+
+constabst :: Identifier -> Scheme -> Infer ()
+constabst n s = do
+    (_, as) <- get
+    mapM_ (constrain . flip Inst s . snd) $ filter ((==n) . fst) as
 
 constrain :: Constraint -> Infer ()
 constrain x = tell [x]
@@ -124,7 +136,7 @@ instance Inferable IRNode TaggedIRNode where
     infer (Annot e t) = do
         (t0, e') <- infer e
         mono <- ask
-        constrain (Rigid t0 t)
+        constrain (Subs t0 t)
         pure (t0, Annot e' t)
     infer (Lam n e) = do
         b <- fresh
@@ -132,11 +144,20 @@ instance Inferable IRNode TaggedIRNode where
         (t1, e') <- inEnv (Set.singleton b) (infer e)
         abstract n t0
         pure (t0 --> t1, Lam n e')
+    infer (Let ds e) = do
+        (ds', lp) <- foldM (\(ds', lp) (n, e) -> do
+            (t, e') <- infer e
+            pure ((n, e'):ds', (n, t):lp)) ([], []) ds
+        (t, e') <- infer e
+        mapM_ (uncurry letabst) lp
+        pure (t, Let ds' e')
+    {-
     infer (Let [(n, e0)] e1) = do
         (t0, e0') <- infer e0
         (t1, e1') <- infer e1
         letabst n t0
         pure (t1, Let [(n, e0')] e1')
+    -}
 
 instance Inferable TypeNode TypeNode where
     infer o@(TypeVar id) = do
@@ -163,3 +184,9 @@ instance Inferable i o => Inferable (AppGraph i) (TaggedAppGraph Type o) where
         let t2 = Node () (TypeVar b)
         constrain (Unify t0 (App () (App () (Node () FunctionType) t1) t2))
         pure (t2, App t2 e0' e1')
+
+globalEnv :: Map.Map Identifier Scheme -> Infer a -> Infer a
+globalEnv env i = do
+    a <- i
+    mapM_ (\(n, s) -> constabst n s) (Map.toList env)
+    pure a

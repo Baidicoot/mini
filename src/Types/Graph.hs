@@ -15,7 +15,7 @@ data TaggedAppGraph t a
 type AppGraph = TaggedAppGraph ()
 
 instance (Show t, Show a) => Show (TaggedAppGraph t a) where
-    show (App t a b) = "(" ++ show a ++ ") (" ++ show b ++ ") :: " ++ show t
+    show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
     show (Node t a) = show a ++ " :: " ++ show t
 
 instance {-# OVERLAPPING #-} Show a => Show (TaggedAppGraph () a) where

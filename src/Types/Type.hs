@@ -70,7 +70,7 @@ instance {-# OVERLAPPING #-} Substitutable Type where -- pretty sure they aren't
     ftv = foldr mappend mempty . fmap ftvN
 
 instance Substitutable Scheme where
-    apply s (Forall ns t) = Forall ns (apply s t)
+    apply s (Forall ns t) = Forall ns (apply (foldr (\n s -> Map.delete n s) s ns) t)
     ftv (Forall ns t) = ftv t `Set.difference` ns
 
 instance Substitutable a => Substitutable [a] where
