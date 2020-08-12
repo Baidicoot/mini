@@ -18,12 +18,12 @@ import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
 
-a = let (Right exp) = parse rpncc "" "(:: (lam (x y z) (x y z)) ((a -> b -> c) -> a -> b -> c))" in exp
+a = let (Right exp) = parse rpncc "" "(:: (lam (x y) y) (x -> x))" in exp
 b = let (Right exp) = runParse (parseexpr a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
 
-env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-"] ["Int"]
+env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-"] ["Int", "Bool"]
 int = Node () (NamedType (ExternalIdentifier ["Prelude"] "Int"))
 pre = ExternalIdentifier ["Prelude"]
 gen = generalize mempty

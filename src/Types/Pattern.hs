@@ -3,6 +3,8 @@ module Types.Pattern where
 import Types.Ident
 import Types.Graph
 
+import qualified Data.Set as Set
+
 data PatternNode
     = PatternCons Identifier
     | PatternVar Name

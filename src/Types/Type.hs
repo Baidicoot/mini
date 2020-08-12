@@ -46,6 +46,10 @@ class Substitutable a where
     apply :: Subst -> a -> a
     ftv   :: a -> Set.Set Name
 
+instance Substitutable Subst where
+    apply s = fmap (apply s)
+    ftv = foldr Set.union Set.empty . fmap ftv
+
 instance (Substitutable s, Substitutable a) => Substitutable (TaggedAppGraph s a) where
     apply s (App t a b) = App (apply s t) (apply s a) (apply s b)
     apply s (Node t a) = Node (apply s t) (apply s a)

@@ -9,6 +9,7 @@ module Frontend.Constraint (
     TypeError(..),
     TaggedIR,
     TaggedIRNode,
+    Flexibility(..),
     runInfer,
     infer,
     generalize,
@@ -26,6 +27,8 @@ import Types.Ident
 import Types.IR
 
 import Data.Monoid
+import Data.Foldable
+import Data.Maybe
 import Control.Arrow
 import Control.Monad
 import Control.Monad.Except
@@ -34,39 +37,41 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.List (intercalate)
 
+data Flexibility
+    = Rigid
+    | Wobbly
+    deriving(Eq, Show)
+
 data Constraint
     = Unify Type Type
-    | Gen Type Type Monomorphic
-    | Inst Type Scheme
-    | Subs Type Scheme
+    | Gen Type Type Monomorphic Flexibility
+    | Inst Type Scheme Flexibility
     deriving(Eq)
 
 instance Show Constraint where
-    show (Unify t0 t1) = show t0 ++ " ~ " ++ show t1
-    show (Gen t0 t1 m) = show t0 ++ " <~{" ++ intercalate "," (Set.toList m) ++ "} " ++ show t1
-    show (Inst t0 s) = show t0 ++ " <~ " ++ show s
-    show (Subs t0 s) = show t0 ++ " ≥ " ++ show s
+    show (Unify t0 t1) = show t0 ++ " ≡ " ++ show t1
+    show (Gen t0 t1 m _) = show t0 ++ " ⊑{" ++ unwords (Set.toList m) ++ "} " ++ show t1
+    show (Inst t0 s _) = show t0 ++ " ⊑ " ++ show s
 
 type AssumptionSet = [(Identifier, Type)]
 
 instance Substitutable Constraint where
     apply s (Unify t0 t1) = Unify (apply s t0) (apply s t1)
-    apply s (Gen t0 t1 m) = Gen (apply s t0) (apply s t1) sm
+    apply s (Gen t0 t1 m f) = Gen (apply s t0) (apply s t1) sm f
         where
             sm = Set.unions . Set.map (\n -> ftv $ Map.findWithDefault (Node () (TypeVar n)) n s) $ m
-    apply s (Inst tau sigma) = Inst (apply s tau) (apply s sigma)
-    apply s (Subs tau sigma) = Subs (apply s tau) (apply s sigma)
+    apply s (Inst tau sigma f) = Inst (apply s tau) (apply s sigma) f
 
     ftv (Unify t0 t1) = ftv t0 `Set.union` ftv t1
-    ftv (Gen t0 t1 m) = ftv t0 `Set.union` (ftv t1 `Set.difference` m)
-    ftv (Inst tau sigma) = ftv tau `Set.union` ftv sigma
+    ftv (Gen t0 t1 m _) = ftv t0 `Set.union` (ftv t1 `Set.intersection` m)
+    ftv (Inst tau sigma _) = ftv tau `Set.union` ftv sigma
 
 data TypeError
     = UnificationFail Type Type
     | InfiniteType Name Type
-    | Ambigious [Constraint]
-    | UnificationMismatch [Type] [Type]
-    | RigidityFail Type Type (Set.Set Name)
+    | Unsolvable [Constraint]
+    | RigidityFail Name Type
+    | RigidityDup Name Name
     deriving(Eq, Show)
 
 type InferState = ([Name], AssumptionSet)
@@ -100,12 +105,18 @@ letabst :: Name -> Type -> Infer ()
 letabst n t = do
     mono <- ask
     (_, as) <- get
-    mapM_ (constrain . (\t0 -> Gen t0 t mono) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
+    mapM_ (constrain . (\t0 -> Gen t0 t mono Wobbly) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
+
+rigidabst :: Name -> Type -> Infer ()
+rigidabst n t = do
+    mono <- ask
+    (_, as) <- get
+    mapM_ (constrain . (\t0 -> Gen t0 t mono Rigid) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
 
 constabst :: Identifier -> Scheme -> Infer ()
 constabst n s = do
     (_, as) <- get
-    mapM_ (constrain . flip Inst s . snd) $ filter ((==n) . fst) as
+    mapM_ (constrain . (\t -> Inst t s Rigid) . snd) $ filter ((==n) . fst) as
 
 constrain :: Constraint -> Infer ()
 constrain x = tell [x]
@@ -124,6 +135,22 @@ functionkind = (Node () KindStar) --> (Node () KindStar) --> (Node () KindStar)
 class Inferable i o where
     infer :: i -> Infer (Type, o)
 
+instance Inferable PatternNode (Maybe (Name, Type)) where
+    infer PatternWildcard = do
+        b <- fresh
+        pure (Node () (TypeVar b), Nothing)
+    infer (PatternVar n) = do
+        b <- fresh
+        let id = LocalIdentifier n
+        let t = Node () (TypeVar b)
+        assume id t
+        pure (t, Just (n, t))
+    infer (PatternCons id) = do
+        b <- fresh
+        let t = Node () (TypeVar b)
+        assume id t
+        pure (t, Nothing)
+
 type TaggedIRNode = PolyIRNode Scheme Type
 type TaggedIR = PolyIR Scheme Type
 
@@ -133,11 +160,10 @@ instance Inferable IRNode TaggedIRNode where
         let t = Node () (TypeVar b)
         assume id t
         pure (t, Var id)
-    infer (Annot e t) = do
+    infer (Annot e s) = do
         (t0, e') <- infer e
-        mono <- ask
-        constrain (Subs t0 t)
-        pure (t0, Annot e' t)
+        constrain (Inst t0 s Rigid)
+        pure (t0, Annot e' s)
     infer (Lam n e) = do
         b <- fresh
         let t0 = Node () (TypeVar b)
@@ -151,7 +177,27 @@ instance Inferable IRNode TaggedIRNode where
         (t, e') <- infer e
         mapM_ (uncurry letabst) lp
         pure (t, Let ds' e')
+    infer (Match e ps) = do
+        (et, e') <- infer e
+        mono <- ask
+        (it, ot, cases) <- foldM (\(its, ots, cases) (p, e) -> do
+            (pt, taggedGraph) <- infer p
+            constrain (Gen pt et mono Wobbly)
+            let names = catMaybes $ toList taggedGraph
+            (et, e') <- inEnv (Set.fromList $ fmap fst names) infer e
+            mapM_ (uncurry rigidabst) names
+            pure (pt:its, et:ots, (p, e'):cases)) ([], []) ps
+        mapM_ (\it -> constrain (Gen it et mono Wobbly)) it
+        b <- fresh
+        let t = Node () (TypeVar b)
+        mapM_ (\ot -> constrain (Unify ot t)) ot
+        pure (Match e' cases, t)
+
     {-
+    infer (Match e ps) = do
+        _ <- mapM (\(p, e) -> do
+            )
+    
     infer (Let [(n, e0)] e1) = do
         (t0, e0') <- infer e0
         (t1, e1') <- infer e1
