@@ -28,6 +28,7 @@ selectWithRest = internal []
         internal r f (x:xs)
             | f x (r++xs) = (Just x, r++xs)
             | otherwise = internal (r++[x]) f xs
+        internal _ _ [] = (Nothing, [])
 
 type Solver = StateT [Name] (Except TypeError)
 type Rigid = Set.Set Name
@@ -99,9 +100,17 @@ infix 9 @@
 (@@) :: Subst -> Subst -> Solver Subst
 (@@) = compose Set.empty
 
+activeVars :: Constraint -> Set.Set Name
+activeVars (Unify t0 t1) = ftv t0 `Set.union` ftv t1
+activeVars (Gen t0 t1 mono _) = ftv t0 `Set.union` (mono `Set.intersection` ftv t1)
+activeVars (Inst t0 s0 _) = ftv t0 `Set.union` ftv s0
+
+activevars :: [Constraint] -> Set.Set Name
+activevars = foldr Set.union Set.empty . fmap activeVars
+
 solveable :: Constraint -> [Constraint] -> Bool
-solveable (Gen _ t1 mono _) c = Set.null $ (ftv t1 `Set.difference` mono) `Set.intersection` ftv c
-solveable (Inst t s _) _ = True -- s is already in normal form, due to the construction from Gen
+solveable (Gen _ t1 mono _) c = Set.null $ (ftv t1 `Set.difference` mono) `Set.intersection` activevars c
+solveable (Inst t s _) c = Set.null $ ftv s `Set.intersection` activevars c
 solveable (Unify _ _) _ = True
 
 solveConstraint :: Constraint -> Solver Subst
@@ -114,6 +123,16 @@ solveConstraint (Inst t0 sigma Wobbly) = do
     t1 <- instantiate sigma
     t0 ~~ t1
 
+solveSingle :: [Constraint] -> Solver ([Constraint], Subst)
+solveSingle [] = pure ([], mempty)
+solveSingle cs = do
+    let (c, cs') = selectWithRest solveable cs
+    case c of
+        Nothing -> throwError $ Unsolvable cs
+        Just c -> do
+            s0 <- solveConstraint c
+            pure (apply s0 cs', s0)
+
 solve :: [Constraint] -> Solver Subst
 solve [] = pure mempty
 solve cs = do
@@ -124,3 +143,13 @@ solve cs = do
             s0 <- solveConstraint c
             s1 <- solve (apply s0 cs')
             s1 @@ s0
+
+solveIO :: [Constraint] -> [Name] -> IO (Either TypeError Subst)
+solveIO [] _ = pure (Right mempty)
+solveIO cs n = do
+    let Right ((cs', s0), n') = runSolve (solveSingle cs) n
+    mapM_ print cs'
+    putStr "\n"
+    print s0
+    putStr "\n"
+    solveIO cs' n'

@@ -20,16 +20,12 @@ whiteSep p = do
   whiteSpace
   pure a
 
-externalident :: Parser Identifier
-externalident = do
-  is <- endBy1 name (char '.')
-  i <- name
-  return (ExternalIdentifier is i)
-
 ident :: Parser Identifier
-ident
-  =   (try externalident)
-  <|> (LocalIdentifier <$> name)
+ident = do
+  is <- sepBy1 name (char '.')
+  case is of
+    [i] -> pure (LocalIdentifier i)
+    _ -> pure (ExternalIdentifier (init is) (last is))
 
 parens :: Parser a -> Parser a
 parens p = do

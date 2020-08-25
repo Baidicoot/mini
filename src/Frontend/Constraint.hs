@@ -13,7 +13,6 @@ module Frontend.Constraint (
     runInfer,
     infer,
     generalize,
-    globalEnv,
     (-->)
 ) where
 
@@ -40,7 +39,7 @@ import Data.List (intercalate)
 data Flexibility
     = Rigid
     | Wobbly
-    deriving(Eq, Show)
+    deriving(Eq)
 
 data Constraint
     = Unify Type Type
@@ -48,10 +47,14 @@ data Constraint
     | Inst Type Scheme Flexibility
     deriving(Eq)
 
+instance Show Flexibility where
+    show Rigid = "ᴿ"
+    show Wobbly = "ᵂ"
+
 instance Show Constraint where
     show (Unify t0 t1) = show t0 ++ " ≡ " ++ show t1
-    show (Gen t0 t1 m _) = show t0 ++ " ⊑{" ++ unwords (Set.toList m) ++ "} " ++ show t1
-    show (Inst t0 s _) = show t0 ++ " ⊑ " ++ show s
+    show (Gen t0 t1 m f) = show t0 ++ " ⊑" ++ show f ++ "{" ++ unwords (Set.toList m) ++ "} " ++ show t1
+    show (Inst t0 s f) = show t0 ++ " ⊑" ++ show f ++ " " ++ show s
 
 type AssumptionSet = [(Identifier, Type)]
 
@@ -72,18 +75,28 @@ data TypeError
     | Unsolvable [Constraint]
     | RigidityFail Name Type
     | RigidityDup Name Name
+    | UnknownPattern Identifier
+    | WrongArgs Identifier [Name]
     deriving(Eq, Show)
 
 type InferState = ([Name], AssumptionSet)
 
+type Globals = Map.Map Identifier Scheme
+
 type Infer = RWST
-    Monomorphic
+    (Monomorphic, Globals)
     [Constraint]
     InferState
     (Except TypeError)
 
-runInfer :: Infer a -> [Name] -> Either TypeError (a, [Name], AssumptionSet, [Constraint])
-runInfer a s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a Set.empty (s, []))
+monomorphic :: Infer Monomorphic
+monomorphic = fmap fst ask
+
+globals :: Infer Globals
+globals = fmap snd ask
+
+runInfer :: Infer a -> Globals -> [Name] -> Either TypeError (a, [Name], AssumptionSet, [Constraint])
+runInfer a g s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a (Set.empty, g) (s, []))
 
 fresh :: Infer Name
 fresh = do
@@ -103,13 +116,18 @@ abstract n t = do
 
 letabst :: Name -> Type -> Infer ()
 letabst n t = do
-    mono <- ask
+    mono <- monomorphic
     (_, as) <- get
     mapM_ (constrain . (\t0 -> Gen t0 t mono Wobbly) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
 
+globabst :: Identifier -> Scheme -> Infer ()
+globabst id s = do
+    (_, as) <- get
+    mapM_ (constrain . (\t -> Inst t s Wobbly) . snd) $ filter ((==id) . fst) as
+
 rigidabst :: Name -> Type -> Infer ()
 rigidabst n t = do
-    mono <- ask
+    mono <- monomorphic
     (_, as) <- get
     mapM_ (constrain . (\t0 -> Gen t0 t mono Rigid) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
 
@@ -122,7 +140,10 @@ constrain :: Constraint -> Infer ()
 constrain x = tell [x]
 
 inEnv :: (Set.Set Name) -> Infer a -> Infer a
-inEnv n p = local (Set.union n) p
+inEnv n = local (\(m, g) -> (Set.union n m, g))
+
+outEnv :: (Set.Set Name) -> Infer a -> Infer a
+outEnv n = local (\(m, g) -> (m `Set.difference` n, g))
 
 infixr 9 -->
 
@@ -135,6 +156,7 @@ functionkind = (Node () KindStar) --> (Node () KindStar) --> (Node () KindStar)
 class Inferable i o where
     infer :: i -> Infer (Type, o)
 
+{-
 instance Inferable PatternNode (Maybe (Name, Type)) where
     infer PatternWildcard = do
         b <- fresh
@@ -143,13 +165,40 @@ instance Inferable PatternNode (Maybe (Name, Type)) where
         b <- fresh
         let id = LocalIdentifier n
         let t = Node () (TypeVar b)
-        assume id t
         pure (t, Just (n, t))
     infer (PatternCons id) = do
         b <- fresh
         let t = Node () (TypeVar b)
         assume id t
+        glob <- globals
+        case Map.lookup id glob of
+            Just sch -> constrain (Inst t sch Wobbly)
+            Nothing -> throwError $ UnknownPattern id
         pure (t, Nothing)
+-}
+instance Inferable IRPattern (Map.Map Name Type) where
+    infer IRWild = do
+        b <- fresh
+        pure (Node () (TypeVar b), Map.empty)
+    infer (IRCons id args) = do
+        glob <- globals
+        case Map.lookup id glob of
+            Just sch@(Forall _ scht) ->
+                if arity scht /= length args then
+                    throwError $ WrongArgs id args
+                else do
+                    b <- fresh
+                    let t = Node () (TypeVar b)
+                    argtvars <- mapM (\n -> do
+                        b <- fresh
+                        let v = LocalIdentifier n
+                        let t = Node () (TypeVar b)
+                        assume v t
+                        pure (n, t)) args
+                    let it = foldr (-->) t (fmap snd argtvars)
+                    constrain (Inst it sch Wobbly)
+                    pure (t, Map.fromList argtvars)
+            Nothing -> throwError $ UnknownPattern id
 
 type TaggedIRNode = PolyIRNode Scheme Type
 type TaggedIR = PolyIR Scheme Type
@@ -159,6 +208,10 @@ instance Inferable IRNode TaggedIRNode where
         b <- fresh
         let t = Node () (TypeVar b)
         assume id t
+        glob <- globals
+        case Map.lookup id glob of
+            Just sch -> constrain (Inst t sch Wobbly)
+            Nothing -> pure ()
         pure (t, Var id)
     infer (Annot e s) = do
         (t0, e') <- infer e
@@ -176,22 +229,21 @@ instance Inferable IRNode TaggedIRNode where
             pure ((n, e'):ds', (n, t):lp)) ([], []) ds
         (t, e') <- infer e
         mapM_ (uncurry letabst) lp
-        pure (t, Let ds' e')
+        pure (t, Let (reverse ds') e')
     infer (Match e ps) = do
         (et, e') <- infer e
-        mono <- ask
+        mono <- monomorphic
         (it, ot, cases) <- foldM (\(its, ots, cases) (p, e) -> do
-            (pt, taggedGraph) <- infer p
-            constrain (Gen pt et mono Wobbly)
-            let names = catMaybes $ toList taggedGraph
-            (et, e') <- inEnv (Set.fromList $ fmap fst names) infer e
+            (pt, vartypes) <- infer p
+            let names = Map.toList (vartypes :: Map.Map Name Type)
+            (et, e') <- inEnv (Set.fromList $ fmap ((\(Node () (TypeVar n)) -> n) . snd) names) (infer e)
             mapM_ (uncurry rigidabst) names
-            pure (pt:its, et:ots, (p, e'):cases)) ([], []) ps
-        mapM_ (\it -> constrain (Gen it et mono Wobbly)) it
+            pure (pt:its, et:ots, (p, e'):cases)) ([], [], []) ps
+        mapM_ (\it -> constrain (Unify et it)) it
         b <- fresh
         let t = Node () (TypeVar b)
-        mapM_ (\ot -> constrain (Unify ot t)) ot
-        pure (Match e' cases, t)
+        mapM_ (\ot -> constrain (Unify t ot)) ot
+        pure (t, Match e' (reverse cases))
 
     {-
     infer (Match e ps) = do
@@ -230,9 +282,3 @@ instance Inferable i o => Inferable (AppGraph i) (TaggedAppGraph Type o) where
         let t2 = Node () (TypeVar b)
         constrain (Unify t0 (App () (App () (Node () FunctionType) t1) t2))
         pure (t2, App t2 e0' e1')
-
-globalEnv :: Map.Map Identifier Scheme -> Infer a -> Infer a
-globalEnv env i = do
-    a <- i
-    mapM_ (\(n, s) -> constabst n s) (Map.toList env)
-    pure a

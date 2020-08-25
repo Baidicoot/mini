@@ -32,6 +32,10 @@ joinApp :: TaggedAppGraph t (TaggedAppGraph t a) -> TaggedAppGraph t a
 joinApp (App t a b) = App t (joinApp a) (joinApp b)
 joinApp (Node _ a) = a
 
+traverseWithTag :: Applicative f => (n -> t -> f (TaggedAppGraph t n)) -> TaggedAppGraph t n -> f (TaggedAppGraph t n)
+traverseWithTag f (App t a b) = liftA2 (App t) (traverseWithTag f a) (traverseWithTag f b)
+traverseWithTag f (Node t n) = f n t
+
 instance Monoid t => Monad (TaggedAppGraph t) where
     a >>= f = joinApp (fmap f a)
 

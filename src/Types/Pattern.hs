@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Types.Pattern where
 
 import Types.Ident
@@ -17,3 +18,8 @@ instance Show PatternNode where
     show PatternWildcard = "_"
 
 type Pattern = AppGraph PatternNode
+
+vars :: Pattern -> Set.Set Name
+vars = foldr Set.union Set.empty . fmap (\case
+    PatternVar n -> Set.singleton n
+    _ -> Set.empty)

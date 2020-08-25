@@ -5,7 +5,7 @@ name:                mini
 version:             0.1.0.0
 -- synopsis:            
 -- description:         
-license:             BSD3
+license:             GPL-3
 license-file:        LICENSE
 author:              Aidan K. Ewart
 maintainer:          aidanprattewart@gmail.com
@@ -27,7 +27,12 @@ executable mini
     Types.Syntax,
     Types.Type,
     Types.Graph,
-    Frontend.IRify
+    Types.Literal,
+    Types.IR,
+    Frontend.GenEnv,
+    Frontend.IRify,
+    Frontend.Constraint,
+    Frontend.Solve
   -- other-extensions:    
   build-depends:
     base >=4.9,

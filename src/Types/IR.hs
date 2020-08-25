@@ -4,14 +4,17 @@ import Types.Ident
 import Types.Graph
 import Types.Pattern
 import Types.Type
+import Types.Literal
 import Data.List (intercalate)
 
-data UnboxedLit
-    = Int Int
+data IRPattern
+    = IRCons Identifier [Name]
+    | IRWild
     deriving(Eq)
 
-instance Show UnboxedLit where
-    show (Int i) = '#':(show i)
+instance Show IRPattern where
+    show (IRCons i ns) = show i ++ " " ++ unwords ns
+    show IRWild = "_"
 
 type PolyIR typ tag = TaggedAppGraph tag (PolyIRNode typ tag)
 data PolyIRNode typ tag
@@ -20,7 +23,7 @@ data PolyIRNode typ tag
     | Lam Name (PolyIR typ tag)
     | Var Identifier
     | Unboxed UnboxedLit
-    | Match (PolyIR typ tag) [(Pattern, PolyIR typ tag)]
+    | Match (PolyIR typ tag) [(IRPattern, PolyIR typ tag)]
     deriving(Eq)
 
 instance (Show typ, Show tag) => Show (PolyIRNode typ tag) where

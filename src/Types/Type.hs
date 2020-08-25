@@ -69,6 +69,19 @@ ftvN :: TypeNode -> Set.Set Name
 ftvN (TypeVar n) = Set.singleton n
 ftvN _ = Set.empty
 
+arity :: Type -> Int
+arity (App () (App () (Node () FunctionType) _) b) = 1 + arity b
+arity _ = 0
+
+zipArgs :: Type -> [Name] -> Maybe ([(Name, Type)], Type)
+zipArgs t ns
+    | arity t == length ns = Just $ internal t ns
+    where
+        internal (App () (App () (Node () FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
+            ((x, a):rs, r)
+        internal t [] = ([], t)
+zipArgs _ _ = Nothing
+
 instance {-# OVERLAPPING #-} Substitutable Type where -- pretty sure they aren't overlapping?
     apply s = join . fmap (applyN s)
     ftv = foldr mappend mempty . fmap ftvN
