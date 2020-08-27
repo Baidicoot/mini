@@ -2,8 +2,6 @@
 
 module Frontend.IRify where
 
-import System.IO.Unsafe
-
 -- conversion between AST and uniquely-named IR + match compilation
 
 import Types.Syntax hiding(ExprNode(..), Let(..), Lam(..), Match(..))
@@ -198,8 +196,7 @@ nextVar = listToMaybe . fmap fst . filter (not . patComplete . snd) . Map.toList
 
 nextVarLs :: [PartialMatch] -> Maybe Name
 nextVarLs ls = do
-    let ls' = unsafePerformIO (print ls >> pure ls)
-    a <- listToMaybe ls'
+    a <- listToMaybe ls
     nextVar a
 
 matchByVar :: Name -> [PartialMatch] -> [(Pattern, PartialMatch)]
@@ -263,7 +260,7 @@ buildIRFromMatchTree :: MatchTree -> IR
 buildIRFromMatchTree (ExprBranch n args) =
     foldr (\n a -> App () a (Node () (Var $ LocalIdentifier n))) (Node () (Var $ LocalIdentifier n)) args
 buildIRFromMatchTree (Switch n cases) =
-    Node () $ Match (Node () (Var $ LocalIdentifier n)) (fmap (second buildIRFromMatchTree) cases)
+    Node () $ Match n (fmap (second buildIRFromMatchTree) cases)
 buildIRFromMatchTree MatchExcept = undefined
 
 renamePattern :: Pattern -> IRifier (Pattern, Map.Map Identifier Name)

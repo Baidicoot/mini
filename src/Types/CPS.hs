@@ -1,10 +1,13 @@
 module Types.CPS where
 
 import Types.Ident
+import Types.Type
+import Types.Literal
 
 data Value
     = Var Identifier
     | Label Identifier
+    | Unboxed UnboxedLit
     deriving(Eq, Show)
 
 data CFun

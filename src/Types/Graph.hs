@@ -1,11 +1,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Types.Graph where
 
 import Control.Monad
 import Control.Applicative
 import Data.Foldable
 import Data.Traversable
+
+import Types.Pretty
 
 data TaggedAppGraph t a
     = App t (TaggedAppGraph t a) (TaggedAppGraph t a)
@@ -14,14 +18,24 @@ data TaggedAppGraph t a
 
 type AppGraph = TaggedAppGraph ()
 
-instance (Show t, Show a) => Show (TaggedAppGraph t a) where
-    show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
-    show (Node t a) = show a ++ " :: " ++ show t
-
 instance {-# OVERLAPPING #-} Show a => Show (TaggedAppGraph () a) where
     show (App _ a (Node _ b)) = show a ++ " " ++ show b
     show (App _ a b) = show a ++ " (" ++ show b ++ ")"
     show (Node _ a) = show a
+
+instance (Show t, Show a) => Show (TaggedAppGraph t a) where
+    show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
+    show (Node t a) = show a ++ " :: " ++ show t
+
+instance {-# OVERLAPPING #-} (Pretty a d) => Pretty (TaggedAppGraph () a) d where
+    pretty (App _ a (Node _ b)) d = pretty a d ++ " " ++ pretty b d
+    pretty (App _ a b) d = pretty a d ++ " (" ++ pretty b d ++ ")"
+    pretty (Node _ a) d = pretty a d
+
+instance (Pretty a d, Show t) => Pretty (TaggedAppGraph t a) d where
+    pretty (App _ a (Node _ b)) d = pretty a d ++ " " ++ pretty b d
+    pretty (App _ a b) d = pretty a d ++ " (" ++ pretty b d ++ ")"
+    pretty (Node t a) d = pretty a d
 
 instance Functor (TaggedAppGraph t) where
     fmap f (App t a b) = App t (fmap f a) (fmap f b)

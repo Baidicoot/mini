@@ -1,9 +1,12 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Types.IR where
 
 import Types.Ident
 import Types.Graph
 import Types.Pattern
 import Types.Type
+import Types.Pretty
 import Types.Literal
 import Data.List (intercalate)
 
@@ -13,7 +16,7 @@ data IRPattern
     deriving(Eq)
 
 instance Show IRPattern where
-    show (IRCons i ns) = show i ++ " " ++ unwords ns
+    show (IRCons i ns) = show i ++ concatMap (\n -> " " ++ n) ns
     show IRWild = "_"
 
 type PolyIR typ tag = TaggedAppGraph tag (PolyIRNode typ tag)
@@ -23,7 +26,7 @@ data PolyIRNode typ tag
     | Lam Name (PolyIR typ tag)
     | Var Identifier
     | Unboxed UnboxedLit
-    | Match (PolyIR typ tag) [(IRPattern, PolyIR typ tag)]
+    | Match Name [(IRPattern, PolyIR typ tag)]
     deriving(Eq)
 
 instance (Show typ, Show tag) => Show (PolyIRNode typ tag) where
@@ -32,7 +35,15 @@ instance (Show typ, Show tag) => Show (PolyIRNode typ tag) where
     show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
     show (Var id) = show id
     show (Unboxed l) = show l
-    show (Match ir cases) = "match " ++ show ir ++ " with\n" ++ concatMap (\(p, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Match ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+
+instance (Show typ, Show tag) => Pretty (PolyIRNode typ tag) Int where
+    pretty (Let ds ir) n = "\n" ++ replicate n ' ' ++ "let " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> v ++ " = " ++ pretty ir (n+4)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+8)
+    pretty (Annot ir ty) n = "(" ++ pretty ir n ++ " :: " ++ show ty ++ ")"
+    pretty (Lam v ir) n = "(\\" ++ v ++ ". " ++ pretty ir n ++ ")"
+    pretty (Var id) _ = show id
+    pretty (Unboxed l) _ = show l
+    pretty (Match ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
 
 instance (Substitutable typ, Substitutable tag) => Substitutable (PolyIRNode typ tag) where
     apply s (Let ds ir) = Let (fmap (\(a, b) -> (a, apply s b)) ds) (apply s ir)

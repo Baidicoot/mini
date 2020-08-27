@@ -10,6 +10,7 @@ import Types.Syntax
 import Types.Type
 import Types.Ident
 import Types.Graph
+import Types.Pretty
 
 import qualified Data.Map as Map
 
@@ -18,7 +19,7 @@ import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
 
-a = let (Right exp) = parse rpncc "" "(let (test (x) (match x ((Just y) y) (Nothing x))) test)" in exp
+a = let (Right exp) = parse rpncc "" "(let (test (x) (match x ((Pair _ (Pair (Just a) b)) (a b)) ((Pair (Pair (Just Nothing) (Pair Nothing b)) Nothing) x))) test)" in exp
 b = let (Right exp) = runParse (parseexpr a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t

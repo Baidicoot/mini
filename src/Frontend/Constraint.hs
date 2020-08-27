@@ -145,11 +145,6 @@ inEnv n = local (\(m, g) -> (Set.union n m, g))
 outEnv :: (Set.Set Name) -> Infer a -> Infer a
 outEnv n = local (\(m, g) -> (m `Set.difference` n, g))
 
-infixr 9 -->
-
-(-->) :: Type -> Type -> Type
-a --> b = App () (App () (Node () FunctionType) a) b
-
 functionkind :: Kind
 functionkind = (Node () KindStar) --> (Node () KindStar) --> (Node () KindStar)
 

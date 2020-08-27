@@ -69,6 +69,10 @@ ftvN :: TypeNode -> Set.Set Name
 ftvN (TypeVar n) = Set.singleton n
 ftvN _ = Set.empty
 
+infixr 9 -->
+(-->) :: Type -> Type -> Type
+a --> b = App () (App () (Node () FunctionType) a) b
+
 arity :: Type -> Int
 arity (App () (App () (Node () FunctionType) _) b) = 1 + arity b
 arity _ = 0
