@@ -4,13 +4,14 @@ module Frontend.IRify where
 
 -- conversion between AST and uniquely-named IR + match compilation
 
-import Types.Syntax hiding(ExprNode(..), Let(..), Lam(..), Match(..))
+import Types.Syntax hiding(ExprNode(..), Let(..), Lam(..), Match(..), Data(..))
 import qualified Types.Syntax as Syntax
 import Types.Ident
 import Types.IR
 import Types.Graph
 import Types.Pattern
 import Types.Type
+import Builtin.Decls (unit)
 
 import Control.Monad.State
 import Control.Monad.Except
@@ -43,7 +44,8 @@ evalIRifier s e = runExcept . flip runReaderT e . flip evalStateT s
 
 fresh :: IRifier Name
 fresh = do
-    (n:ns) <- get
+    names <- get
+    let (n:ns) = names
     put ns
     pure n
 
@@ -257,6 +259,8 @@ buildMatchTree (Just n) matches = do
     pure (Switch n ts)
 
 buildIRFromMatchTree :: MatchTree -> IR
+buildIRFromMatchTree (ExprBranch n []) = 
+    App () (Node () $ Var $ LocalIdentifier n) (Node () $ Var $ fst unit)
 buildIRFromMatchTree (ExprBranch n args) =
     foldr (\n a -> App () a (Node () (Var $ LocalIdentifier n))) (Node () (Var $ LocalIdentifier n)) args
 buildIRFromMatchTree (Switch n cases) =
@@ -273,18 +277,22 @@ renamePattern (Node () (PatternVar n)) = do
     pure (Node () (PatternVar b), Map.singleton (LocalIdentifier n) b)
 renamePattern x = pure (x, mempty)
 
-makeCase :: Name -> (Pattern, Expr) -> IRifier ((Name, IR), PartialMatch)
+makeCase :: Name -> (Pattern, Expr) -> IRifier ((Identifier, IR), PartialMatch)
 makeCase n (p', exp) = do
     (p, env') <- renamePattern p'
     let env = Map.toList env'
     f <- fresh
     e <- withEnv (fmap (second LocalIdentifier) env) $ irifyExpr exp
-    let ir = foldr (\(_, n) a -> Node () (Lam n a)) e env
+    ir <- case env of
+        [] -> do
+            f <- fresh
+            pure $ Node () $ Lam f e
+        _ -> pure $ foldr (\(_, n) a -> Node () (Lam n a)) e env
     let branch = (f, fmap snd env)
     let matchres = (Map.singleton n p, Map.empty)
-    pure ((f, ir), (matchres, branch))
+    pure ((LocalIdentifier f, ir), (matchres, branch))
 
-makeCases :: Name -> [(Pattern, Expr)] -> IRifier ([(Name, IR)], [PartialMatch])
+makeCases :: Name -> [(Pattern, Expr)] -> IRifier ([(Identifier, IR)], [PartialMatch])
 makeCases b cases = do
     cs <- mapM (makeCase b) cases
     let (ces, parts) = unzip cs
@@ -297,7 +305,31 @@ irifyMatch (Syntax.Match exp cases) = do
     (defs, parts) <- makeCases b cases
     mt <- buildMatchTree (Just b) parts
     let ir = buildIRFromMatchTree mt
-    pure (Node () $ Let ((b, e):defs) ir)
+    pure (Node () $ Let b e (Node () $ Fix defs ir))
+
+isLam :: Definition -> Bool
+isLam (Defn _ _ [] _) = False
+isLam _ = True
+
+irifyLet :: [Definition] -> Syntax.Expr -> IRifier IR
+irifyLet (d@(Defn _ n [] _):xs) expr = do
+    ir <- irifyDefn d
+    f <- fresh
+    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet xs expr)
+    pure (Node () $ Let n ir xsexp)
+irifyLet [] expr = do
+    ir <- irifyExpr expr
+    pure ir
+irifyLet xs expr = do
+    let (defs, xs') = (takeWhile isLam xs, dropWhile isLam xs)
+    ns <- mapM (\(Defn _ n _ _) -> do
+        f <- fresh
+        pure (LocalIdentifier n, LocalIdentifier f)) defs
+    newdefs <- withEnv ns $ mapM (\(d, (_, f)) -> do
+        ir <- irifyDefn d
+        pure (f, ir)) (defs `zip` ns)
+    expr <- withEnv ns (irifyLet xs' expr)
+    pure (Node () $ Fix newdefs expr)
 
 irifyNode :: Syntax.ExprNode -> IRifier IR
 irifyNode (Syntax.Var id) = do
@@ -307,15 +339,7 @@ irifyNode (Syntax.Annot (Expl a t)) = do
     a <- irifyExpr a
     t <- irifyType t
     pure (Node () $ Annot a t)
-irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = do
-    ns <- mapM (\(Defn _ n _ _) -> do
-        f <- fresh
-        pure (LocalIdentifier n, LocalIdentifier f)) defs
-    newdefs <- withEnv ns $ mapM (\(d, (_, LocalIdentifier f)) -> do
-        ir <- irifyDefn d
-        pure (f, ir)) (defs `zip` ns)
-    expr <- withEnv ns (irifyExpr expr)
-    pure (Node () $ Let newdefs expr)
+irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet defs expr
 irifyNode (Syntax.Lambda l) = irifyLam l
 irifyNode (Syntax.Switch m) = irifyMatch m
 
@@ -340,36 +364,25 @@ irifyTypeNode env x = pure (x, env)
 irifyType :: Type -> IRifier Scheme
 irifyType = fmap (generalize mempty) . fmap (\(a, _) -> a) . irifyMap irifyTypeNode
 
-data IRTL
-    = Inductive Identifier (Maybe Kind) [(Identifier, Scheme)]
-    | Function Identifier IR
-
-instance Show IRTL where
-    show (Inductive n mk ts) =
-        let header = "ind " ++ show n
-            annot = case mk of
-                Just x -> " :: " ++ show x ++ "\n"
-                Nothing -> "\n"
-            body = concatMap (\(id, typ) -> "    " ++ show id ++ " :: " ++ show typ ++ "\n") ts in
-                header ++ annot ++ body
-    show (Function id ir) = show id ++ " = " ++ show ir ++ "\n"
-    showList = const . concatMap ((++"\n") . show)
-
-irifyData :: Data -> IRifier IRTL
-irifyData (Ind n mk cs) = do
+irifyData :: Syntax.Data -> IRifier Ind
+irifyData (Syntax.Ind n mk cs) = do
     cs <- mapM (\(Expl a t) -> do
         n <- lookupEnv (LocalIdentifier a)
         t <- irifyType t
         pure (n, t)) cs
     n <- lookupType (LocalIdentifier n)
-    pure (Inductive n mk cs)
+    pure (Ind n mk cs)
 
-irifyTopLevel :: TopLevel -> IRifier IRTL
-irifyTopLevel (Func d@(Defn _ n _ _)) = do
-    d <- irifyDefn d
-    n <- lookupEnv (LocalIdentifier n)
-    pure (Function n d)
-irifyTopLevel (Data ind) = irifyData ind
+sortTopLevel :: [TopLevel] -> ([Syntax.Data], [Definition])
+sortTopLevel ((Data d):xs) = let (da, de) = sortTopLevel xs in (d:da, de)
+sortTopLevel ((Func f):xs) = let (da, de) = sortTopLevel xs in (da, f:de)
 
-irify :: [TopLevel] -> IRifier [IRTL]
-irify = mapM irifyTopLevel
+irifyVals :: [Definition] -> IRifier IR
+irifyVals = flip irifyLet (Node () (Syntax.Var (ExternalIdentifier ["Arc"] "Unit")))
+
+-- todo: create env + curried constructors
+irify :: [TopLevel] -> IRifier ([Ind], IR)
+irify ts = let (da, de) = sortTopLevel ts in do
+    ir <- irifyVals de
+    dat <- mapM irifyData da
+    pure (dat, ir)

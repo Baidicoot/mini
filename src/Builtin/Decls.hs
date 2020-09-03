@@ -4,13 +4,24 @@ import Types.Type
 import Types.Ident
 import Types.Graph
 
-type Decl = (Identifier, Type)
+import qualified Data.Set as Set
+
+type Decl = (Identifier, Scheme)
+
+comp :: Name -> Identifier
+comp = ExternalIdentifier ["Arc"]
 
 errormsg :: Type
-errormsg = Node () (ExternalIdentifier [] "Error")
+errormsg = Node () (NamedType $ comp "Error")
 
 matcherr :: Decl
-matcherr = (ExternalIdentifier [] "Match", errormsg)
+matcherr = (comp "Match", Forall Set.empty errormsg)
+
+unitty :: Type
+unitty = Node () (NamedType $ comp "Unit")
+
+unit :: Decl
+unit = (comp "Unit", Forall Set.empty unitty)
 
 raise :: Decl
-raise = (ExternalIdentifier [] "raise", Forall (Set.fromList ["a"]) $ errormsg -> (Node () (LocalIdentifier "a")))
+raise = (comp "raise", Forall (Set.fromList ["a"]) $ errormsg --> (Node () (TypeVar "a")))

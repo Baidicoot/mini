@@ -38,7 +38,8 @@ runSolve m = runExcept . runStateT m
 
 fresh :: Solver Type
 fresh = do
-    (n:ns) <- get
+    names <- get
+    let (n:ns) = names
     put ns
     pure (Node () (TypeVar n))
 
@@ -143,13 +144,3 @@ solve cs = do
             s0 <- solveConstraint c
             s1 <- solve (apply s0 cs')
             s1 @@ s0
-
-solveIO :: [Constraint] -> [Name] -> IO (Either TypeError Subst)
-solveIO [] _ = pure (Right mempty)
-solveIO cs n = do
-    let Right ((cs', s0), n') = runSolve (solveSingle cs) n
-    mapM_ print cs'
-    putStr "\n"
-    print s0
-    putStr "\n"
-    solveIO cs' n'

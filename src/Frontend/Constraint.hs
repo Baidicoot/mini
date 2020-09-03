@@ -10,6 +10,7 @@ module Frontend.Constraint (
     TaggedIR,
     TaggedIRNode,
     Flexibility(..),
+    Infer,
     runInfer,
     infer,
     generalize,
@@ -100,7 +101,8 @@ runInfer a g s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a 
 
 fresh :: Infer Name
 fresh = do
-    (n:ns, as) <- get
+    (names, as) <- get
+    let (n:ns) = names
     put (ns, as)
     pure n
 
@@ -114,11 +116,11 @@ abstract n t = do
     (_, as) <- get
     mapM_ (constrain . Unify t . snd) $ filter ((==(LocalIdentifier n)) . fst) as
 
-letabst :: Name -> Type -> Infer ()
+letabst :: Identifier -> Type -> Infer ()
 letabst n t = do
     mono <- monomorphic
     (_, as) <- get
-    mapM_ (constrain . (\t0 -> Gen t0 t mono Wobbly) . snd) $ filter ((==(LocalIdentifier n)) . fst) as
+    mapM_ (constrain . (\t0 -> Gen t0 t mono Wobbly) . snd) $ filter ((==n) . fst) as
 
 globabst :: Identifier -> Scheme -> Infer ()
 globabst id s = do
@@ -218,15 +220,21 @@ instance Inferable IRNode TaggedIRNode where
         (t1, e') <- inEnv (Set.singleton b) (infer e)
         abstract n t0
         pure (t0 --> t1, Lam n e')
-    infer (Let ds e) = do
-        (ds', lp) <- foldM (\(ds', lp) (n, e) -> do
+    infer (Fix ds e) = do
+            (ds', lp) <- foldM (\(ds', lp) (n, e) -> do
+                (t, e') <- infer e
+                pure ((n, e'):ds', (n, t):lp)) ([], []) ds
             (t, e') <- infer e
-            pure ((n, e'):ds', (n, t):lp)) ([], []) ds
+            mapM_ (uncurry letabst) lp
+            pure (t, Fix (reverse ds') e')
+    infer (Let n x e) = do
+        (xt, x') <- infer x
+        letabst (LocalIdentifier n) xt
         (t, e') <- infer e
-        mapM_ (uncurry letabst) lp
-        pure (t, Let (reverse ds') e')
+        pure (t, Let n x' e')
     infer (Match e ps) = do
-        (et, e') <- infer e
+        b <- fresh
+        let et = Node () (TypeVar b)
         mono <- monomorphic
         (it, ot, cases) <- foldM (\(its, ots, cases) (p, e) -> do
             (pt, vartypes) <- infer p
@@ -238,7 +246,7 @@ instance Inferable IRNode TaggedIRNode where
         b <- fresh
         let t = Node () (TypeVar b)
         mapM_ (\ot -> constrain (Unify t ot)) ot
-        pure (t, Match e' (reverse cases))
+        pure (t, Match e (reverse cases))
 
     {-
     infer (Match e ps) = do

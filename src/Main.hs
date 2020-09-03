@@ -18,16 +18,20 @@ import Frontend.IRify
 import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
+import Frontend.CPSify
 
-a = let (Right exp) = parse rpncc "" "(let (test (x) (match x ((Pair _ (Pair (Just a) b)) (a b)) ((Pair (Pair (Just Nothing) (Pair Nothing b)) Nothing) x))) test)" in exp
+import qualified Types.CPS as CPS
+
+a = let (Right exp) = parse rpncc "" "(let (k (x y) x) (s (x y z) (x z (y z))) (s k k))" in exp
 b = let (Right exp) = runParse (parseexpr a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
 
-env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True"] ["Int", "Bool", "Pair", "Expr", "Maybe"]
+env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True", "Nested"] ["Int", "Bool", "Pair", "Expr", "Maybe", "Nested"]
 int = Node () (NamedType (ExternalIdentifier ["Prelude"] "Int"))
 bool = Node () (NamedType (ExternalIdentifier ["Prelude"] "Bool"))
 pre = ExternalIdentifier ["Prelude"]
+arc = ExternalIdentifier ["Arc"]
 gen = generalize mempty
 typeenv = Map.fromList [
     (pre "1", gen int),
@@ -37,6 +41,7 @@ typeenv = Map.fromList [
     (pre "True", gen bool),
     (pre "*", gen $ int --> int --> int),
     (pre "-", gen $ int --> int --> int),
+    (arc "Unit", gen $ typ "Arc.Unit"),
     (pre "Pair", gen $ typ "(a -> b -> (Prelude.Pair a b))"),
     (pre "App", gen $ typ "((a -> b) -> a -> (Prelude.Expr b))"),
     (pre "Prod", gen $ typ "(a -> b -> (Prelude.Expr (Prelude.Pair a b)))"),
@@ -44,7 +49,8 @@ typeenv = Map.fromList [
     (pre "Int", gen $ typ "(Prelude.Expr Prelude.Int)"),
     (pre "Id", gen $ typ "(a -> (Prelude.Expr a))"),
     (pre "Just", gen $ typ "(a -> (Prelude.Maybe a))"),
-    (pre "Nothing", gen $ typ "(Prelude.Maybe a)")]
+    (pre "Nothing", gen $ typ "(Prelude.Maybe a)"),
+    (pre "Nested", gen $ typ "((Prelude.Nested a) -> (Prelude.Nested (Prelude.Nested a)))")]
 (Right x) = evalIRifier names env (irifyExpr b)
 t :: (Type, TaggedAppGraph Type TaggedIRNode)
 (Right (t, n, as, cs)) = runInfer (infer x) typeenv names
@@ -53,6 +59,8 @@ t :: (Type, TaggedAppGraph Type TaggedIRNode)
 problem = solve cs
 Right (subst, ns) = runSolve problem n
 y = apply subst tagged
+
+(z, ns') = runCPSify ns (convert x (\z -> pure $ CPS.App (CPS.Var (LocalIdentifier "halt")) [z]))
 {-
 prelude = genImportMap . Include $ Namespace ["Prelude"] ["+", "-", "*", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] ["Int"]
 localenv = genImportMap (Include $ genNamespace ["Local"] b)
