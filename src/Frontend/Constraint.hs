@@ -84,20 +84,25 @@ type InferState = ([Name], AssumptionSet)
 
 type Globals = Map.Map Identifier Scheme
 
+type Constructors = Map.Map Identifier Scheme
+
 type Infer = RWST
-    (Monomorphic, Globals)
+    (Monomorphic, Globals, Constructors)
     [Constraint]
     InferState
     (Except TypeError)
 
 monomorphic :: Infer Monomorphic
-monomorphic = fmap fst ask
+monomorphic = fmap (\(a,_,_)->a) ask
 
 globals :: Infer Globals
-globals = fmap snd ask
+globals = fmap (\(_,b,_)->b) ask
 
-runInfer :: Infer a -> Globals -> [Name] -> Either TypeError (a, [Name], AssumptionSet, [Constraint])
-runInfer a g s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a (Set.empty, g) (s, []))
+constructors :: Infer Constructors
+constructors = fmap (\(_,_,c)->c) ask
+
+runInfer :: Infer a -> Globals -> Constructors -> [Name] -> Either TypeError (a, [Name], AssumptionSet, [Constraint])
+runInfer a g c s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a (Set.empty, g, c) (s, []))
 
 fresh :: Infer Name
 fresh = do
@@ -105,6 +110,17 @@ fresh = do
     let (n:ns) = names
     put (ns, as)
     pure n
+
+-- borrowed from Solve, will unify once I rework the type system to interleave stages
+instantiateSubst :: Scheme -> Infer (Type, Subst)
+instantiateSubst (Forall poly t) = do
+    let as = Set.toList poly
+    as' <- mapM (fmap (Node () . TypeVar) . const fresh) as
+    let s = Map.fromList $ zip as as'
+    pure (apply s t, s)
+
+instantiate :: Scheme -> Infer Type
+instantiate = fmap fst . instantiateSubst
 
 assume :: Identifier -> Type -> Infer ()
 assume n t = do
@@ -142,10 +158,10 @@ constrain :: Constraint -> Infer ()
 constrain x = tell [x]
 
 inEnv :: (Set.Set Name) -> Infer a -> Infer a
-inEnv n = local (\(m, g) -> (Set.union n m, g))
+inEnv n = local (\(m, g, c) -> (Set.union n m, g, c))
 
 outEnv :: (Set.Set Name) -> Infer a -> Infer a
-outEnv n = local (\(m, g) -> (m `Set.difference` n, g))
+outEnv n = local (\(m, g, c) -> (m `Set.difference` n, g, c))
 
 functionkind :: Kind
 functionkind = (Node () KindStar) --> (Node () KindStar) --> (Node () KindStar)
@@ -210,6 +226,15 @@ instance Inferable IRNode TaggedIRNode where
             Just sch -> constrain (Inst t sch Wobbly)
             Nothing -> pure ()
         pure (t, Var id)
+    infer (Cons id args) = do
+        cons <- constructors
+        case Map.lookup id cons of
+            Nothing -> throwError (UnknownPattern id)
+            Just t -> do
+                t' <- instantiate t
+                let Just (zipped, out) = zipArgs t' args
+                mapM_ (uncurry assume . first LocalIdentifier) zipped
+                pure (out, Cons id args)
     infer (Annot e s) = do
         (t0, e') <- infer e
         constrain (Inst t0 s Rigid)

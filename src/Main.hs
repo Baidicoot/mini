@@ -6,11 +6,11 @@ import Parser.SExpr
 
 import Text.Parsec (parse, many)
 
-import Types.Syntax
 import Types.Type
 import Types.Ident
 import Types.Graph
 import Types.Pretty
+import Types.IR
 
 import qualified Data.Map as Map
 
@@ -22,12 +22,12 @@ import Frontend.CPSify
 
 import qualified Types.CPS as CPS
 
-a = let (Right exp) = parse rpncc "" "(let (k (x y) x) (s (x y z) (x z (y z))) (s k k))" in exp
-b = let (Right exp) = runParse (parseexpr a) in exp
+a = let (Right exp) = parse (many rpncc) "" "(ind Maybe (:: Just (a -> (Maybe a))) (:: Nothing (Maybe a))) (w (x y) (match x ((Just x) x) (Nothing y))) (mmap (f x) (match x ((Just y) (Just (f x))) (Nothing Nothing))) (main () (w (mmap (lam (x) 0) (Just 1)) 6))" in exp
+b = let (Right exp) = runParse (parsetoplevel a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
 
-env = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True", "Nested"] ["Int", "Bool", "Pair", "Expr", "Maybe", "Nested"]
+(enva, envb) = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True", "Nested", "s", "k", "w", "fac", "compose", "weird", "mmap"] ["Int", "Bool", "Pair", "Expr", "Maybe", "Nested"]
 int = Node () (NamedType (ExternalIdentifier ["Prelude"] "Int"))
 bool = Node () (NamedType (ExternalIdentifier ["Prelude"] "Bool"))
 pre = ExternalIdentifier ["Prelude"]
@@ -51,16 +51,19 @@ typeenv = Map.fromList [
     (pre "Just", gen $ typ "(a -> (Prelude.Maybe a))"),
     (pre "Nothing", gen $ typ "(Prelude.Maybe a)"),
     (pre "Nested", gen $ typ "((Prelude.Nested a) -> (Prelude.Nested (Prelude.Nested a)))")]
-(Right x) = evalIRifier names env (irifyExpr b)
-t :: (Type, TaggedAppGraph Type TaggedIRNode)
-(Right (t, n, as, cs)) = runInfer (infer x) typeenv names
+(Right (ind, x)) = evalIRifier names (enva `Map.union` (Map.singleton (arc "Unit") (arc "Unit")), envb, mempty) (irify b)
+cons = Map.fromList (concatMap (\(Ind _ _ s) -> s) ind)
+t :: (Type, PolyIR Scheme Type)
+(Right (t, n, as, cs)) = runInfer (infer x) typeenv cons names
 (typed, tagged) = t
 
 problem = solve cs
 Right (subst, ns) = runSolve problem n
 y = apply subst tagged
 
-(z, ns') = runCPSify ns (convert x (\z -> pure $ CPS.App (CPS.Var (LocalIdentifier "halt")) [z]))
+renv = Map.fromList [(pre "Just", (0, 2)), (pre "Nothing", (1, 2))]
+
+(z, ns') = runCPSify ns renv (convert x (\z -> pure CPS.Halt))
 {-
 prelude = genImportMap . Include $ Namespace ["Prelude"] ["+", "-", "*", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] ["Int"]
 localenv = genImportMap (Include $ genNamespace ["Local"] b)

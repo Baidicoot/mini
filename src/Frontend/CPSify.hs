@@ -2,6 +2,7 @@ module Frontend.CPSify where
 
 import Types.CPS
 import Types.Ident
+import Types.Prim
 import qualified Types.IR as IR
 import qualified Types.Graph as Graph
 
@@ -10,8 +11,13 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Arrow
 import Control.Monad
+import Data.Maybe (listToMaybe, fromMaybe)
+import Data.List (partition)
+
+import qualified Data.Map as Map
 
 type CPSState = ([Name], [Name])
+type CPSEnv = Map.Map Identifier (Int, Int)
 
 fresh :: CPSifier Name
 fresh = do
@@ -19,6 +25,13 @@ fresh = do
     let (n:ns) = names
     put (ns, ks)
     pure n
+
+index :: Identifier -> CPSifier Int
+index id = do
+    env <- ask
+    case Map.lookup id env of
+        Just (x, _) -> pure x
+        Nothing -> error "catastrophic failure, leaking launch codes..."
 
 cont :: CPSifier Name
 cont = do
@@ -30,10 +43,10 @@ cont = do
 contNames :: [Name]
 contNames = fmap (('k':) . show) [0..]
 
-type CPSifier = State CPSState
+type CPSifier = StateT CPSState (Reader CPSEnv)
 
-runCPSify :: [Name] -> CPSifier a -> (a, CPSState)
-runCPSify ns a = runState a (ns, contNames)
+runCPSify :: [Name] -> CPSEnv -> CPSifier a -> (a, CPSState)
+runCPSify ns e a = runReader (runStateT a (ns, contNames)) e
 
 convertNode :: IR.PolyIRNode typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (IR.Var id) c = c (Var id)
@@ -55,7 +68,59 @@ convertNode (IR.Fix defs e) c = do
             dx <- g defs
             pure $ (Fun n [v, w] bigF):dx
         g [] = pure []
-convertNode (IR.Let n def e) c = convert (Graph.App () (Graph.Node () $ IR.Lam n e) def) c
+convertNode (IR.Let n def e) c = do
+    j <- fmap LocalIdentifier cont
+    ce <- convert e c
+    cd <- convert def (\z -> pure $ App (Var j) [z])
+    pure $ Fix [Fun j [n] ce] cd
+convertNode (IR.Cons id args) c = do
+    i <- index id
+    let cont = zip (fmap (Var . LocalIdentifier) args) (fmap OffPath [1..])
+    x <- fmap LocalIdentifier fresh
+    convC <- c (Var x)
+    pure $ Record ((Unboxed (Int i), OffPath 0):cont) x convC
+convertNode (IR.Select i exp) c = do
+    w <- fresh
+    cw <- c (Var $ LocalIdentifier w)
+    convert exp (\v -> pure $ Select i v w cw)
+convertNode (IR.Match n exps) c = do
+    j <- fmap LocalIdentifier cont
+    x <- fresh
+    cx <- c (Var $ LocalIdentifier x)
+    let jfn = Fun j [x] cx
+    (dflt, ncases, brmap) <- fmap (flip sortBranches exps) ask
+    (brmap, conts) <- fmap (fmap fst &&& fmap (snd . snd) . Map.toList) $ mapM (\(ns, ir) -> do
+        k <- fmap LocalIdentifier cont
+        x <- fresh
+        e <- convert ir (\z -> pure $ App (Var j) [z])
+        let def = foldr (\(n, i) e -> Select i (Var $ LocalIdentifier x) n e) e (zip ns [1..])
+        pure (k, Fun k [x] def)) brmap
+    dflt <- mapM (flip convert (\z -> pure $ App (Var j) [z])) dflt
+    d <- fmap LocalIdentifier cont
+    discard <- fresh
+    let dfn = Fun d [discard] (fromMaybe MatchError dflt)
+    let cexps = fmap (\i -> App (Var $ Map.findWithDefault d i brmap) [Var $ LocalIdentifier n]) [0..ncases-1]
+    tag <- fresh
+    pure $ Select 0 (Var $ LocalIdentifier n) tag (Fix (jfn:dfn:conts) $ Switch (Var $ LocalIdentifier tag) cexps)
+
+sortBranches :: Map.Map Identifier (Int, Int) -> [(IR.IRPattern, IR.PolyIR typ ())] -> (Maybe (IR.PolyIR typ ()), Int, Map.Map Int ([Name], IR.PolyIR typ ()))
+sortBranches idm br =
+    let (wild, normal) = first (fmap snd . listToMaybe) $ partition ((==IR.IRWild) . fst) br
+        (brmap, casenums) = unzip $ fmap (\(IR.IRCons id ns, exp) ->
+            let (index, ncases) = idm Map.! id in ((index, (ns, exp)), ncases)) normal
+        in (wild, fromMaybe 0 (listToMaybe casenums), Map.fromList brmap)
+{-
+Not sure about matches;
+match x
+  Just y -> a y
+  Nothing -> b ()
+
+converts to (?):
+match x
+  Just y -> a y k
+  Nothing -> b () k
+where k is the current continuation?
+-}
 
 convert :: IR.PolyIR typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
 convert (Graph.App _ f e) c = do

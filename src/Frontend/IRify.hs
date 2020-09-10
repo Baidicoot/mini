@@ -24,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 type IRState = [Name]
-type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier)
+type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier IR)
 
 data IRError
     = Unbound Identifier
@@ -51,22 +51,32 @@ fresh = do
 
 withEnv :: [(Identifier, Identifier)] -> IRifier a -> IRifier a
 withEnv ts p = do
-    (expr, typ) <- ask
-    local (const (Map.union (Map.fromList ts) expr, typ)) p
+    (expr, typ, s) <- ask
+    local (const (Map.union (Map.fromList ts) expr, typ, s)) p
+
+withSyn :: [(Identifier, IR)] -> IRifier a -> IRifier a
+withSyn ss p = do
+    (expr, typ, s) <- ask
+    local (const (expr, typ, Map.union (Map.fromList ss) s)) p
 
 lookupEnv :: Identifier -> IRifier Identifier
 lookupEnv id = do
-    (env, _) <- ask
+    (env, _, _) <- ask
     case Map.lookup id env of
         Just x -> pure x
         Nothing -> throwError (Unbound id)
 
 lookupType :: Identifier -> IRifier Identifier
 lookupType id = do
-    (_, env) <- ask
+    (_, env, _) <- ask
     case Map.lookup id env of
         Just x -> pure x
         Nothing -> throwError (Unbound id)
+
+lookupSyn :: Identifier -> IRifier (Maybe IR)
+lookupSyn id = do
+    (_, _, s) <- ask
+    pure (Map.lookup id s)
 
 irifyDefn :: Definition -> IRifier IR
 irifyDefn (Defn mt _ args expr) = do
@@ -275,6 +285,9 @@ renamePattern (App () a b) = do
 renamePattern (Node () (PatternVar n)) = do
     b <- fresh
     pure (Node () (PatternVar b), Map.singleton (LocalIdentifier n) b)
+renamePattern (Node () (PatternCons id)) = do
+    id' <- lookupEnv id
+    pure (Node () (PatternCons id'), mempty)
 renamePattern x = pure (x, mempty)
 
 makeCase :: Name -> (Pattern, Expr) -> IRifier ((Identifier, IR), PartialMatch)
@@ -311,35 +324,38 @@ isLam :: Definition -> Bool
 isLam (Defn _ _ [] _) = False
 isLam _ = True
 
-irifyLet :: [Definition] -> Syntax.Expr -> IRifier IR
-irifyLet (d@(Defn _ n [] _):xs) expr = do
+irifyLet :: Bool -> [Definition] -> Syntax.Expr -> IRifier IR
+irifyLet _ (d@(Defn _ n [] _):xs) expr = do
     ir <- irifyDefn d
     f <- fresh
-    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet xs expr)
-    pure (Node () $ Let n ir xsexp)
-irifyLet [] expr = do
+    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet False xs expr)
+    pure (Node () $ Let f ir xsexp)
+irifyLet _ [] expr = do
     ir <- irifyExpr expr
     pure ir
-irifyLet xs expr = do
+irifyLet tl xs expr = do
     let (defs, xs') = (takeWhile isLam xs, dropWhile isLam xs)
     ns <- mapM (\(Defn _ n _ _) -> do
-        f <- fresh
-        pure (LocalIdentifier n, LocalIdentifier f)) defs
+        f <- if tl then lookupEnv (LocalIdentifier n) else fmap LocalIdentifier fresh
+        pure (LocalIdentifier n, f)) defs
     newdefs <- withEnv ns $ mapM (\(d, (_, f)) -> do
         ir <- irifyDefn d
         pure (f, ir)) (defs `zip` ns)
-    expr <- withEnv ns (irifyLet xs' expr)
+    expr <- withEnv ns (irifyLet False xs' expr)
     pure (Node () $ Fix newdefs expr)
 
 irifyNode :: Syntax.ExprNode -> IRifier IR
 irifyNode (Syntax.Var id) = do
     id <- lookupEnv id
-    pure (Node () $ Var id)
+    syn <- lookupSyn id
+    case syn of
+        Just syn -> pure syn
+        Nothing -> pure (Node () $ Var id)
 irifyNode (Syntax.Annot (Expl a t)) = do
     a <- irifyExpr a
     t <- irifyType t
     pure (Node () $ Annot a t)
-irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet defs expr
+irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet False defs expr
 irifyNode (Syntax.Lambda l) = irifyLam l
 irifyNode (Syntax.Switch m) = irifyMatch m
 
@@ -376,13 +392,35 @@ irifyData (Syntax.Ind n mk cs) = do
 sortTopLevel :: [TopLevel] -> ([Syntax.Data], [Definition])
 sortTopLevel ((Data d):xs) = let (da, de) = sortTopLevel xs in (d:da, de)
 sortTopLevel ((Func f):xs) = let (da, de) = sortTopLevel xs in (da, f:de)
+sortTopLevel [] = ([], [])
 
 irifyVals :: [Definition] -> IRifier IR
-irifyVals = flip irifyLet (Node () (Syntax.Var (ExternalIdentifier ["Arc"] "Unit")))
+irifyVals de = irifyLet True de (Node () (Syntax.Var (ExternalIdentifier ["Arc"] "Unit")))
 
--- todo: create env + curried constructors
+nullary :: Type -> Bool
+nullary = (==0) . arity
+
+nullaryS :: Scheme -> Bool
+nullaryS (Forall _ t) = nullary t
+
+curriedCons :: [Ind] -> IRifier ([(Identifier, IR)], [(Identifier, IR)])
+curriedCons ((Ind _ _ is):ids) = do
+    (ncs, hcs) <- curriedCons ids
+    let mnc = fmap (\(i,_) -> (i, Node () $ Cons i [])) . filter (nullaryS . snd) $ is
+    fhs <- mapM (\(i,Forall _ t) -> do
+        --i' <- lookupEnv i
+        vars <- replicateM (arity t) fresh
+        pure $ (i, foldr (\v acc -> Node () $ Lam v acc) (Node () $ Cons i vars) vars)) . filter (not . nullaryS . snd) $ is
+    pure (ncs ++ mnc, fhs++hcs)
+curriedCons [] = pure ([], [])
+
+-- todo: create env things
 irify :: [TopLevel] -> IRifier ([Ind], IR)
 irify ts = let (da, de) = sortTopLevel ts in do
-    ir <- irifyVals de
     dat <- mapM irifyData da
-    pure (dat, ir)
+    (syn, cons) <- curriedCons dat
+    ir <- withSyn syn (irifyVals de)
+    let (ds, exp) = (case ir of -- case in do is *weird*
+            Node () (Fix a b) -> (a, b)
+            e -> ([], e))
+    pure (dat, Node () $ Fix (cons++ds) exp)
