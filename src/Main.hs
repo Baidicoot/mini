@@ -66,8 +66,7 @@ renv = Map.fromList [(pre "Just", (0, 2)), (pre "Nothing", (1, 2))]
 
 (z, ns') = runCPSify ns renv (convert x (\z -> pure CPS.Halt))
 
-funcs = functions z
-fmd = functionMeta funcs z
+cconv = closureConvert z
 {-
 prelude = genImportMap . Include $ Namespace ["Prelude"] ["+", "-", "*", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] ["Int"]
 localenv = genImportMap (Include $ genNamespace ["Local"] b)

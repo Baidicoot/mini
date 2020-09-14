@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
-module Frontend.ClosureConv where
+module Frontend.ClosureConv (closureConvert, functions, reduce, functionMeta) where
 
 -- currently this algorithm is horrendusly innefficent
--- it makes a polynomial number of passes of the graph
+-- it makes a polynomial number of passes of the graph,
 -- this is mostly for the simplicity of the algorithm
 -- a similar effect can probably be achived in 1-2 passes
 
@@ -137,7 +137,9 @@ isKnown id = do
 getFv :: Name -> ClosureConv [Name]
 getFv id = do
     (_, _, meta, _) <- ask
-    pure $ meta Map.! id
+    case Map.lookup id meta of
+        Just x -> pure x
+        Nothing -> error ("fvs not found for " ++ id)
 
 isCalled :: Name -> ClosureConv Bool
 isCalled id = do
@@ -164,12 +166,35 @@ convertArg (Var (LocalIdentifier f)) = do
     if nameKnown then do
         f' <- split f
         v <- fresh
-        free <- getFv f
+        free <- getFv f -- erroring here? add newtypes etc to env.
         let binding = Record (fmap (\(var, index) -> (Var $ LocalIdentifier var, OffPath index)) (zip (f':free) [0..])) v
         pure (Var $ LocalIdentifier v, binding)
     else
         pure (Var $ LocalIdentifier f, id)
 convertArg x = pure (x, id)
+
+convertFun :: CFun -> ClosureConv [CFun]
+convertFun (Fun (LocalIdentifier f) args exp) = do
+    fEsc <- escapes f
+    free <- getFv f
+    if fEsc then do
+        f' <- split f
+        fFn' <- do
+            v <- fresh
+            let fCall = App (Var $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args ++ free)
+            let body = foldr (\(fv, index) exp -> Select index (Var $ LocalIdentifier v) fv exp) fCall (zip free [1..])
+            pure $ Fun (LocalIdentifier f') (args ++ [v]) body
+        fFn <- do
+            -- need to handle function arguments here
+            exp' <- convert exp
+            pure $ Fun (LocalIdentifier f) (args ++ free) exp'
+        pure [fFn, fFn']
+    else do
+        exp' <- convert exp
+        pure [Fun (LocalIdentifier f) (args ++ free) exp']
+convertFun (Fun id args exp) = do
+    exp' <- convert exp
+    pure [Fun id args exp']
 
 convert :: CExp -> ClosureConv CExp
 convert (App (Var (LocalIdentifier name)) vs) = do
@@ -180,6 +205,38 @@ convert (App (Var (LocalIdentifier name)) vs) = do
     else do
         pure . App (Var $ LocalIdentifier name) $ vs++[Var . LocalIdentifier $ name++"_"]
 convert (Fix fns exp) = do
+    fns' <- fmap join $ mapM convertFun fns
+    exp' <- convert exp
+    pure (Fix fns' exp')
+convert (Record a b exp) = do
+    exp' <- convert exp
+    pure (Record a b exp')
+convert (Select a b c exp) = do
+    exp' <- convert exp
+    pure (Select a b c exp')
+convert (Switch v exps) = do
+    exps' <- mapM convert exps
+    pure (Switch v exps')
+convert (Primop a b c exps) = do
+    exps' <- mapM convert exps
+    pure (Primop a b c exps')
+
+closureNames :: [Name]
+closureNames = fmap (("c"++) . show) [0..]
+
+closureConvert :: CExp -> CExp
+closureConvert exp =
+    let funcs = functions exp
+        escp = escaping exp
+        fmd = functionMeta funcs exp
+        idmap = fmap (Set.toList . fst) $ reduce fmd
+        fvmap = Map.mapKeys (\(LocalIdentifier k) -> k) $ Map.filterWithKey (\a _ -> case a of
+            LocalIdentifier _ -> True
+            _ -> False) idmap
+        called = calls exp
+        cconv = convert exp
+    in
+        fst . flip runState (closureNames, mempty) $ runReaderT cconv (escp, funcs, fvmap, called)
 
 {-
 type ClosureConv = ReaderT (Set.Set Identifier, Set.Set Name, Map.Map Identifier [Name]) (State [Name])
