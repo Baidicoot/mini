@@ -18,6 +18,7 @@ type ExprS = SExpr Identifier
 
 data SyntaxError
     = SyntaxError ExprS String
+    | TopLevelVal Definition
     deriving(Eq, Show)
 
 type Parser = Except [SyntaxError]
@@ -191,9 +192,13 @@ parsekind x
     =   parsearr parsekind x
     <|> parseapp parsekindnode x
 
+func :: Definition -> Parser TopLevel
+func d@(Defn _ _ [] _) = throwError [TopLevelVal d]
+func d = pure $ Func d
+
 parsetoplevel :: [ExprS] -> Parser [TopLevel]
 parsetoplevel = mapM (\x
-    ->  Func <$> parsedefn x
+    ->  (parsedefn x >>= func)
     <|> Data <$> parsedata x)
 
 runParse :: Parser x -> Either [SyntaxError] x

@@ -76,8 +76,8 @@ convertNode (IR.Let n def e) c = do
 convertNode (IR.Cons id args) c = do
     i <- index id
     let cont = zip (fmap (Var . LocalIdentifier) args) (fmap OffPath [1..])
-    x <- fmap LocalIdentifier fresh
-    convC <- c (Var x)
+    x <- fresh
+    convC <- c (Var $ LocalIdentifier x)
     pure $ Record ((Unboxed (Int i), OffPath 0):cont) x convC
 convertNode (IR.Select i exp) c = do
     w <- fresh

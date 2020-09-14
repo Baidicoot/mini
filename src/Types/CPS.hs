@@ -34,9 +34,9 @@ data AccessPath
 data CExp
     = App Value [Value]
     | Fix [CFun] CExp
-    | Record [(Value, AccessPath)] Identifier CExp
+    | Record [(Value, AccessPath)] Name CExp
     | Select Int Value Name CExp
-    -- | Offset Int Value Identifier CExp
+    -- | Offset Int Value Name CExp
     | Switch Value [CExp]
     | MatchError
     | Halt

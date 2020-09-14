@@ -325,10 +325,10 @@ isLam (Defn _ _ [] _) = False
 isLam _ = True
 
 irifyLet :: Bool -> [Definition] -> Syntax.Expr -> IRifier IR
-irifyLet _ (d@(Defn _ n [] _):xs) expr = do
+irifyLet b (d@(Defn _ n [] _):xs) expr = do
     ir <- irifyDefn d
     f <- fresh
-    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet False xs expr)
+    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet b xs expr)
     pure (Node () $ Let f ir xsexp)
 irifyLet _ [] expr = do
     ir <- irifyExpr expr
@@ -341,7 +341,7 @@ irifyLet tl xs expr = do
     newdefs <- withEnv ns $ mapM (\(d, (_, f)) -> do
         ir <- irifyDefn d
         pure (f, ir)) (defs `zip` ns)
-    expr <- withEnv ns (irifyLet False xs' expr)
+    expr <- withEnv ns (irifyLet tl xs' expr)
     pure (Node () $ Fix newdefs expr)
 
 irifyNode :: Syntax.ExprNode -> IRifier IR

@@ -19,15 +19,16 @@ import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
 import Frontend.CPSify
+import Frontend.ClosureConv
 
 import qualified Types.CPS as CPS
 
-a = let (Right exp) = parse (many rpncc) "" "(ind Maybe (:: Just (a -> (Maybe a))) (:: Nothing (Maybe a))) (w (x y) (match x ((Just x) x) (Nothing y))) (mmap (f x) (match x ((Just y) (Just (f x))) (Nothing Nothing))) (main () (w (mmap (lam (x) 0) (Just 1)) 6))" in exp
+a = let (Right exp) = parse (many rpncc) "" "(mul (x y) (* x y))" in exp
 b = let (Right exp) = runParse (parsetoplevel a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
 
-(enva, envb) = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True", "Nested", "s", "k", "w", "fac", "compose", "weird", "mmap"] ["Int", "Bool", "Pair", "Expr", "Maybe", "Nested"]
+(enva, envb) = genImportMap . Include $ Namespace ["Prelude"] ["0", "1", "6", "*", "-", "App", "Prod", "Pair", "Just", "Nothing", "Id", "Int", "Bool", "False", "True", "Nested", "s", "k", "w", "fac", "compose", "weird", "mmap", "mul"] ["Int", "Bool", "Pair", "Expr", "Maybe", "Nested"]
 int = Node () (NamedType (ExternalIdentifier ["Prelude"] "Int"))
 bool = Node () (NamedType (ExternalIdentifier ["Prelude"] "Bool"))
 pre = ExternalIdentifier ["Prelude"]
@@ -64,6 +65,9 @@ y = apply subst tagged
 renv = Map.fromList [(pre "Just", (0, 2)), (pre "Nothing", (1, 2))]
 
 (z, ns') = runCPSify ns renv (convert x (\z -> pure CPS.Halt))
+
+funcs = functions z
+fmd = functionMeta funcs z
 {-
 prelude = genImportMap . Include $ Namespace ["Prelude"] ["+", "-", "*", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] ["Int"]
 localenv = genImportMap (Include $ genNamespace ["Local"] b)

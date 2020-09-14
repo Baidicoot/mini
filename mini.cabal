@@ -27,7 +27,7 @@ executable mini
     Types.Syntax,
     Types.Type,
     Types.Graph,
-    Types.Literal,
+    Types.Prim,
     Types.IR,
     Frontend.GenEnv,
     Frontend.IRify,
