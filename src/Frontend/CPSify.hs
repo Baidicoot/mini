@@ -75,7 +75,7 @@ convertNode (IR.Let n def e) c = do
     pure $ Fix [Fun j [n] ce] cd
 convertNode (IR.Cons id args) c = do
     i <- index id
-    let cont = zip (fmap (Var . LocalIdentifier) args) (fmap OffPath [1..])
+    let cont = fmap (flip (,) (OffPath 0) . Var . LocalIdentifier) args
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
     pure $ Record ((Unboxed (Int i), OffPath 0):cont) x convC

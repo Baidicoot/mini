@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Frontend.ClosureConv (closureConvert, functions, reduce, functionMeta) where
+module Frontend.ClosureConv (closureConvert, functions, reduce, functionMeta, fvmapify, escaping, calls) where
 
 -- currently this algorithm is horrendusly innefficent
 -- it makes a polynomial number of passes of the graph,
@@ -30,17 +30,6 @@ setFM f a = foldr (\a acc -> case f a of
     Just x -> mappend (Set.singleton x) acc
     Nothing -> acc) mempty a
 
-valueToName :: Value -> Maybe Name
-valueToName = (\case
-    Var (LocalIdentifier id) -> Just id
-    Label (LocalIdentifier id) -> Just id
-    _ -> Nothing)
-
-identToName :: Identifier -> Maybe Name
-identToName = (\case
-    LocalIdentifier id -> Just id
-    _ -> Nothing)
-
 escaping :: CExp -> Set.Set Name
 escaping (App _ vs) = Set.fromList . catMaybes . fmap valueToName $ vs
 escaping (Fix fns exp) = mappend (escaping exp) $ mconcat . fmap (\(Fun _ _ exp) -> escaping exp) $ fns
@@ -60,25 +49,23 @@ functions (Switch _ exps) = mconcat . fmap functions $ exps
 functions (Primop _ _ _ exps) = mconcat . fmap functions $ exps
 functions _ = mempty
 
--- only handles CExp that it is expected to meet
-fv :: CExp -> Set.Set Name
-fv (App n vs) = Set.fromList . catMaybes . fmap valueToName $ (n:vs)
-fv (Fix fns exp) = flip Set.difference (Set.fromList . catMaybes . fmap (\(Fun id _ _) -> identToName id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
-fv (Record vs n exp) = Set.delete n $ (fv exp) `Set.union` (Set.fromList . catMaybes . fmap (valueToName . fst) $ vs)
-fv (Select _ v n exp) = Set.delete n $ Set.fromList (maybeToList (valueToName v)) `Set.union` fv exp
-fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` (Set.fromList . maybeToList . valueToName $ v)
-fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . catMaybes . fmap valueToName $ args)
-fv _ = mempty
-
 calls :: CExp -> Set.Set Name
 calls (App (Var (LocalIdentifier v)) _) = Set.singleton v
-calls (App (Label (LocalIdentifier v)) _) = Set.singleton v
 calls (Fix fns exp) = foldr mappend (calls exp) (fmap (\(Fun _ _ exp) -> calls exp) fns)
 calls (Record _ _ exp) = calls exp
 calls (Select _ _ _ exp) = calls exp
 calls (Switch _ exps) = mconcat (fmap calls exps)
 calls (Primop _ _ _ exps) = mconcat (fmap calls exps)
 calls _ = mempty
+
+calledIn :: CExp -> Set.Set Name
+calledIn (Fix _ exp) = calledIn exp
+calledIn (Record _ _ exp) = calledIn exp
+calledIn (Select _ _ _ exp) = calledIn exp
+calledIn (Switch _ exps) = mconcat (fmap calledIn exps)
+calledIn (Primop _ _ _ exps) = mconcat (fmap calledIn exps)
+calledIn (App (Var (LocalIdentifier v)) _) = Set.singleton v
+calledIn _ = mempty
 
 functionMeta :: Set.Set Name -> CExp -> FunctionMeta
 functionMeta known (Fix fns exp) =
@@ -115,12 +102,13 @@ fresh = do
 
 split :: Name -> ClosureConv Name
 split n = do
-    (a, map) <- get
+    (_, map) <- get
     case Map.lookup n map of
         Just b -> pure b
         Nothing -> do
             f <- fresh
-            let m' = Map.insert n f map
+            (a, m) <- get
+            let m' = Map.insert n f m
             put (a, m')
             pure f
 
@@ -132,7 +120,7 @@ escapes id = do
 isKnown :: Name -> ClosureConv Bool
 isKnown id = do
     (_, fns, _, _) <- ask
-    pure . not $ id `Set.member` fns
+    pure $ id `Set.member` fns
 
 getFv :: Name -> ClosureConv [Name]
 getFv id = do
@@ -166,12 +154,25 @@ convertArg (Var (LocalIdentifier f)) = do
     if nameKnown then do
         f' <- split f
         v <- fresh
-        free <- getFv f -- erroring here? add newtypes etc to env.
-        let binding = Record (fmap (\(var, index) -> (Var $ LocalIdentifier var, OffPath index)) (zip (f':free) [0..])) v
+        free <- getFv f
+        let binding = Record (fmap (\var -> (Var $ LocalIdentifier var, OffPath 0)) (f':free)) v
         pure (Var $ LocalIdentifier v, binding)
     else
         pure (Var $ LocalIdentifier f, id)
 convertArg x = pure (x, id)
+
+doArgDestruct :: CFun -> ClosureConv CFun
+doArgDestruct (Fun f args' exp) = do
+    (args, bindings) <- fmap unzip $ mapM (\arg -> do
+        called <- isCalled arg
+        if called then do
+            let f = arg ++ "_"
+            let binding =  Select 0 (Var $ LocalIdentifier f) arg
+            pure (f, binding)
+        else
+            pure (arg, id)) args'
+    let exp' = foldr ($) exp bindings
+    pure $ Fun f args exp'
 
 convertFun :: CFun -> ClosureConv [CFun]
 convertFun (Fun (LocalIdentifier f) args exp) = do
@@ -184,26 +185,32 @@ convertFun (Fun (LocalIdentifier f) args exp) = do
             let fCall = App (Var $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args ++ free)
             let body = foldr (\(fv, index) exp -> Select index (Var $ LocalIdentifier v) fv exp) fCall (zip free [1..])
             pure $ Fun (LocalIdentifier f') (args ++ [v]) body
-        fFn <- do
-            -- need to handle function arguments here
-            exp' <- convert exp
-            pure $ Fun (LocalIdentifier f) (args ++ free) exp'
+        exp' <- convert exp
+        fFn <- doArgDestruct $ Fun (LocalIdentifier f) (args++free) exp'
         pure [fFn, fFn']
     else do
         exp' <- convert exp
-        pure [Fun (LocalIdentifier f) (args ++ free) exp']
+        mapM doArgDestruct [Fun (LocalIdentifier f) (args ++ free) exp']
 convertFun (Fun id args exp) = do
     exp' <- convert exp
-    pure [Fun id args exp']
+    mapM doArgDestruct [Fun id args exp']
 
 convert :: CExp -> ClosureConv CExp
-convert (App (Var (LocalIdentifier name)) vs) = do
-    nameKnown <- isKnown name
-    if nameKnown then do
-        free <- getFv name
-        pure . App (Var $ LocalIdentifier name) $ vs++(fmap (Var . LocalIdentifier) free)
-    else do
-        pure . App (Var $ LocalIdentifier name) $ vs++[Var . LocalIdentifier $ name++"_"]
+convert (App f vs) = do
+    -- bruh need to convert args :sml:
+    (vs', bindings) <- fmap unzip $ mapM convertArg vs
+    exp <- case f of
+        Var (LocalIdentifier name) -> do
+            nameKnown <- isKnown name
+            if nameKnown then do
+                free <- getFv name
+                pure . App (Var $ LocalIdentifier name) $ vs'++(fmap (Var . LocalIdentifier) free)
+            else do
+                let cls = name ++ "_"
+                pure . App (Var $ LocalIdentifier name) $ vs'++[Var $ LocalIdentifier cls]
+        _ -> pure (App f vs')
+    pure $ foldr ($) exp bindings
+-- need to also apply to non local identifier things
 convert (Fix fns exp) = do
     fns' <- fmap join $ mapM convertFun fns
     exp' <- convert exp
@@ -220,23 +227,43 @@ convert (Switch v exps) = do
 convert (Primop a b c exps) = do
     exps' <- mapM convert exps
     pure (Primop a b c exps')
+convert x = pure x
 
 closureNames :: [Name]
 closureNames = fmap (("c"++) . show) [0..]
+
+fvmapify :: FunctionMeta -> Map.Map Name [Name]
+fvmapify fmd =
+    let idmap = fmap (Set.toList . fst) $ reduce fmd
+        fvmap = Map.mapKeys (\(LocalIdentifier k) -> k) $ Map.filterWithKey (\a _ -> case a of
+            LocalIdentifier _ -> True
+            _ -> False) idmap
+    in fvmap
+
+splitFns :: CExp -> ([CFun], CExp)
+splitFns (Fix fns exp) =
+    let fnDefs = join $ fmap (\(Fun n args exp) -> let (defs, exp') = splitFns exp in (Fun n args exp'):defs) fns
+        (expDefs, exp') = splitFns exp
+    in (fnDefs ++ expDefs, exp')
+splitFns (Record a b exp) = let (fns, exp') = splitFns exp in (fns, Record a b exp')
+splitFns (Select a b c exp) = let (fns, exp') = splitFns exp in (fns, Select a b c exp')
+splitFns (Switch a exps) = let (defs, exps') = first join . unzip $ fmap splitFns exps in (defs, Switch a exps')
+splitFns (Primop a b c exps) = let (defs, exps') = first join . unzip $ fmap splitFns exps in (defs, Primop a b c exps')
+splitFns x = ([], x)
+
+lamLift :: CExp -> CExp
+lamLift = uncurry Fix . splitFns
 
 closureConvert :: CExp -> CExp
 closureConvert exp =
     let funcs = functions exp
         escp = escaping exp
         fmd = functionMeta funcs exp
-        idmap = fmap (Set.toList . fst) $ reduce fmd
-        fvmap = Map.mapKeys (\(LocalIdentifier k) -> k) $ Map.filterWithKey (\a _ -> case a of
-            LocalIdentifier _ -> True
-            _ -> False) idmap
+        fvmap = fvmapify fmd
         called = calls exp
         cconv = convert exp
     in
-        fst . flip runState (closureNames, mempty) $ runReaderT cconv (escp, funcs, fvmap, called)
+        lamLift . fst . flip runState (closureNames, mempty) $ runReaderT cconv (escp, funcs, fvmap, called)
 
 {-
 type ClosureConv = ReaderT (Set.Set Identifier, Set.Set Name, Map.Map Identifier [Name]) (State [Name])

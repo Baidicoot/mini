@@ -20,10 +20,11 @@ import Frontend.Constraint
 import Frontend.Solve
 import Frontend.CPSify
 import Frontend.ClosureConv
+import Frontend.Spill
 
 import qualified Types.CPS as CPS
 
-a = let (Right exp) = parse (many rpncc) "" "(mul (x y) (* x y))" in exp
+a = let (Right exp) = parse (many rpncc) "" "(compose (f g x) (f (g x)))" in exp
 b = let (Right exp) = runParse (parsetoplevel a) in exp
 
 typ s = let (Right e) = parse rpncc "" s in let (Right t) = runParse (parsetype e) in t
