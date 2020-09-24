@@ -69,13 +69,32 @@ mzip (a:as) (b:bs) = (a `mappend` b):(mzip as bs)
 mzip as [] = as
 mzip [] bs = bs
 
-orderByDepth :: CExp -> [Set.Set Name]
-orderByDepth (App n vs) = catMaybes . fmap valueToName $ (n:vs)
-orderByDepth (Record vs n exp) = fmap (Set.delete n) $ (catMaybes . fmap (valueToName . fst) $ vs):(orderByDepth exp)
-orderByDepth (Select _ v n exp) = fmap (Set.delete n) $ (Set.singleton v):(orderByDepth exp)
-orderByDepth (Switch v exps) = (Set.fromList . maybeToList . valueToName $ v):(foldr mzip [] (fmap orderByDepth exps))
-orderByDepth (Primop _ args n exps) = fmap (Set.delete n) $ (Set.fromList . catMaybes . fmap valueToName $ args):(foldr mzip [] (fmap orderByDepth exps))
-orderByDepth _ = []
+type VarDepth = Map.Map Name Int
+
+valuesToDepth = Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName
+
+getVarDepth :: CExp -> VarDepth
+getVarDepth (App n vs) = valuesToDepth (n:vs)
+getVarDepth (Record vs n exp) = fmap (+1) . Map.delete n $ getVarDepth exp
+getVarDepth (Select _ v n exp) = Map.union (valuesToDepth [v]) . fmap (+1) $ getVarDepth exp
+getVarDepth (Switch v exps) = Map.union (valuesToDepth [v]) . fmap (+1) . mconcat $ fmap getVarDepth exps
+getVarDepth (Primop _ args n exps) = Map.union (valuesToDepth args) . fmap (+1) . Map.delete n . mconcat $ fmap getVarDepth exps
+getVarDepth _ = Map.empty
+
+type VarInfo = (Set.Set Name, VarDepth)
+
+getVarInfo :: CExp -> VarInfo
+getVarInfo exp = (fv exp, getVarDepth exp)
+
+{-
+orderByDepth :: CExp -> VarDepth
+orderByDepth (App n vs) = Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName $ (n:vs)
+orderByDepth (Record vs n exp) = fmap (fmap (+1) . Map.delete n) $ (Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap (valueToName . fst) $ vs):(orderByDepth exp)
+orderByDepth (Select _ v n exp) = fmap (fmap (+1) . Map.delete n) $ (Map.singleton v 0):(orderByDepth exp)
+orderByDepth (Switch v exps) = (Map.fromList . fmap (\x -> (x, 0)) . maybeToList . valueToName $ v):(foldr mzip [] (fmap orderByDepth exps))
+orderByDepth (Primop _ args n exps) = fmap (Map.delete n) $ (Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName $ args):(foldr mzip [] (fmap orderByDepth exps))
+orderByDepth _ = Map.empty
+-}
 
 instance Show CExp where
     show (App a args) = show a ++ concatMap (\arg -> ' ':show arg) args

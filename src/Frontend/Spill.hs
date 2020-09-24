@@ -78,37 +78,33 @@ or in the previous spilling record that are also in the free variables
 of the continuation expressions
 -}
 
-doSpill :: SpillCtx -> CExp -> Spill (SpillCtx, CExp -> CExp)
-doSpill ctx@(Just rn, rc, scope) exp = do
-    n <- ask
-    if Map.length scope > n then do
-        -- vars that are still needed
-        let needed = Set.intersection (fv exp) $ Map.keysSet rc `Set.union` Map.keysSet scope
-        let scope' = Map.filterWithKey (\k _ -> k `Set.member` needed) scope
-        let apaths = fmap (\n -> case Map.lookup n rc of
-            Just i -> (Var $ LocalIdentifier rn, SelPath i (OffPath 0))
-            Nothing -> (Var $ LocalIdentifier n, OffPath 0)) $ Set.toList needed
-        let rc' = Map.fromList . flip zip [0..] $ Set.toList needed
-        rn' <- fresh
-        let binding = Record apaths rn'
-        pure ((Just rn', rc', scope'), binding)
-    else
-        pure (ctx, id)
-doSpill ctx@(Nothing, _, scope) exp = do
-    n <- ask
-    if Map.length scope > n then do
-        let needed = fv exp `Set.intersection` Map.keysSet scope
-        let scope' = Map.filterWithKey (\k _ -> k `Set.member` needed) scope
-        let apaths = fmap (\n -> (Var $ LocalIdentifier n, OffPath 0)) $ Set.toList needed
-        let rc' = Map.fromList . flip zip [0..] $ Set.toList needed
-        rn' <- fresh
-        let binding = Record apaths rn'
-        pure ((Just rn', rc', scope'), binding)
-    else
-        pure (ctx, id)
+maybeToSet = Set.fromList . maybeToList
+filterFree free rc scope = (Set.filter (`Set.member` free) rc, Map.filterWithKey ((`Set.member` free) . const) scope)
 
-getVar :: SpillCtx -> Name -> Spill (SpillCtx, Name, CExp -> Spill CExp)
-getVar ctx@
+unique :: SpillCtx -> Set.Set Name
+unique (_, rc, scope) = Map.keysSet $ Map.filterWithKey ((`Map.notMember` rc) . const) scope
 
-spillExp :: SpillCtx -> CExp -> Spill CExp
-spillExp = undefined
+duplicated :: SpillCtx -> Set.Set Name
+duplicated (_, rc, scope) = Map.keysSet $ Map.filterWithKey ((`Map.member` scope) . const) rc
+
+-- drop variables based off their distance from use
+dropN :: Int -> SpillCtx -> VarInfo -> SpillCtx
+dropN n ctx@(rn, rc, scope) (fv, depth) =
+    let duped = duplicated ctx
+    let fduped = Set.filter (`Set.member` fv) duped
+    let ordered = sortBy (\n -> case Map.lookup n depth of
+        Just x -> -x
+        Nothing -> 0) . Set.toList $ fduped
+    let dropping = take n ordered in
+        (rn, Map.filterWithKey ((`Set.member` dropping) . const) rc, scope)
+
+-- selectVars takes a spilling context, var order, bound variables, required variables
+-- it returns a selector function for those variables and a new spilling context
+
+-- variable renaming is captured in the returned spilling context
+-- the new context needs to have all the 'arg' variables in scope
+selectVars :: SpillCtx -> VarInfo -> Maybe Name -> Set.Set Name -> Spill (SpillCtx, CExp -> CExp)
+selectVars ctx@(rn, rc, scope) bound args = do
+    n <- ask
+    let ndup = n - Set.length (bound `Set.union` args)
+    let needsSpill = Map.length scope < ndup
