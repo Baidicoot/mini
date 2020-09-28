@@ -43,10 +43,16 @@ cont = do
 contNames :: [Name]
 contNames = fmap (('k':) . show) [0..]
 
+cpsNames :: [Name]
+cpsNames = fmap (('c':) . show) [0..]
+
 type CPSifier = StateT CPSState (Reader CPSEnv)
 
 runCPSify :: [Name] -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify ns e a = runReader (runStateT a (ns, contNames)) e
+
+cpsify :: CPSEnv -> CExp -> CExp
+cpsify env exp = runCPSify cpsNames env (convert exp (\z -> pure CPS.Halt))
 
 convertNode :: IR.PolyIRNode typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (IR.Var id) c = c (Var id)

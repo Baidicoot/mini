@@ -14,6 +14,10 @@ data Typespace
     = Typespace (Map.Map Identifier Scheme) (Map.Map Identifier Scheme)
     deriving(Eq, Show)
 
+data Dataspace
+    = Dataspace (Map.Map Identifier (Int, Int))
+    deriving(Eq, Show)
+
 data ImportAction
     = Include Namespace
     | IncludeHiding Namespace [Name]
@@ -33,17 +37,17 @@ genImportMap (ImportAs (Namespace start ns ts) syn) =
 genImportMap (IncludeHiding (Namespace start ns ts) without) = genImportMap (Include (Namespace start (filter (not . flip elem without) ns) (filter (not . flip elem without) ts)))
 genImportMap (Import (Namespace start ns ts)) = genImportMap (ImportAs (Namespace start ns ts) start)
 
-collectTopLevel :: TopLevel -> [Name]
-collectTopLevel (Func (Defn _ n _ _)) = [n]
-collectTopLevel (Data (Ind _ _ as)) = fmap (\(Expl n _) -> n) as
-
-collectNames :: [TopLevel] -> [Name]
-collectNames = concatMap (\t -> collectTopLevel t)
-
-collectTypeNames :: [TopLevel] -> [Name]
-collectTypeNames = concatMap (\case
-    Func _ -> []
-    (Data (Ind n _ _)) -> [n])
-
 genNamespace :: [Name] -> [TopLevel] -> Namespace
 genNamespace ns ts = Namespace ns (collectNames ts) (collectTypeNames ts)
+    where
+        collectTopLevel :: TopLevel -> [Name]
+        collectTopLevel (Func (Defn _ n _ _)) = [n]
+        collectTopLevel (Data (Ind _ _ as)) = fmap (\(Expl n _) -> n) as
+
+        collectNames :: [TopLevel] -> [Name]
+        collectNames = concatMap (\t -> collectTopLevel t)
+
+        collectTypeNames :: [TopLevel] -> [Name]
+        collectTypeNames = concatMap (\case
+            Func _ -> []
+            (Data (Ind n _ _)) -> [n])

@@ -50,6 +50,11 @@ valueToName = (\case
     Var (LocalIdentifier id) -> Just id
     _ -> Nothing)
 
+valueToSet :: Value -> Set.Set Name
+valueToSet = (\case
+    Var (LocalIdentifier id) -> Set.singleton id
+    _ -> mempty)
+
 identToName :: Identifier -> Maybe Name
 identToName = (\case
     LocalIdentifier id -> Just id

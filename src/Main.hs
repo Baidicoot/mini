@@ -12,6 +12,7 @@ import Types.Graph
 import Types.Pretty
 import Types.IR
 
+import Control.Monad
 import qualified Data.Map as Map
 
 import Frontend.IRify
@@ -23,6 +24,14 @@ import Frontend.ClosureConv
 import Frontend.Spill
 
 import qualified Types.CPS as CPS
+
+import System.IO
+
+prompt :: String -> IO String
+prompt text = do
+    putStr text
+    hFlush stdout
+    getLine
 
 a = let (Right exp) = parse (many rpncc) "" "(compose (f g x) (f (g x)))" in exp
 b = let (Right exp) = runParse (parsetoplevel a) in exp
@@ -65,7 +74,7 @@ y = apply subst tagged
 
 renv = Map.fromList [(pre "Just", (0, 2)), (pre "Nothing", (1, 2))]
 
-(z, ns') = runCPSify ns renv (convert x (\z -> pure CPS.Halt))
+(z, ns') = cpsify renv x
 
 cconv = closureConvert z
 {-
@@ -77,4 +86,10 @@ env =
         (x, y) = localenv in
             (a `Map.union` x, b `Map.union` y)
 -}
-main = pure ()
+main = forever $ do
+    line <- prompt "> "
+    case parse (many rpncc) "" line of
+        Left err -> print err
+        Right a -> case runParse (parsetoplevel a) of
+            Left err -> print err
+            Right b -> print b
