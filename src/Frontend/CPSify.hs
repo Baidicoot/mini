@@ -51,8 +51,8 @@ type CPSifier = StateT CPSState (Reader CPSEnv)
 runCPSify :: [Name] -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify ns e a = runReader (runStateT a (ns, contNames)) e
 
-cpsify :: CPSEnv -> CExp -> CExp
-cpsify env exp = runCPSify cpsNames env (convert exp (\z -> pure CPS.Halt))
+cpsify :: CPSEnv -> IR.PolyIR typ () -> CExp
+cpsify env exp = fst $ runCPSify cpsNames env (convert exp (\z -> pure Halt))
 
 convertNode :: IR.PolyIRNode typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (IR.Var id) c = c (Var id)

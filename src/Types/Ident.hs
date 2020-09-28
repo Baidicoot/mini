@@ -4,9 +4,6 @@ import Control.Monad (replicateM)
 
 type Name = String
 
-names :: [Name]
-names = [1..] >>= flip replicateM ['a'..'z']
-
 type Module = [Name]
 
 data Identifier

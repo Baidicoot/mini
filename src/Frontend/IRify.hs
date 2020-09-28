@@ -24,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 type IRState = [Name]
-type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier IR)
+type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier (Int, Int, Int))
 
 data IRError
     = Unbound Identifier
@@ -35,6 +35,14 @@ data IRError
     deriving(Show)
 
 type IRifier = StateT IRState (ReaderT IREnv (Except IRError))
+
+names :: [Name]
+names = [1..] >>= flip replicateM ['a'..'z']
+
+irify :: Dataspace -> Namespace -> [TopLevel] -> Either IRError IR
+irify (Dataspace ds) ns tl =
+    let (nsm, csm) = genImportMap (Include ns)
+    in evalIRifier names (nsm, csm, ds) (irifyTL tl)
 
 runIRifier :: IRState -> IREnv -> IRifier a -> Either IRError (a, IRState)
 runIRifier s e = runExcept . flip runReaderT e . flip runStateT s
@@ -54,11 +62,6 @@ withEnv ts p = do
     (expr, typ, s) <- ask
     local (const (Map.union (Map.fromList ts) expr, typ, s)) p
 
-withSyn :: [(Identifier, IR)] -> IRifier a -> IRifier a
-withSyn ss p = do
-    (expr, typ, s) <- ask
-    local (const (expr, typ, Map.union (Map.fromList ss) s)) p
-
 lookupEnv :: Identifier -> IRifier Identifier
 lookupEnv id = do
     (env, _, _) <- ask
@@ -73,10 +76,12 @@ lookupType id = do
         Just x -> pure x
         Nothing -> throwError (Unbound id)
 
-lookupSyn :: Identifier -> IRifier (Maybe IR)
-lookupSyn id = do
+lookupCons :: Identifier -> IRifier (Maybe IR)
+lookupCons id = do
     (_, _, s) <- ask
-    pure (Map.lookup id s)
+    case Map.lookup id s of
+        Just (_, _, 0) -> pure . Just . Node () $ Cons id []
+        _ -> pure Nothing
 
 irifyDefn :: Definition -> IRifier IR
 irifyDefn (Defn mt _ args expr) = do
@@ -347,7 +352,7 @@ irifyLet tl xs expr = do
 irifyNode :: Syntax.ExprNode -> IRifier IR
 irifyNode (Syntax.Var id) = do
     id <- lookupEnv id
-    syn <- lookupSyn id
+    syn <- lookupCons id
     case syn of
         Just syn -> pure syn
         Nothing -> pure (Node () $ Var id)
@@ -403,24 +408,23 @@ nullary = (==0) . arity
 nullaryS :: Scheme -> Bool
 nullaryS (Forall _ t) = nullary t
 
-curriedCons :: [Ind] -> IRifier ([(Identifier, IR)], [(Identifier, IR)])
+curriedCons :: [Ind] -> IRifier ([(Identifier, IR)])
 curriedCons ((Ind _ _ is):ids) = do
-    (ncs, hcs) <- curriedCons ids
-    let mnc = fmap (\(i,_) -> (i, Node () $ Cons i [])) . filter (nullaryS . snd) $ is
+    hcs <- curriedCons ids
     fhs <- mapM (\(i,Forall _ t) -> do
         --i' <- lookupEnv i
         vars <- replicateM (arity t) fresh
         pure $ (i, foldr (\v acc -> Node () $ Lam v acc) (Node () $ Cons i vars) vars)) . filter (not . nullaryS . snd) $ is
-    pure (ncs ++ mnc, fhs++hcs)
-curriedCons [] = pure ([], [])
+    pure (fhs++hcs)
+curriedCons [] = pure []
 
 -- todo: create env things
-irify :: [TopLevel] -> IRifier ([Ind], IR)
-irify ts = let (da, de) = sortTopLevel ts in do
+irifyTL :: [TopLevel] -> IRifier IR
+irifyTL ts = let (da, de) = sortTopLevel ts in do
     dat <- mapM irifyData da
-    (syn, cons) <- curriedCons dat
-    ir <- withSyn syn (irifyVals de)
+    cons <- curriedCons dat
+    ir <- irifyVals de
     let (ds, exp) = (case ir of -- case in do is *weird*
             Node () (Fix a b) -> (a, b)
             e -> ([], e))
-    pure (dat, Node () $ Fix (cons++ds) exp)
+    pure (Node () $ Fix (cons++ds) exp)

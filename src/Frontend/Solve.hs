@@ -21,6 +21,14 @@ import Control.Monad.State
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+typenames :: [Name]
+typenames = fmap (('t':) . show) [0..]
+
+annotate :: Typespace -> IR -> Either TypeError TaggedIR
+annotate (Typespace globals constructors) ir = do
+    (ir', ns, _, cs) <- runInfer (infer ir) globals constructors typenames
+    subst <- solve cs
+
 selectWithRest :: (a -> [a] -> Bool) -> [a] -> (Maybe a, [a])
 selectWithRest = internal []
     where
