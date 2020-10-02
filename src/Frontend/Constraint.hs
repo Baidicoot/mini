@@ -25,6 +25,7 @@ import Types.Type
 import Types.Pattern
 import Types.Ident
 import Types.IR
+import Types.Prim
 
 import Data.Monoid
 import Data.Foldable
@@ -63,7 +64,7 @@ instance Substitutable Constraint where
     apply s (Unify t0 t1) = Unify (apply s t0) (apply s t1)
     apply s (Gen t0 t1 m f) = Gen (apply s t0) (apply s t1) sm f
         where
-            sm = Set.unions . Set.map (\n -> ftv $ Map.findWithDefault (Node () (TypeVar n)) n s) $ m
+            sm = Set.unions . Set.map (\n -> ftv $ Map.findWithDefault (Node NoTag (TypeVar n)) n s) $ m
     apply s (Inst tau sigma f) = Inst (apply s tau) (apply s sigma) f
 
     ftv (Unify t0 t1) = ftv t0 `Set.union` ftv t1
@@ -115,7 +116,7 @@ fresh = do
 instantiateSubst :: Scheme -> Infer (Type, Subst)
 instantiateSubst (Forall poly t) = do
     let as = Set.toList poly
-    as' <- mapM (fmap (Node () . TypeVar) . const fresh) as
+    as' <- mapM (fmap (Node NoTag . TypeVar) . const fresh) as
     let s = Map.fromList $ zip as as'
     pure (apply s t, s)
 
@@ -164,24 +165,28 @@ outEnv :: (Set.Set Name) -> Infer a -> Infer a
 outEnv n = local (\(m, g, c) -> (m `Set.difference` n, g, c))
 
 functionkind :: Kind
-functionkind = (Node () KindStar) --> (Node () KindStar) --> (Node () KindStar)
+functionkind = (Node NoTag KindStar) --> (Node NoTag KindStar) --> (Node NoTag KindStar)
 
 class Inferable i o where
     infer :: i -> Infer (Type, o)
+
+instance Inferable UnboxedLit UnboxedLit where
+    infer (Int i) = pure (Node NoTag (Builtin IntTy), Int i)
+    infer Unit = pure (Node NoTag (Builtin UnitTy), Unit)
 
 {-
 instance Inferable PatternNode (Maybe (Name, Type)) where
     infer PatternWildcard = do
         b <- fresh
-        pure (Node () (TypeVar b), Nothing)
+        pure (Node NoTag (TypeVar b), Nothing)
     infer (PatternVar n) = do
         b <- fresh
         let id = LocalIdentifier n
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         pure (t, Just (n, t))
     infer (PatternCons id) = do
         b <- fresh
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         assume id t
         glob <- globals
         case Map.lookup id glob of
@@ -192,7 +197,7 @@ instance Inferable PatternNode (Maybe (Name, Type)) where
 instance Inferable IRPattern (Map.Map Name Type) where
     infer IRWild = do
         b <- fresh
-        pure (Node () (TypeVar b), Map.empty)
+        pure (Node NoTag (TypeVar b), Map.empty)
     infer (IRCons id args) = do
         glob <- globals
         case Map.lookup id glob of
@@ -201,11 +206,11 @@ instance Inferable IRPattern (Map.Map Name Type) where
                     throwError $ WrongArgs id args
                 else do
                     b <- fresh
-                    let t = Node () (TypeVar b)
+                    let t = Node NoTag (TypeVar b)
                     argtvars <- mapM (\n -> do
                         b <- fresh
                         let v = LocalIdentifier n
-                        let t = Node () (TypeVar b)
+                        let t = Node NoTag (TypeVar b)
                         assume v t
                         pure (n, t)) args
                     let it = foldr (-->) t (fmap snd argtvars)
@@ -219,7 +224,7 @@ type TaggedIR = PolyIR Scheme Type
 instance Inferable IRNode TaggedIRNode where
     infer (Var id) = do
         b <- fresh
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         assume id t
         glob <- globals
         case Map.lookup id glob of
@@ -241,7 +246,7 @@ instance Inferable IRNode TaggedIRNode where
         pure (t0, Annot e' s)
     infer (Lam n e) = do
         b <- fresh
-        let t0 = Node () (TypeVar b)
+        let t0 = Node NoTag (TypeVar b)
         (t1, e') <- inEnv (Set.singleton b) (infer e)
         abstract n t0
         pure (t0 --> t1, Lam n e')
@@ -259,19 +264,20 @@ instance Inferable IRNode TaggedIRNode where
         pure (t, Let n x' e')
     infer (Match e ps) = do
         b <- fresh
-        let et = Node () (TypeVar b)
+        let et = Node NoTag (TypeVar b)
         mono <- monomorphic
         (it, ot, cases) <- foldM (\(its, ots, cases) (p, e) -> do
             (pt, vartypes) <- infer p
             let names = Map.toList (vartypes :: Map.Map Name Type)
-            (et, e') <- inEnv (Set.fromList $ fmap ((\(Node () (TypeVar n)) -> n) . snd) names) (infer e)
+            (et, e') <- inEnv (Set.fromList $ fmap ((\(Node NoTag (TypeVar n)) -> n) . snd) names) (infer e)
             mapM_ (uncurry rigidabst) names
             pure (pt:its, et:ots, (p, e'):cases)) ([], [], []) ps
         mapM_ (\it -> constrain (Unify et it)) it
         b <- fresh
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         mapM_ (\ot -> constrain (Unify t ot)) ot
         pure (t, Match e (reverse cases))
+    infer (Unboxed l) = fmap (second Unboxed) (infer l)
 
     {-
     infer (Match e ps) = do
@@ -288,25 +294,25 @@ instance Inferable IRNode TaggedIRNode where
 instance Inferable TypeNode TypeNode where
     infer o@(TypeVar id) = do
         b <- fresh
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         assume (LocalIdentifier id) t
         pure (t, o)
     infer o@(NamedType id) = do
         b <- fresh
-        let t = Node () (TypeVar b)
+        let t = Node NoTag (TypeVar b)
         assume id t
         pure (t, o)
     infer FunctionType = pure (functionkind, FunctionType)
-    infer KindStar = pure (Node () KindStar, KindStar)
+    infer KindStar = pure (Node NoTag KindStar, KindStar)
 
 instance Inferable i o => Inferable (AppGraph i) (TaggedAppGraph Type o) where
-    infer (Node () i) = do
+    infer (Node NoTag i) = do
         (t, e) <- infer i
         pure (t, Node t e)
-    infer (App () e0 e1) = do
+    infer (App NoTag e0 e1) = do
         (t0, e0') <- infer e0
         (t1, e1') <- infer e1
         b <- fresh
-        let t2 = Node () (TypeVar b)
-        constrain (Unify t0 (App () (App () (Node () FunctionType) t1) t2))
+        let t2 = Node NoTag (TypeVar b)
+        constrain (Unify t0 (App NoTag (App NoTag (Node NoTag FunctionType) t1) t2))
         pure (t2, App t2 e0' e1')

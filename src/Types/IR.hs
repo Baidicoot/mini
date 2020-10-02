@@ -84,5 +84,5 @@ instance (Substitutable typ, Substitutable tag) => Substitutable (PolyIRNode typ
     ftv (Match v cases) = mconcat (fmap (\(_, b) -> ftv b) cases) `mappend` (Set.singleton v)
     ftv _ = mempty
 
-type IRNode = PolyIRNode Scheme ()
+type IRNode = PolyIRNode Scheme NoTag
 type IR = AppGraph IRNode

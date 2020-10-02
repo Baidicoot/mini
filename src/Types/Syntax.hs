@@ -5,6 +5,7 @@ import Types.Type
 import Types.SExpr
 import Types.Pattern
 import Types.Graph
+import Types.Prim
 
 data Match
     = Match Expr [(Pattern, Expr)]
@@ -28,16 +29,12 @@ data Data
     = Ind Name (Maybe Kind) [Annotation Name]
     deriving(Eq, Show)
 
-data Lit
-    = Int Int
-    deriving(Eq, Show)
-
 data ExprNode
     = Var Identifier
     | Annot (Annotation Expr)
     | LetIn Let
     | Lambda Lam
-    | Literal Lit
+    | Literal UnboxedLit
     | Switch Match
     deriving(Eq, Show)
 

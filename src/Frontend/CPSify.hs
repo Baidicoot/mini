@@ -3,6 +3,8 @@ module Frontend.CPSify where
 import Types.CPS
 import Types.Ident
 import Types.Prim
+import Types.Env
+import Types.Graph (NoTag)
 import qualified Types.IR as IR
 import qualified Types.Graph as Graph
 
@@ -41,20 +43,20 @@ cont = do
     pure k
 
 contNames :: [Name]
-contNames = fmap (('k':) . show) [0..]
+contNames = fmap (("k"++) . show) [0..]
 
 cpsNames :: [Name]
-cpsNames = fmap (('c':) . show) [0..]
+cpsNames = fmap (("c"++) . show) [0..]
 
 type CPSifier = StateT CPSState (Reader CPSEnv)
 
 runCPSify :: [Name] -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify ns e a = runReader (runStateT a (ns, contNames)) e
 
-cpsify :: CPSEnv -> IR.PolyIR typ () -> CExp
-cpsify env exp = fst $ runCPSify cpsNames env (convert exp (\z -> pure Halt))
+cpsify :: Dataspace -> IR.PolyIR typ NoTag -> CExp
+cpsify (Dataspace env) exp = fst $ runCPSify cpsNames (fmap (\(a, b, _) -> (a, b)) env) (convert exp (\z -> pure Halt))
 
-convertNode :: IR.PolyIRNode typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
+convertNode :: IR.PolyIRNode typ NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (IR.Var id) c = c (Var id)
 convertNode (IR.Unboxed u) c = c (Unboxed u)
 convertNode (IR.Lam v e) c = do
@@ -109,7 +111,7 @@ convertNode (IR.Match n exps) c = do
     tag <- fresh
     pure $ Select 0 (Var $ LocalIdentifier n) tag (Fix (jfn:dfn:conts) $ Switch (Var $ LocalIdentifier tag) cexps)
 
-sortBranches :: Map.Map Identifier (Int, Int) -> [(IR.IRPattern, IR.PolyIR typ ())] -> (Maybe (IR.PolyIR typ ()), Int, Map.Map Int ([Name], IR.PolyIR typ ()))
+sortBranches :: Map.Map Identifier (Int, Int) -> [(IR.IRPattern, IR.PolyIR typ NoTag)] -> (Maybe (IR.PolyIR typ NoTag), Int, Map.Map Int ([Name], IR.PolyIR typ NoTag))
 sortBranches idm br =
     let (wild, normal) = first (fmap snd . listToMaybe) $ partition ((==IR.IRWild) . fst) br
         (brmap, casenums) = unzip $ fmap (\(IR.IRCons id ns, exp) ->
@@ -119,16 +121,16 @@ sortBranches idm br =
 Not sure about matches;
 match x
   Just y -> a y
-  Nothing -> b ()
+  Nothing -> b NoTag
 
 converts to (?):
 match x
   Just y -> a y k
-  Nothing -> b () k
+  Nothing -> b NoTag k
 where k is the current continuation?
 -}
 
-convert :: IR.PolyIR typ () -> (Value -> CPSifier CExp) -> CPSifier CExp
+convert :: IR.PolyIR typ NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convert (Graph.App _ f e) c = do
     r <- cont
     x <- fresh

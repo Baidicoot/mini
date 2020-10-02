@@ -12,16 +12,16 @@ comp :: Name -> Identifier
 comp = ExternalIdentifier ["Arc"]
 
 errormsg :: Type
-errormsg = Node () (NamedType $ comp "Error")
+errormsg = Node NoTag (NamedType $ comp "Error")
 
 matcherr :: Decl
 matcherr = (comp "Match", Forall Set.empty errormsg)
 
 unitty :: Type
-unitty = Node () (NamedType $ comp "Unit")
+unitty = Node NoTag (NamedType $ comp "Unit")
 
 unit :: Decl
 unit = (comp "Unit", Forall Set.empty unitty)
 
 raise :: Decl
-raise = (comp "raise", Forall (Set.fromList ["a"]) $ errormsg --> (Node () (TypeVar "a")))
+raise = (comp "raise", Forall (Set.fromList ["a"]) $ errormsg --> (Node NoTag (TypeVar "a")))

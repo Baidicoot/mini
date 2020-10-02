@@ -31,12 +31,12 @@ parseapps p (SExpr (x:xs)) = do
     xexpr <- parseapp p x
     foldM (\acc x -> do
         exp <- parseapp p x
-        pure (App () acc exp)) xexpr xs
+        pure (App NoTag acc exp)) xexpr xs
 parseapps _ x = syntaxError x "app"
 
 parseapp :: (ExprS -> Parser a) -> ExprS -> Parser (AppGraph a)
 parseapp p x
-    =   Node () <$> p x
+    =   Node NoTag <$> p x
     <|> parseapps p x
 
 class InfixArrow a where
@@ -52,7 +52,7 @@ parseinfixarr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> (AppGraph a
 parseinfixarr p typ (SNode (LocalIdentifier "->"):x:xs) = do
     xtyp <- p x
     xstyp <- parseinfixarr p xtyp xs
-    pure (App () (App () (Node () arrow) typ) xstyp)
+    pure (App NoTag (App NoTag (Node NoTag arrow) typ) xstyp)
 parseinfixarr _ typ [] = pure typ
 parseinfixarr _ _ x = syntaxError (SExpr x) "infixArrow"
 
@@ -100,14 +100,14 @@ parsevar x = do
         (c:_) | isLower c -> pure n
         _ -> syntaxError x "var"
 
-parsereserved :: String -> ExprS -> Parser ()
+parsereserved :: String -> ExprS -> Parser NoTag
 parsereserved s (SNode (LocalIdentifier n))
-    | s == n = pure ()
+    | s == n = pure NoTag
 parsereserved s x = syntaxError x s
 
 parselist :: (ExprS -> Parser a) -> ExprS -> Parser [a]
 parselist p (SExpr xs) = mapM p xs
-parselist _ x = syntaxError x "list"
+parselist p (SNode x) = mapM p [SNode x]
 
 parselam :: ExprS -> Parser Lam
 parselam (SExpr [SNode (LocalIdentifier "lam"), ns, expr]) = do

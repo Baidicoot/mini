@@ -16,26 +16,29 @@ data TaggedAppGraph t a
     | Node t a
     deriving(Eq)
 
-type AppGraph = TaggedAppGraph ()
+data NoTag = NoTag deriving(Eq, Ord)
 
-instance {-# OVERLAPPING #-} Show a => Show (TaggedAppGraph () a) where
-    show (App _ a (Node _ b)) = show a ++ " " ++ show b
-    show (App _ a b) = show a ++ " (" ++ show b ++ ")"
-    show (Node _ a) = show a
+instance Show NoTag where
+    show _ = ""
+
+instance Monoid NoTag where
+    mempty = NoTag
+    mappend _ _ = NoTag
+
+type AppGraph = TaggedAppGraph NoTag
 
 instance (Show t, Show a) => Show (TaggedAppGraph t a) where
     show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
-    show (Node t a) = show a ++ " :: " ++ show t
-
-instance {-# OVERLAPPING #-} (Pretty a d) => Pretty (TaggedAppGraph () a) d where
-    pretty (App _ a (Node _ b)) d = pretty a d ++ " " ++ pretty b d
-    pretty (App _ a b) d = pretty a d ++ " (" ++ pretty b d ++ ")"
-    pretty (Node _ a) d = pretty a d
+    show (Node t a) = show a ++ (let t' = show t in case t' of
+        [] -> ""
+        _ -> " :: " ++ t')
 
 instance (Pretty a d, Show t) => Pretty (TaggedAppGraph t a) d where
-    pretty (App _ a (Node _ b)) d = pretty a d ++ " " ++ pretty b d
+    pretty (App _ a n@(Node _ _)) d = pretty a d ++ " " ++ pretty n d
     pretty (App _ a b) d = pretty a d ++ " (" ++ pretty b d ++ ")"
-    pretty (Node t a) d = pretty a d
+    pretty (Node t a) d = pretty a d ++ (let t' = show t in case t' of
+        [] -> ""
+        _ -> " :: " ++ t')
 
 instance Functor (TaggedAppGraph t) where
     fmap f (App t a b) = App t (fmap f a) (fmap f b)

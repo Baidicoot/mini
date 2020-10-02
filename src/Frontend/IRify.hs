@@ -11,6 +11,9 @@ import Types.IR
 import Types.Graph
 import Types.Pattern
 import Types.Type
+import Types.Env
+import Types.Prim
+import Frontend.GenEnv
 import Builtin.Decls (unit)
 
 import Control.Monad.State
@@ -80,7 +83,7 @@ lookupCons :: Identifier -> IRifier (Maybe IR)
 lookupCons id = do
     (_, _, s) <- ask
     case Map.lookup id s of
-        Just (_, _, 0) -> pure . Just . Node () $ Cons id []
+        Just (_, _, 0) -> pure . Just . Node NoTag $ Cons id []
         _ -> pure Nothing
 
 irifyDefn :: Definition -> IRifier IR
@@ -89,11 +92,11 @@ irifyDefn (Defn mt _ args expr) = do
         f <- fresh
         pure (LocalIdentifier n, LocalIdentifier f)) args
     def <- withEnv argns (irifyExpr expr)
-    let ir = foldr (\(_, LocalIdentifier a) l -> Node () $ Lam a l) def argns
+    let ir = foldr (\(_, LocalIdentifier a) l -> Node NoTag $ Lam a l) def argns
     case mt of
         Just t -> do
             t <- irifyType t
-            pure . Node () $ Annot ir t
+            pure . Node NoTag $ Annot ir t
         Nothing -> pure ir
 
 irifyLam :: Syntax.Lam -> IRifier IR
@@ -102,7 +105,7 @@ irifyLam (Syntax.Lam args expr) = do
         f <- fresh
         pure (LocalIdentifier n, LocalIdentifier f)) args
     def <- withEnv argns (irifyExpr expr)
-    pure (foldr (\(_, LocalIdentifier a) l -> Node () $ Lam a l) def argns)
+    pure (foldr (\(_, LocalIdentifier a) l -> Node NoTag $ Lam a l) def argns)
 
 {-
 irifyPatNode :: Map.Map Identifier Identifier -> PatternNode -> IRifier (PatternNode, Map.Map Identifier Identifier)
@@ -124,13 +127,13 @@ irifyPat = irifyMap irifyPatNode
 irifyMap :: Ord k => (Map.Map k a -> n -> IRifier (n, Map.Map k a)) -> AppGraph n -> IRifier (AppGraph n, Map.Map k a)
 irifyMap irifyNode = internal Map.empty
     where
-        internal env (App () a b) = do
+        internal env (App NoTag a b) = do
             (a, env) <- internal env a
             (b, env) <- internal env b
-            pure (App () a b, env)
-        internal env (Node () a) = do
+            pure (App NoTag a b, env)
+        internal env (Node NoTag a) = do
             (a, env) <- irifyNode env a
-            pure (Node () a, env)
+            pure (Node NoTag a, env)
 
 partitionMaybe :: (a -> Maybe b) -> [a] -> ([b], [a])
 partitionMaybe f = foldr (\x -> maybe (second (x:)) (\y -> first (y:)) (f x)) ([],[])
@@ -177,15 +180,15 @@ union (a, b) (c, d) = (a `Map.union` c, b `Map.union` d)
 
 match :: Pattern -> IRPattern -> Maybe MatchResult
 match _ IRWild = pure (mempty, mempty)
-match (Node () (PatternVar _)) _ = Nothing
-match (Node () (PatternCons id)) (IRCons id2 [])
+match (Node NoTag (PatternVar _)) _ = Nothing
+match (Node NoTag (PatternCons id)) (IRCons id2 [])
     | id == id2 = pure (mempty, mempty)
-match (App () a b@(Node () (PatternVar n))) (IRCons id args@(_:_)) =
+match (App NoTag a b@(Node NoTag (PatternVar n))) (IRCons id args@(_:_)) =
     let x = last args
         xs = init args in do
             (ps, ns) <- match a (IRCons id xs)
             pure (ps, Map.insert n x ns)
-match (App () a b) (IRCons id args@(_:_)) =
+match (App NoTag a b) (IRCons id args@(_:_)) =
     let x = last args
         xs = init args in do
             (ps, ns) <- match a (IRCons id xs)
@@ -217,7 +220,7 @@ nextVarLs ls = do
     nextVar a
 
 matchByVar :: Name -> [PartialMatch] -> [(Pattern, PartialMatch)]
-matchByVar n = fmap (\((pats, bound), info) -> (Map.findWithDefault (Node () PatternWildcard) n pats, ((Map.delete n pats, bound), info)))
+matchByVar n = fmap (\((pats, bound), info) -> (Map.findWithDefault (Node NoTag PatternWildcard) n pats, ((Map.delete n pats, bound), info)))
 
 patScope :: IRPattern -> [Name]
 patScope (IRCons _ ns) = ns
@@ -231,17 +234,17 @@ groupByCons matches@((p, _):_) = do
     pure ((l, new):rem')
     where
         leftmost :: Pattern -> IRifier IRPattern
-        leftmost (Node () (PatternVar n)) = pure IRWild
-        leftmost (Node () PatternWildcard) = pure IRWild
+        leftmost (Node NoTag (PatternVar n)) = pure IRWild
+        leftmost (Node NoTag PatternWildcard) = pure IRWild
         leftmost x = fmap (uncurry IRCons) $ internal x
             where
-                internal (Node () (PatternCons id)) = pure (id, [])
-                internal (App () a _) = do
+                internal (Node NoTag (PatternCons id)) = pure (id, [])
+                internal (App NoTag a _) = do
                     n <- fresh
                     (id, ns) <- internal a
                     pure (id, n:ns)
-                internal (Node () (PatternVar n)) = throwError (VarLeft n)
-                internal (Node () PatternWildcard) = throwError WildLeft
+                internal (Node NoTag (PatternVar n)) = throwError (VarLeft n)
+                internal (Node NoTag PatternWildcard) = throwError WildLeft
 
         partitionByMatch :: IRPattern -> [(Pattern, PartialMatch)] -> ([PartialMatch], [(Pattern, PartialMatch)])
         partitionByMatch p = partitionMaybe (\(t, (res, b)) -> do
@@ -275,24 +278,24 @@ buildMatchTree (Just n) matches = do
 
 buildIRFromMatchTree :: MatchTree -> IR
 buildIRFromMatchTree (ExprBranch n []) = 
-    App () (Node () $ Var $ LocalIdentifier n) (Node () $ Var $ fst unit)
+    App NoTag (Node NoTag $ Var $ LocalIdentifier n) (Node NoTag $ Var $ fst unit)
 buildIRFromMatchTree (ExprBranch n args) =
-    foldr (\n a -> App () a (Node () (Var $ LocalIdentifier n))) (Node () (Var $ LocalIdentifier n)) args
+    foldr (\n a -> App NoTag a (Node NoTag (Var $ LocalIdentifier n))) (Node NoTag (Var $ LocalIdentifier n)) args
 buildIRFromMatchTree (Switch n cases) =
-    Node () $ Match n (fmap (second buildIRFromMatchTree) cases)
+    Node NoTag $ Match n (fmap (second buildIRFromMatchTree) cases)
 buildIRFromMatchTree MatchExcept = undefined
 
 renamePattern :: Pattern -> IRifier (Pattern, Map.Map Identifier Name)
-renamePattern (App () a b) = do
+renamePattern (App NoTag a b) = do
     (a', env0) <- renamePattern a
     (b', env1) <- renamePattern b
-    pure (App () a' b', env0 `mappend` env1)
-renamePattern (Node () (PatternVar n)) = do
+    pure (App NoTag a' b', env0 `mappend` env1)
+renamePattern (Node NoTag (PatternVar n)) = do
     b <- fresh
-    pure (Node () (PatternVar b), Map.singleton (LocalIdentifier n) b)
-renamePattern (Node () (PatternCons id)) = do
+    pure (Node NoTag (PatternVar b), Map.singleton (LocalIdentifier n) b)
+renamePattern (Node NoTag (PatternCons id)) = do
     id' <- lookupEnv id
-    pure (Node () (PatternCons id'), mempty)
+    pure (Node NoTag (PatternCons id'), mempty)
 renamePattern x = pure (x, mempty)
 
 makeCase :: Name -> (Pattern, Expr) -> IRifier ((Identifier, IR), PartialMatch)
@@ -304,8 +307,8 @@ makeCase n (p', exp) = do
     ir <- case env of
         [] -> do
             f <- fresh
-            pure $ Node () $ Lam f e
-        _ -> pure $ foldr (\(_, n) a -> Node () (Lam n a)) e env
+            pure $ Node NoTag $ Lam f e
+        _ -> pure $ foldr (\(_, n) a -> Node NoTag (Lam n a)) e env
     let branch = (f, fmap snd env)
     let matchres = (Map.singleton n p, Map.empty)
     pure ((LocalIdentifier f, ir), (matchres, branch))
@@ -323,7 +326,7 @@ irifyMatch (Syntax.Match exp cases) = do
     (defs, parts) <- makeCases b cases
     mt <- buildMatchTree (Just b) parts
     let ir = buildIRFromMatchTree mt
-    pure (Node () $ Let b e (Node () $ Fix defs ir))
+    pure (Node NoTag $ Let b e (Node NoTag $ Fix defs ir))
 
 isLam :: Definition -> Bool
 isLam (Defn _ _ [] _) = False
@@ -334,7 +337,7 @@ irifyLet b (d@(Defn _ n [] _):xs) expr = do
     ir <- irifyDefn d
     f <- fresh
     xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet b xs expr)
-    pure (Node () $ Let f ir xsexp)
+    pure (Node NoTag $ Let f ir xsexp)
 irifyLet _ [] expr = do
     ir <- irifyExpr expr
     pure ir
@@ -347,7 +350,7 @@ irifyLet tl xs expr = do
         ir <- irifyDefn d
         pure (f, ir)) (defs `zip` ns)
     expr <- withEnv ns (irifyLet tl xs' expr)
-    pure (Node () $ Fix newdefs expr)
+    pure (Node NoTag $ Fix newdefs expr)
 
 irifyNode :: Syntax.ExprNode -> IRifier IR
 irifyNode (Syntax.Var id) = do
@@ -355,14 +358,15 @@ irifyNode (Syntax.Var id) = do
     syn <- lookupCons id
     case syn of
         Just syn -> pure syn
-        Nothing -> pure (Node () $ Var id)
+        Nothing -> pure (Node NoTag $ Var id)
 irifyNode (Syntax.Annot (Expl a t)) = do
     a <- irifyExpr a
     t <- irifyType t
-    pure (Node () $ Annot a t)
+    pure (Node NoTag $ Annot a t)
 irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet False defs expr
 irifyNode (Syntax.Lambda l) = irifyLam l
 irifyNode (Syntax.Switch m) = irifyMatch m
+irifyNode (Syntax.Literal l) = pure . Node NoTag $ Unboxed l
 
 irifyPoly :: (a -> IRifier (AppGraph b)) -> AppGraph a -> IRifier (AppGraph b)
 irifyPoly irfn = fmap join . traverse irfn
@@ -400,7 +404,7 @@ sortTopLevel ((Func f):xs) = let (da, de) = sortTopLevel xs in (da, f:de)
 sortTopLevel [] = ([], [])
 
 irifyVals :: [Definition] -> IRifier IR
-irifyVals de = irifyLet True de (Node () (Syntax.Var (ExternalIdentifier ["Arc"] "Unit")))
+irifyVals de = irifyLet True de (Node NoTag (Syntax.Literal Unit))
 
 nullary :: Type -> Bool
 nullary = (==0) . arity
@@ -414,7 +418,7 @@ curriedCons ((Ind _ _ is):ids) = do
     fhs <- mapM (\(i,Forall _ t) -> do
         --i' <- lookupEnv i
         vars <- replicateM (arity t) fresh
-        pure $ (i, foldr (\v acc -> Node () $ Lam v acc) (Node () $ Cons i vars) vars)) . filter (not . nullaryS . snd) $ is
+        pure $ (i, foldr (\v acc -> Node NoTag $ Lam v acc) (Node NoTag $ Cons i vars) vars)) . filter (not . nullaryS . snd) $ is
     pure (fhs++hcs)
 curriedCons [] = pure []
 
@@ -425,6 +429,6 @@ irifyTL ts = let (da, de) = sortTopLevel ts in do
     cons <- curriedCons dat
     ir <- irifyVals de
     let (ds, exp) = (case ir of -- case in do is *weird*
-            Node () (Fix a b) -> (a, b)
+            Node NoTag (Fix a b) -> (a, b)
             e -> ([], e))
-    pure (Node () $ Fix (cons++ds) exp)
+    pure (Node NoTag $ Fix (cons++ds) exp)

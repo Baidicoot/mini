@@ -1,360 +1,428 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
-module Frontend.ClosureConv (closureConvert, functions, reduce, functionMeta, fvmapify, escaping, calls) where
 
--- currently this algorithm is horrendusly innefficent
--- it makes a polynomial number of passes of the graph,
--- this is mostly for the simplicity of the algorithm
--- a similar effect can probably be achived in 1-2 passes
+module Frontend.ClosureConv (closureConvert, mkEnv) where
+
+import System.IO.Unsafe
 
 import Types.CPS
 import Types.Ident
 
 import Control.Arrow
+import Control.Applicative
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Reader
+import Control.Monad.Writer
 import Control.Monad.Identity
 
 import Data.Maybe
+import Data.Foldable
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
--- restrict search to ONLY LocalIdentifiers?
 
--- cache of function -> (fvs, known calls) for known functions
--- iteration used to handle cycles
-type FunctionMeta = Map.Map Identifier (Set.Set Name, Set.Set Name)
+-- initial pass to gather data about the functions
 
-setFM :: (Ord b) => (a -> Maybe b) -> Set.Set a -> Set.Set b
-setFM f a = foldr (\a acc -> case f a of
-    Just x -> mappend (Set.singleton x) acc
-    Nothing -> acc) mempty a
+{-
+'Types' of variable:
+- free variables - variables that are not bound in the function
+- (all) escaping variables - variables that are arguments to operators
+- known calls
+- unknown calls
+- calls that might capture
+-}
 
-escaping :: CExp -> Set.Set Name
-escaping (App _ vs) = Set.fromList . catMaybes . fmap valueToName $ vs
-escaping (Fix fns exp) = mappend (escaping exp) $ mconcat . fmap (\(Fun _ _ exp) -> escaping exp) $ fns
-escaping (Record vs _ exp) = mappend (escaping exp) $ Set.fromList . catMaybes . fmap (valueToName . fst) $ vs
-escaping (Select _ _ _ exp) = escaping exp
-escaping (Switch _ exps) = mconcat (fmap escaping exps)
-escaping (Primop _ vs _ exps) = mappend (mconcat $ fmap escaping exps) $ Set.fromList . catMaybes . fmap valueToName $ vs
-escaping _ = mempty
+type Metadata = Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name)
+-- fv, escaping, known calls, unknown calls, calls that might capture
 
-functions :: CExp -> Set.Set Name
-functions (Fix fns exp) = mappend (mconcat . fmap (\case
-    Fun (LocalIdentifier n) _ exp -> Set.singleton n `mappend` functions exp
-    Fun _ _ exp -> functions exp) $ fns) (functions exp)
-functions (Record _ _ exp) = functions exp
-functions (Select _ _ _ exp) = functions exp
-functions (Switch _ exps) = mconcat . fmap functions $ exps
-functions (Primop _ _ _ exps) = mconcat . fmap functions $ exps
-functions _ = mempty
+type CollectEnv =
+    (Maybe Identifier, Set.Set Name)
+-- current function name, known functions
 
-calls :: CExp -> Set.Set Name
-calls (App (Var (LocalIdentifier v)) _) = Set.singleton v
-calls (Fix fns exp) = foldr mappend (calls exp) (fmap (\(Fun _ _ exp) -> calls exp) fns)
-calls (Record _ _ exp) = calls exp
-calls (Select _ _ _ exp) = calls exp
-calls (Switch _ exps) = mconcat (fmap calls exps)
-calls (Primop _ _ _ exps) = mconcat (fmap calls exps)
-calls _ = mempty
+type Collector = ReaderT CollectEnv (Writer (Set.Set Name))
 
-calledIn :: CExp -> Set.Set Name
-calledIn (Fix _ exp) = calledIn exp
-calledIn (Record _ _ exp) = calledIn exp
-calledIn (Select _ _ _ exp) = calledIn exp
-calledIn (Switch _ exps) = mconcat (fmap calledIn exps)
-calledIn (Primop _ _ _ exps) = mconcat (fmap calledIn exps)
-calledIn (App (Var (LocalIdentifier v)) _) = Set.singleton v
-calledIn _ = mempty
+knownF :: Name -> Collector Bool
+knownF n = do
+    (_, env) <- ask
+    pure $ n `Set.member` env
 
-functionMeta :: Set.Set Name -> CExp -> FunctionMeta
-functionMeta known (Fix fns exp) =
-    foldr mappend (functionMeta known exp) (fmap (\(Fun id args exp) ->
-        let free = Set.difference (fv exp) (known `Set.union` Set.fromList args)
-            knownCalls = Set.intersection (calls exp) known
-        in Map.singleton id (free, knownCalls) `Map.union` functionMeta known exp) fns)
-functionMeta known (Record _ _ exp) = functionMeta known exp
-functionMeta known (Select _ _ _ exp) = functionMeta known exp
-functionMeta known (Switch _ exps) = mconcat (fmap (functionMeta known) exps)
-functionMeta known (Primop _ _ _ exps) = mconcat (fmap (functionMeta known) exps)
-functionMeta _ _ = mempty
+update :: ((Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name) -> (Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name)) -> Metadata -> Collector Metadata
+update f m = do
+    env <- ask
+    case env of
+        (Nothing, _) -> pure m
+        (Just n, _) -> pure $ Map.update (\(a, b, c, d, e) -> Just $ f (a, b, c, d, e)) n m
 
-reduceFunction :: (Set.Set Name, Set.Set Name) -> FunctionMeta -> (Set.Set Name, Set.Set Name)
-reduceFunction (ns, kc) map = foldr mappend (ns, mempty) (fmap (map Map.!) (fmap LocalIdentifier . Set.toList $ kc))
+includes :: Set.Set Name -> Metadata -> Collector Metadata
+includes ns m = do
+    ns' <- filterM (fmap not . knownF) (Set.toList ns)
+    ns'' <- filterM knownF (Set.toList ns)
+    update (\(a, b, c, d, e) -> (a `Set.union` (Set.fromList ns'), b, c, d, e `Set.union` (Set.fromList ns''))) m
 
-reduceOnce :: FunctionMeta -> FunctionMeta
-reduceOnce map = fmap (flip reduceFunction map) map
+binds :: Name -> Metadata -> Collector Metadata
+binds n = update (\(a, b, c, d, e) -> (n `Set.delete` a, b, c, d, e))
 
-reduce :: FunctionMeta -> FunctionMeta
-reduce map = let map' = reduceOnce map in if map' == map then map' else reduce map'
+fnArgs :: [Name] -> Metadata -> Collector Metadata
+fnArgs ns = update (\(a, b, c, d, e) -> (a `Set.difference` (Set.fromList ns), b, c, d, e))
 
-type ClosureEnv = (Set.Set Name, Set.Set Name, Map.Map Name [Name], Set.Set Name)
--- ClosureEnv - escaping functions, fix-bound functions, freevars for each function, called variables
+root :: Collector Metadata
+root = do
+    env <- ask
+    case env of
+        (Nothing, _) -> pure mempty
+        (Just n, _) -> pure (Map.singleton n mempty)
 
-type ClosureConv = ReaderT ClosureEnv (State ([Name], Map.Map Name Name))
+calls :: Set.Set Name -> Metadata -> Collector Metadata
+calls n m = do
+    fs <- foldM (\b n -> fmap (. b) $ do
+        isKnown <- knownF n
+        pure $ if isKnown then
+                (\(a, b, c, d, e) -> (a, b, Set.insert n c, d, e))
+            else
+                (\(a, b, c, d, e) -> (a, b, c, Set.insert n d, e))) id n
+    includes n =<< update fs m
+
+hasArgs :: Set.Set Name -> Metadata -> Collector Metadata
+hasArgs ns = update (\(a, b, c, d, e) -> (a, b `Set.union` ns, c, d, e))
+
+inFn :: Identifier -> Collector a -> Collector a
+inFn a = local (\(_, b) -> (Just a, b))
+
+withKnown :: Set.Set Name -> Collector a -> Collector a
+withKnown ns = local (\(a, b) -> (a, b `Set.union` ns))
+
+collectM :: CExp -> Collector Metadata
+collectM (Fix fns exp) = do
+    let names = Set.fromList . catMaybes $ fmap (\(Fun id _ _) -> identToName id) fns
+    tell names
+    m <- collectM exp
+    withKnown names $ foldM (\m (Fun id args exp) -> fmap (mappend m) . inFn id $ fnArgs args =<< collectM exp) m fns
+collectM (App v vs) = do
+    let vs' = valuesToSet vs
+    let v' = valueToSet v
+    calls v' =<< hasArgs vs' =<< root
+collectM (Record paths n exp) = do
+    let vs = valuesToSet $ fmap fst paths
+    hasArgs vs =<< binds n =<< collectM exp
+collectM (Select _ v n exp) = do
+    let v' = valueToSet v
+    hasArgs v' =<< binds n =<< collectM exp
+collectM (Switch v exps) = do
+    let v' = valueToSet v
+    hasArgs v' =<< foldM (\b -> fmap (mappend b) . collectM) mempty exps
+collectM (Primop _ vs n exps) = do
+    let vs' = valuesToSet vs
+    hasArgs vs' =<< binds n =<< foldM (\b -> fmap (mappend b) . collectM) mempty exps
+collectM _ = root
+
+collect :: CExp -> (Metadata, Set.Set Name)
+collect e = runWriter $ runReaderT (collectM e) (Nothing, mempty)
+
+type ClosureData = Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name)
+-- fv, escaping, known calls, unknown calls
+
+reduce :: Metadata -> ClosureData
+reduce = fmap (\(a, b, c, d, _) -> (a, b, c, d)) . reduceFully
+    where
+        reduceFully m = let m' = reduceOnce m in if m == m' then m else reduceFully m'
+        reduceOnce m = fmap (\(fv, b, c, d, needs) ->
+            let (fv', needs') = foldr mappend (fv, needs) . fmap (\need -> case Map.lookup (LocalIdentifier need) m of
+                    Just (fv, _, _, _, needs) -> (fv, needs)
+                    Nothing -> mempty) $ Set.toList needs
+            in (fv', b, c, d, needs')) m
+
+type ClosureEnv = (Maybe Identifier, Map.Map Name Name, Map.Map Name Name, Set.Set Name, ClosureData)
+-- current function, current renamings, current function pointers, known functions, freevars of functions that need them
+
+collate :: (ClosureData, Set.Set Name) -> ClosureEnv
+collate (cd, kf) = (Nothing, mempty, mempty, kf, cd)
+
+mkEnv = collate . first reduce . collect
+
+type ClosureState = [Name]
+
+type ClosureConv = ReaderT ClosureEnv (State ClosureState)
+
+closureConvert :: CExp -> CExp
+closureConvert exp = uncurry Fix . smash . fst . flip runState cconvNames $ runReaderT (convertExp exp) (collate . first reduce $ collect exp)
+
+cconvNames :: [Name]
+cconvNames = [1..] >>= flip replicateM ['a'..'z']
 
 fresh :: ClosureConv Name
 fresh = do
-    (names, a) <- get
+    names <- get
     let (n:ns) = names
-    put (ns, a)
+    put ns
     pure n
 
-split :: Name -> ClosureConv Name
-split n = do
-    (_, map) <- get
-    case Map.lookup n map of
-        Just b -> pure b
-        Nothing -> do
-            f <- fresh
-            (a, m) <- get
-            let m' = Map.insert n f m
-            put (a, m')
-            pure f
+mtf :: Monad m => (m a, b) -> m (a, b)
+mtf (a, b) = do
+    a' <- a
+    pure (a', b)
+
+split :: Name -> Name
+split = (++"_")
+
+getCurrentMeta :: ClosureConv (Set.Set Name, Set.Set Name, Set.Set Name, Set.Set Name)
+getCurrentMeta = do
+    (n, _, _, _, env) <- ask
+    case n of
+        Nothing -> pure mempty
+        Just n -> pure $ Map.findWithDefault mempty n env
 
 escapes :: Name -> ClosureConv Bool
-escapes id = do
-    (env, _, _, _) <- ask
-    pure $ id `Set.member` env
+escapes n = do
+    (_, esc, _, _) <- getCurrentMeta
+    pure $ n `Set.member` esc
 
-isKnown :: Name -> ClosureConv Bool
-isKnown id = do
-    (_, fns, _, _) <- ask
-    pure $ id `Set.member` fns
+known :: Name -> ClosureConv Bool
+known n = do
+    (_, _, _, k, _) <- ask
+    pure $ n `Set.member` k
+
+calledUnknown :: Name -> ClosureConv Bool
+calledUnknown n = do
+    (_, _, a, b) <- getCurrentMeta
+    pure $ n `Set.member` b
+
+calledKnown :: Name -> ClosureConv Bool
+calledKnown n = do
+    (_, _, a, b) <- getCurrentMeta
+    pure $ n `Set.member` a
 
 getFv :: Name -> ClosureConv [Name]
-getFv id = do
-    (_, _, meta, _) <- ask
-    case Map.lookup id meta of
-        Just x -> pure x
-        Nothing -> error ("fvs not found for " ++ id)
+getFv n = do
+    (_, _, _, _, env) <- ask
+    pure . Set.toList . (\(fv, _, _, _) -> fv) $ Map.findWithDefault mempty (LocalIdentifier n) env
 
-isCalled :: Name -> ClosureConv Bool
-isCalled id = do
-    (_, _, _, called) <- ask
-    pure $ id `Set.member` called
+getFV :: Value -> ClosureConv [Name]
+getFV (Var (LocalIdentifier n)) = getFv n
+getFV _ = pure []
 
-{-
-RULES FOR CLOSURE CONVERSION:
+needsClosure :: Name -> ClosureConv Bool
+needsClosure n = do
+    (_, _, _, _, m) <- ask
+    let (f, _, _, _) = Map.findWithDefault mempty (LocalIdentifier n) m
+    pure . not $ Set.null f
 
-upon encountering an escaping function f, create a new function f'
-this new function f' destructs a record and calls f directly with arguments
+getName :: Name -> ClosureConv Name
+getName n = do
+    (_, ns, _, _, _) <- ask
+    pure $ Map.findWithDefault n n ns
 
-when an escaping f is encountered, create a record of the free variables of f
-and bind to a closure with f' as the #0 of that record
+getVal :: Value -> ClosureConv Value
+getVal (Var (LocalIdentifier n)) = fmap (Var . LocalIdentifier) (getName n)
+getVal x = pure x
 
-when a function accepts a closure argument `g` that is later called, it is renamed to `g_`,
-and the function `g` is extracted from #0 of `g_`.
+getFnPtr :: Name -> ClosureConv Name
+getFnPtr n = do
+    (_, _, ns, _, _) <- ask
+    pure $ Map.findWithDefault "unknown" n ns
 
--}
+getPtr :: Value -> ClosureConv (Maybe Value)
+getPtr (Var (LocalIdentifier n)) = fmap (Just . Var . LocalIdentifier) $ getFnPtr n
+getPtr _ = pure Nothing
 
-convertArg :: Value -> ClosureConv (Value, CExp -> CExp)
-convertArg (Var (LocalIdentifier f)) = do
-    nameKnown <- isKnown f
-    if nameKnown then do
-        f' <- split f
-        v <- fresh
-        free <- getFv f
-        let binding = Record (fmap (\var -> (Var $ LocalIdentifier var, OffPath 0)) (f':free)) v
-        pure (Var $ LocalIdentifier v, binding)
-    else
-        pure (Var $ LocalIdentifier f, id)
-convertArg x = pure (x, id)
+-- rewrite EVERYTHING - *rename* everything
 
-doArgDestruct :: CFun -> ClosureConv CFun
-doArgDestruct (Fun f args' exp) = do
-    (args, bindings) <- fmap unzip $ mapM (\arg -> do
-        called <- isCalled arg
-        if called then do
-            let f = arg ++ "_"
-            let binding =  Select 0 (Var $ LocalIdentifier f) arg
-            pure (f, binding)
-        else
-            pure (arg, id)) args'
-    let exp' = foldr ($) exp bindings
-    pure $ Fun f args exp'
+withFp :: Name -> ClosureConv CExp -> ClosureConv CExp
+withFp f c = do
+    f' <- getName f
+    fp <- fresh
+    exp <- local (\(a, b, c, d, e) -> (a, b, Map.insert f fp c, d, e)) c
+    pure $ Select 0 (Var $ LocalIdentifier f') fp exp
 
-convertFun :: CFun -> ClosureConv [CFun]
-convertFun (Fun (LocalIdentifier f) args exp) = do
-    fEsc <- escapes f
-    free <- getFv f
-    if fEsc then do
-        f' <- split f
-        fFn' <- do
-            v <- fresh
-            let fCall = App (Var $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args ++ free)
-            let body = foldr (\(fv, index) exp -> Select index (Var $ LocalIdentifier v) fv exp) fCall (zip free [1..])
-            pure $ Fun (LocalIdentifier f') (args ++ [v]) body
-        exp' <- convert exp
-        fFn <- doArgDestruct $ Fun (LocalIdentifier f) (args++free) exp'
-        pure [fFn, fFn']
-    else do
-        exp' <- convert exp
-        mapM doArgDestruct [Fun (LocalIdentifier f) (args ++ free) exp']
-convertFun (Fun id args exp) = do
-    exp' <- convert exp
-    mapM doArgDestruct [Fun id args exp']
+withCls :: Name -> ClosureConv CExp -> ClosureConv CExp
+withCls f c = do
+    f' <- getName f
+    fr <- fresh
+    ffv <- mapM getName =<< getFv f
+    exp <- local (\(a, b, c, d, e) -> (a, Map.insert f fr b, c, d, e)) c
+    pure $ Record (fmap (\f -> (Var $ LocalIdentifier f, OffPath 0)) (split f':ffv)) fr exp
 
-convert :: CExp -> ClosureConv CExp
-convert (App f vs) = do
-    -- bruh need to convert args :sml:
-    (vs', bindings) <- fmap unzip $ mapM convertArg vs
-    exp <- case f of
-        Var (LocalIdentifier name) -> do
-            nameKnown <- isKnown name
-            if nameKnown then do
-                free <- getFv name
-                pure . App (Var $ LocalIdentifier name) $ vs'++(fmap (Var . LocalIdentifier) free)
-            else do
-                let cls = name ++ "_"
-                pure . App (Var $ LocalIdentifier name) $ vs'++[Var $ LocalIdentifier cls]
-        _ -> pure (App f vs')
-    pure $ foldr ($) exp bindings
--- need to also apply to non local identifier things
-convert (Fix fns exp) = do
-    fns' <- fmap join $ mapM convertFun fns
-    exp' <- convert exp
-    pure (Fix fns' exp')
-convert (Record a b exp) = do
-    exp' <- convert exp
-    pure (Record a b exp')
-convert (Select a b c exp) = do
-    exp' <- convert exp
-    pure (Select a b c exp')
-convert (Switch v exps) = do
-    exps' <- mapM convert exps
-    pure (Switch v exps')
-convert (Primop a b c exps) = do
-    exps' <- mapM convert exps
-    pure (Primop a b c exps')
-convert x = pure x
+withArgs :: [Value] -> ClosureConv CExp -> ClosureConv CExp
+withArgs vs c = do
+    fns <- mapM (\case
+        Var (LocalIdentifier n) -> do
+            esc <- escapes n
+            needs <- needsClosure n
+            pure $ if esc && needs then
+                    withCls n
+                else
+                    id
+        _ -> pure id) vs
+    foldr ($) c fns
 
-closureNames :: [Name]
-closureNames = fmap (("c"++) . show) [0..]
+bind :: Name -> Name -> ClosureConv a -> ClosureConv a
+bind f f' = local (\(a, b, c, d, e) -> (a, Map.insert f f' b, c, d, e))
 
-fvmapify :: FunctionMeta -> Map.Map Name [Name]
-fvmapify fmd =
-    let idmap = fmap (Set.toList . fst) $ reduce fmd
-        fvmap = Map.mapKeys (\(LocalIdentifier k) -> k) $ Map.filterWithKey (\a _ -> case a of
-            LocalIdentifier _ -> True
-            _ -> False) idmap
-    in fvmap
+getPtrs :: [Name] -> CExp -> ClosureConv CExp
+getPtrs aargs c = do
+    cls <- filterM calledUnknown aargs
+    let cfns = fmap withFp cls
+    foldr (.) id cfns (convertExp c)
 
-splitFns :: CExp -> ([CFun], CExp)
-splitFns (Fix fns exp) =
-    let fnDefs = join $ fmap (\(Fun n args exp) -> let (defs, exp') = splitFns exp in (Fun n args exp'):defs) fns
-        (expDefs, exp') = splitFns exp
-    in (fnDefs ++ expDefs, exp')
-splitFns (Record a b exp) = let (fns, exp') = splitFns exp in (fns, Record a b exp')
-splitFns (Select a b c exp) = let (fns, exp') = splitFns exp in (fns, Select a b c exp')
-splitFns (Switch a exps) = let (defs, exps') = first join . unzip $ fmap splitFns exps in (defs, Switch a exps')
-splitFns (Primop a b c exps) = let (defs, exps') = first join . unzip $ fmap splitFns exps in (defs, Primop a b c exps')
-splitFns x = ([], x)
+localFn :: Name -> [Name] -> CExp -> ClosureConv CFun
+localFn n args c = local (\(_, b, c, d, e) -> (Just (LocalIdentifier n), b, c, d, e)) $ do
+    n' <- getName n
+    ffv <- getFv n
+    let aargs = args ++ ffv
+    argM <- mapM (\a -> fmap ((,) a) fresh) aargs
+    exp' <- local (\(a, b, c, d, e) -> (a, Map.union (Map.fromList argM) b, c, d, e)) $ getPtrs aargs c
+    pure $ Fun (LocalIdentifier n') (fmap snd argM) exp'
 
-lamLift :: CExp -> CExp
-lamLift = uncurry Fix . splitFns
-
-closureConvert :: CExp -> CExp
-closureConvert exp =
-    let funcs = functions exp
-        escp = escaping exp
-        fmd = functionMeta funcs exp
-        fvmap = fvmapify fmd
-        called = calls exp
-        cconv = convert exp
-    in
-        lamLift . fst . flip runState (closureNames, mempty) $ runReaderT cconv (escp, funcs, fvmap, called)
-
-{-
-type ClosureConv = ReaderT (Set.Set Identifier, Set.Set Name, Map.Map Identifier [Name]) (State [Name])
-
--- argument capping is done in a separate pass (that is, putting extra arguments into closures)
-
-{-
-The following holds for local functions:
-If one of a given function's arguments (call it `f`) is called, it is immediately, at the start of the function;
-  - renamed `f_`
-  - split into a function `f`
-
-Upon an `(App v vs)`;
-    - if v is not a known function, an extra argument `v_` is passed to it
-    - if v is a known function that escapes, an extra argument `v_` is passed to it
-    - forall `a` in vs, where `a` is a known function;
-      - replace `a` with `a_`
-      - bind `a_` to a closure of `a`
-
-The following holds for global functions:
-Leave as normal. Global functions cannot capture.
--}
-
-extraArgs :: CFun -> ClosureConv CFun
-extraArgs (Fun id args exp) = do
-    args <- fmap ((args ++) . Set.toList) (getFv id)
-    (exp', args') <- fmap (second reverse) $ foldM (\(exp, args) arg -> do
-        getsCalled <- isCalled (LocalIdentifier arg)
-        if getsCalled then
-            let arg_ = arg ++ "_"
-                bindarg = Select 0 (Var $ LocalIdentifier arg_) arg
-            in
-                (bindarg exp, arg_:args)
-        else
-            pure $ (exp, arg:args)) (exp, []) args
-    pure $ Fun id args' exp'
-
-makeClosure :: CFun -> ClosureConv CFun
-makeClosure fn@(Fun id@(LocalIdentifier name) args exp) = do
-    fnEsc <- escapes id
-    if fnEsc then do
-        let name_ = name ++ "_"
-            bindargs = foldr (\(arg, index) -> Select index (Var $ LocalIdentifier name_) arg) (zip args [1..])
-        in
-            pure $ Fun id [name_] (bindargs exp)
-    else
-        pure fn
-makeClosure x = pure x
+globalFn :: Identifier -> [Name] -> CExp -> ClosureConv CFun
+globalFn id args c = local (\(_, b, c, d, e) -> (Just id, b, c, d, e)) $ do
+    argM <- mapM (\a -> fmap ((,) a) fresh) args
+    exp' <- local (\(a, b, c, d, e) -> (a, Map.union (Map.fromList argM) b, c, d, e)) $ getPtrs args c
+    pure $ Fun id (fmap snd argM) exp'
 
 convertFun :: CFun -> ClosureConv CFun
-convertFun (Fun id args exp) = do
-    exp' <- convert exp
-    fn <- extraArgs (Fun id args exp')
-    makeClosure fn
+convertFun (Fun (LocalIdentifier n) args exp) = localFn n args exp
+convertFun (Fun id args exp) = globalFn id args exp
 
-makeArgClosure :: Name -> ClosureConv (Name, CExp -> CExp)
-makeArgClosure name = do
-    let v = LocalIdentifier name
-    known <- isKnown v
-    reqcls <- escapes v
-    if known && reqcls then do
-        freevars <- getFv v
-        let name_ = name ++ "_"
-        let binding = Record (fmap (\(arg, index) -> (Value $ LocalIdentifier arg, OffPath index)) (zip (name:freevars) [0..])) name_
-        pure (name_, binding)
-    else
-        pure (name, id)
+splitFn :: Name -> [Name] -> ClosureConv CFun
+splitFn f args = do
+    ffv <- getFv f
+    f' <- getName f
+    c <- fresh
+    fv' <- mapM (\a -> fresh) ffv
+    arg' <- mapM (\a -> fresh) args
+    let binding = foldr (.) id (fmap (\(n,i) -> Select i (Var $ LocalIdentifier c) n) (zip fv' [1..]))
+    pure . Fun (LocalIdentifier (split f')) (arg' ++ [c]) . binding $ App (Var $ LocalIdentifier f') (fmap (Var . LocalIdentifier) $ arg' ++ fv')
 
-convert :: CExp -> ClosureConv CExp
-convert (App (Var v@(LocalIdentifier name)) vs) = do
-    known <- isKnown v
-    reqcls <- escapes v
-    if known && reqcls then do
-        freevars <- getFv v
-        let name_ = name ++ "_"
-        let freevarBinding = Record (fmap (\(arg, index) -> (Value $ LocalIdentifier arg, OffPath index)) (zip freevars [1..])) name_
-        (args, fns) <- mapM (\case
-            Var (LocalIdentifier n) -> fmap (first (Var . LocalIdentifier)) $ makeArgClosure n
-            x -> pure (x, id)) vs
-         
+convertExp :: CExp -> ClosureConv CExp
+convertExp (Fix defs exp) = do
+    let fnNamesArgs = concatMap (\(Fun id args _) -> case id of
+            LocalIdentifier n -> [(n,args)]
+            _ -> []) defs
+    fnM <- mapM (\(n,_) -> fmap ((,) n) fresh) fnNamesArgs
+    local (\(a, b, c, d, e) -> (a, Map.union (Map.fromList fnM) b, c, d, e)) $ do
+        needsSplit <- filterM (needsClosure. fst) fnNamesArgs
+        splitted <- mapM (uncurry splitFn) needsSplit
+        defs' <- mapM convertFun defs
+        exp' <- convertExp exp
+        pure $ Fix (defs'++splitted) exp'
+convertExp (App v vs) = withArgs vs $ do
+    mp <- getPtr v
+    v' <- getVal v
+    vs' <- mapM getVal vs
+    case mp of
+        Just ptr -> pure $ App ptr (vs'++[v'])
+        Nothing -> do
+            ffv <- getFV v
+            vfv <- mapM (fmap (Var . LocalIdentifier) . getName) ffv
+            pure $ App v' (vs'++vfv)
+convertExp (Record paths n exp) = withArgs (fmap fst paths) $ do
+    n' <- fresh
+    paths' <- mapM (mtf . first getVal) paths
+    exp' <- bind n n' (convertExp exp)
+    pure $ Record paths' n' exp'
+convertExp (Select i v n exp) = withArgs [v] $ do
+    v' <- getVal v
+    n' <- fresh
+    exp' <- bind n n' (convertExp exp)
+    pure $ Select i v' n' exp'
+convertExp (Switch v exps) = do -- can only 'Switch' on an int
+    v' <- getVal v
+    exps' <- mapM convertExp exps
+    pure $ Switch v' exps'
+convertExp (Primop p vs n exps) = withArgs vs $ do
+    vs' <- mapM getVal vs
+    n' <- fresh
+    exps' <- bind n n' $ mapM convertExp exps
+    pure $ Primop p vs' n' exps'
+convertExp x = pure x
+
+smash :: CExp -> ([CFun], CExp)
+smash (Fix defs exp) =
+    let defs' = concatMap (\(Fun id args exp) ->
+            let (defs, exp') = smash exp in (Fun id args exp'):defs) defs
+    in first (++defs') (smash exp)
+smash (Record a b exp) = second (Record a b) (smash exp)
+smash (Select a b c exp) = second (Select a b c) (smash exp)
+smash (Switch a exps) = second (Switch a) . foldr (mappend . (\(a, b) -> (a, [b]))) mempty $ fmap smash exps
+smash (Primop a b c exps) = second (Primop a b c) . foldr (mappend . (\(a, b) -> (a, [b]))) mempty $ fmap smash exps
+smash x = ([], x)
 
 {-
-convert (App id args) c = do
-    isKnown <- isKnownCall id
-    needsClosure <- escapes id
-    fvs <- getFv id
-    if isKnown && needsClosure then do
-        n <- fresh
-        cv <- c (Var $ LocalIdentifier n)
-        pure $ Record (fmap (\(v, p) -> (Var $ LocalIdentifier v, OffPath p)) (zip fv [1..])) n cv
-    else if isKnown then
-        pure $ 
--}
+encloseArg :: Value -> ClosureConv CExp -> ClosureConv CExp
+encloseArg (Var (LocalIdentifier n)) c = do
+    enclose <- needsClosure n
+    if enclose then do
+        v <- freshCls n
+        fvs <- mapM getName =<< getFv n
+        let binding = Record (fmap (flip (,) (OffPath 0) . Var . LocalIdentifier) (split v:fvs)) v
+        fmap binding $ local (\(a, b, c, d, e) -> (a, Map.insert n v b, c, d, e)) c
+    else
+        c
+encloseArg _ c = c
+
+-- need to sort out old/new args
+convertFun :: CFun -> ClosureConv CFun
+convertFun (Fun (LocalIdentifier n) args exp) = do
+    enclose <- needsClosure n
+    (newargs, oldargs, localfn) <- if enclose then do
+            fv <- mapM (\n -> fmap ((,) n) (freshFv n)) =<< getFv n
+            pure (args ++ fmap snd fv, args ++ fmap fst fv, (\(_, b, c, d, e) -> (Just n, (Map.fromList fv) `Map.union` b, c, d, e)))
+        else
+            pure (args, args, (\(_, b, c, d, e) -> (Just n, b, c, d, e)))
+    local localfn $ do
+        (binding, fps) <- fmap (foldr (\(a, b) (a', b') -> (a . a', b ++ b')) (id, [])) $ mapM (\f -> do
+            called <- calledUnknown f
+            if called then do
+                f' <- getName f
+                fp <- freshFnPtr f
+                let binding = Select 0 (Var $ LocalIdentifier f') fp
+                pure (binding, [(f, fp)])
+            else
+                pure (id, [])) oldargs
+        exp' <- local (\(a, b, c, d, e) -> (a, b, (Map.fromList fps) `Map.union` c, d, e)) (convertExp exp)
+        pure . Fun (LocalIdentifier n) newargs $ binding exp'
+convertFun (Fun id args exp) = do
+    exp' <- local (\(_, b, c, d, e) -> (Nothing, b, c, d, e)) (convertExp exp)
+    pure $ Fun id args exp'
+
+splitFun :: Name -> [Name] -> ClosureConv CFun
+splitFun f args = do
+    fv <- getFv f
+    cls <- freshCls f
+    fargs <- mapM (\n -> freshFv n) fv
+    let args' = args++[cls]
+    let binding = foldr (.) id (fmap (\(n, i) -> Select i (Var $ LocalIdentifier cls) n) (zip fargs [1..]))
+    pure . Fun (LocalIdentifier $ split f) args' . binding . App (Var $ LocalIdentifier f) . fmap (Var . LocalIdentifier) $ args ++ fargs
+
+convertExp :: CExp -> ClosureConv CExp
+convertExp (App (Var (LocalIdentifier f)) args) = foldr (.) id (fmap encloseArg args) $ do
+    fKnown <- known f
+    args' <- mapM getVal args
+    if fKnown then
+        pure (App (Var $ LocalIdentifier f) args')
+    else do
+        f' <- getName f
+        fp <- getFnPtr f
+        pure . App (Var $ LocalIdentifier fp) $ args' ++ [Var $ LocalIdentifier f']
+convertExp (Record paths n exp) = foldr (.) id (fmap (encloseArg . fst) paths) $ do
+    paths' <- mapM (\(v, p) -> fmap (flip (,) p) (getVal v)) paths
+    exp' <- convertExp exp
+    pure (Record paths' n exp')
+convertExp (Select i v n exp) = encloseArg v $ do
+    v' <- getVal v
+    exp' <- convertExp exp
+    pure (Select i v' n exp')
+convertExp (Switch v exps) = -- since you cannot pattern match on a function, v cannot need a closure
+    fmap (Switch v) (mapM convertExp exps)
+convertExp (Primop p args n exps) = foldr (.) id (fmap encloseArg args) $ do
+    args' <- mapM getVal args
+    fmap (Primop p args' n) (mapM convertExp exps)
+convertExp (Fix defs exp) = do
+    defs' <- mapM convertFun defs
+    splitted <- fmap (foldr mappend []) $ mapM (\case
+        Fun (LocalIdentifier n) args _ -> fmap (\a -> [a]) $ splitFun n args
+        _ -> pure []) defs
+    exp' <- convertExp exp
+    pure (Fix (defs'++splitted) exp)
+convertExp x = pure x
 -}

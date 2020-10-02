@@ -38,7 +38,6 @@ data CExp
     | Fix [CFun] CExp
     | Record [(Value, AccessPath)] Name CExp
     | Select Int Value Name CExp
-    -- | Offset Int Value Name CExp
     | Switch Value [CExp]
     | MatchError
     | Halt
@@ -54,6 +53,9 @@ valueToSet :: Value -> Set.Set Name
 valueToSet = (\case
     Var (LocalIdentifier id) -> Set.singleton id
     _ -> mempty)
+
+valuesToSet :: [Value] -> Set.Set Name
+valuesToSet = foldr mappend mempty . fmap valueToSet
 
 identToName :: Identifier -> Maybe Name
 identToName = (\case
@@ -101,6 +103,11 @@ orderByDepth (Primop _ args n exps) = fmap (Map.delete n) $ (Map.fromList . fmap
 orderByDepth _ = Map.empty
 -}
 
+isLet :: CExp -> Bool
+isLet (Select _ _ _ _) = True
+isLet (Record _ _ _) = True
+isLet _ = False
+
 instance Show CExp where
     show (App a args) = show a ++ concatMap (\arg -> ' ':show arg) args
     show (Fix defs exp) = "fix " ++ concatMap (\fn -> show fn ++ "\n") defs ++ "in " ++ show exp
@@ -111,7 +118,8 @@ instance Show CExp where
     show MatchError = "fail"
 
 instance Show AccessPath where
-    show (OffPath x) = show x
+    show (OffPath 0) = ""
+    show (OffPath x) = "[" ++ show x ++ "]"
     show (SelPath x y) = show y ++ "[" ++ show x ++ "]"
 
 instance Pretty CFun Int where
@@ -121,8 +129,12 @@ instance Pretty CExp Int where
     pretty (App a args) _ = show a ++ concatMap (\arg -> ' ':show arg) args
     --"\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> v ++ " = " ++ pretty ir (n+4)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix defs exp) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\fn -> pretty fn (n+4)) defs) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
-    pretty (Record va id exp) n = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show a ++ "=" ++ show v) va) ++ "}\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
-    pretty (Select i v id exp) n = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")" ++ " in " ++ pretty exp (n+4)
+    pretty (Record va id exp) n
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}" ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
+    pretty (Select i v id exp) n
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")" ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
     pretty (Switch v exp) n = "\n" ++ replicate n ' ' ++ "switch " ++ show v ++ concatMap (\(cse, i) -> "\n" ++ replicate (n+4) ' ' ++ show i ++ " -> " ++ pretty cse (n+8)) (zip exp [0..])
     pretty Halt _ = "halt"
     pretty MatchError _ = "fail"

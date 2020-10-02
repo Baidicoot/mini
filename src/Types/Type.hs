@@ -5,6 +5,7 @@ module Types.Type where
 import Types.Ident
 import Types.Pattern
 import Types.Graph
+import Types.Prim
 
 import Control.Monad
 import qualified Data.Set as Set
@@ -13,6 +14,7 @@ import qualified Data.Map as Map
 data TypeNode
     = FunctionType
     | KindStar
+    | Builtin LitType
     | NamedType Identifier
     | TypeVar Name
     deriving(Eq)
@@ -22,17 +24,24 @@ type Type = AppGraph TypeNode
 type Kind = Type
 
 instance Show TypeNode where
-    show FunctionType = "⟶"
+    show FunctionType = "(⟶)"
     show KindStar = "★"
     show (NamedType s) = show s
     show (TypeVar s) = s
+    show (Builtin t) = show t
+
+showPar :: Type -> String
+showPar (Node _ t) = show t
+showPar t = "(" ++ show t ++ ")"
+
+showArg :: Type -> String
+showArg (App _ (App _ (Node _ FunctionType) i) o) = "(" ++ showArg i ++ " ⟶ " ++ show o ++ ")"
+showArg t = show t
 
 instance {-# OVERLAPPING #-} Show Type where
-    show (App () (Node () FunctionType) (Node () x)) = show x ++ " ⟶"
-    show (App () (Node () FunctionType) x) = "(" ++ show x ++ ") ⟶"
-    show (App () a (Node () b)) = show a ++ " " ++ show b
-    show (App () a b) = show a ++ " (" ++ show b ++ ")"
-    show (Node () x) = show x
+    show (App _ (App _ (Node _ FunctionType) i) o) = showArg i ++ " ⟶ " ++ show o
+    show (App _ a b) = show a ++ showPar b
+    show (Node _ t) = show t
 
 data Scheme = Forall (Set.Set Name) Type deriving(Eq)
 
@@ -57,13 +66,13 @@ instance (Substitutable s, Substitutable a) => Substitutable (TaggedAppGraph s a
     ftv (App t a b) = ftv t `mappend` ftv a `mappend` ftv b
     ftv (Node t a) = ftv t `mappend` ftv a
 
-instance Substitutable () where
-    apply _ _ = ()
+instance Substitutable NoTag where
+    apply _ _ = NoTag
     ftv _ = mempty
 
 applyN :: Subst -> TypeNode -> Type
-applyN s t@(TypeVar n) = Map.findWithDefault (Node () t) n s
-applyN _ t = (Node () t)
+applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
+applyN _ t = (Node NoTag t)
 
 ftvN :: TypeNode -> Set.Set Name
 ftvN (TypeVar n) = Set.singleton n
@@ -71,17 +80,17 @@ ftvN _ = Set.empty
 
 infixr 9 -->
 (-->) :: Type -> Type -> Type
-a --> b = App () (App () (Node () FunctionType) a) b
+a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b
 
 arity :: Type -> Int
-arity (App () (App () (Node () FunctionType) _) b) = 1 + arity b
+arity (App NoTag (App NoTag (Node NoTag FunctionType) _) b) = 1 + arity b
 arity _ = 0
 
 zipArgs :: Type -> [Name] -> Maybe ([(Name, Type)], Type)
 zipArgs t ns
     | arity t == length ns = Just $ internal t ns
     where
-        internal (App () (App () (Node () FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
+        internal (App NoTag (App NoTag (Node NoTag FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
             ((x, a):rs, r)
         internal t [] = ([], t)
 zipArgs _ _ = Nothing

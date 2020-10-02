@@ -44,7 +44,7 @@ overflowArgsFn :: CFun -> Spill CFun
 overflowArgsFn (Fun id args exp) = do
     exp' <- overflowArgs exp
     n <- ask
-    if n <= length args then
+    if n >= length args then
         pure $ Fun id args exp'
     else do
         c <- fresh
@@ -76,6 +76,7 @@ overflowArgs (Switch v exps) = do
 overflowArgs (Primop a b c exps) = do
     exps' <- mapM overflowArgs exps
     pure $ Primop a b c exps'
+overflowArgs x = pure x
 
 type SpillCtx = (Maybe Name, Map.Map Name Int, Map.Map Name Name)
 -- spill record name, vars only in spill, vars in regs -> fresh names
@@ -135,34 +136,34 @@ selectVars ctx@(rn, rc, scope) info bound args = do
     let new = bound `Set.union` args
     let ndup = n - Set.size new - 1
     let (keeping, dropping) = keepN ndup (unique ctx) (duplicated ctx) info
-    let needsSpill = ndup > Map.size scope
     (argSelects, argNames) <- foldM (\(fn, map) arg -> case Map.lookup arg rc of
         Just i -> do
             f <- fresh
             let binding = Select i (Var $ LocalIdentifier arg) f
             pure (binding . fn, (arg, f):map)
         Nothing -> pure (fn, (arg, arg):map)) (id, []) $ Set.toList args
-    (rn', rc', rfn) <- if needsSpill then do
+    (rn', rc', rfn) <- do
             let vars = dropping `Set.union` Map.keysSet rc
-            let (accesses, locations) = case rn of
-                    Just rn -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v rc, Map.lookup v scope) of
-                        (Just oi, _) ->
-                            let acs' = (Var $ LocalIdentifier rn, SelPath oi (OffPath 0)):acs
-                            in (acs', (v, ni):locs)
-                        (_, Just ov) ->
-                            let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
-                            in (acs', (v, ni):locs)
-                        _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
-                    Nothing -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v scope) of
-                        Just ov ->
-                            let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
-                            in (acs', (v, ni):locs)
-                        _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
-            rn' <- fresh
-            let binding = Record accesses rn'
-            pure (Just rn', Map.fromList locations, binding)
-        else
-            pure (rn, rc, id)
+            if Set.size vars > 0 then do
+                let (accesses, locations) = case rn of
+                        Just rn -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v rc, Map.lookup v scope) of
+                            (Just oi, _) ->
+                                let acs' = (Var $ LocalIdentifier rn, SelPath oi (OffPath 0)):acs
+                                in (acs', (v, ni):locs)
+                            (_, Just ov) ->
+                                let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
+                                in (acs', (v, ni):locs)
+                            _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
+                        Nothing -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v scope) of
+                            Just ov ->
+                                let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
+                                in (acs', (v, ni):locs)
+                            _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
+                rn' <- fresh
+                let binding = Record accesses rn'
+                pure (Just rn', Map.fromList locations, binding)
+            else
+                pure (rn, rc, id)
     let scope' = Map.fromList argNames `Map.union` Map.filterWithKey (\k _ -> k `Set.member` keeping) scope `Map.union` (Map.fromList . Set.toList $ Set.map (\x -> (x, x)) bound)
     pure ((rn', rc', scope'), argSelects . rfn)
 
@@ -192,7 +193,7 @@ lookupValsRecord accs (Just rn, rc, scope) = fmap (\(v, p) ->
                 case (Map.lookup n scope, Map.lookup n rc) of
                     (Just o, _) -> (Var $ LocalIdentifier o, p)
                     (_, Just i) -> (Var $ LocalIdentifier rn, SelPath i p)
-                    _ -> error "unreachable"
+                    _ -> (Var $ LocalIdentifier n, p)
             _ -> (v, p)) accs
 lookupValsRecord accs ctx = fmap (first (flip lookupValCtx ctx)) accs
 

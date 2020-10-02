@@ -11,6 +11,7 @@ import Types.Type
 import Types.Pattern
 import Types.Ident
 import Types.IR
+import Types.Env
 
 import Data.Maybe
 import Data.Monoid
@@ -26,8 +27,9 @@ typenames = fmap (('t':) . show) [0..]
 
 annotate :: Typespace -> IR -> Either TypeError TaggedIR
 annotate (Typespace globals constructors) ir = do
-    (ir', ns, _, cs) <- runInfer (infer ir) globals constructors typenames
-    subst <- solve cs
+    ((_, ir'), ns, _, cs) <- runInfer (infer ir) globals constructors typenames
+    (subst, _) <- runSolve (solve cs) ns
+    pure $ apply subst ir'
 
 selectWithRest :: (a -> [a] -> Bool) -> [a] -> (Maybe a, [a])
 selectWithRest = internal []
@@ -49,7 +51,7 @@ fresh = do
     names <- get
     let (n:ns) = names
     put ns
-    pure (Node () (TypeVar n))
+    pure (Node NoTag (TypeVar n))
 
 instantiateSubst :: Scheme -> Solver (Type, Subst)
 instantiateSubst (Forall poly t) = do
@@ -80,10 +82,10 @@ occursCheck :: Name -> Type -> Bool
 occursCheck n t = n `Set.member` ftv t
 
 bind :: Rigid -> Name -> Type -> Solver Subst
-bind rigid n0 t@(Node () (TypeVar n1))
+bind rigid n0 t@(Node NoTag (TypeVar n1))
     | n0 == n1 = pure mempty
     | n0 `Set.member` rigid && n1 `Set.member` rigid = throwError $ RigidityDup n0 n1
-    | n0 `Set.member` rigid = pure (Map.singleton n1 (Node () (TypeVar n0)))
+    | n0 `Set.member` rigid = pure (Map.singleton n1 (Node NoTag (TypeVar n0)))
     | otherwise = pure (Map.singleton n0 t)
 bind rigid n0 t
     | occursCheck n0 t = throwError $ InfiniteType n0 t
@@ -91,9 +93,9 @@ bind rigid n0 t
     | otherwise = pure (Map.singleton n0 t)
 
 unify :: Rigid -> Type -> Type -> Solver Subst
-unify rigid (Node () (TypeVar n)) t1 = bind rigid n t1
-unify rigid t0 (Node () (TypeVar n)) = bind rigid n t0
-unify rigid (App () a b) (App () x y) = do
+unify rigid (Node NoTag (TypeVar n)) t1 = bind rigid n t1
+unify rigid t0 (Node NoTag (TypeVar n)) = bind rigid n t0
+unify rigid (App NoTag a b) (App NoTag x y) = do
     s0 <- unify rigid a x
     s1 <- unify rigid b y
     compose rigid s0 s1
