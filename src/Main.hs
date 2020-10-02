@@ -20,9 +20,9 @@ import Frontend.IRify
 import Frontend.GenEnv
 import Frontend.Constraint
 import Frontend.Solve
-import Frontend.CPSify
-import Frontend.ClosureConv
-import Frontend.Spill
+import CPS.CPSify
+import CPS.ClosureConv
+import CPS.Spill
 
 import qualified Types.CPS as CPS
 

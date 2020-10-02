@@ -1,4 +1,4 @@
-module Frontend.Spill where
+module CPS.Spill where
 
 import Types.CPS
 import Types.Ident

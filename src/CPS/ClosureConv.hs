@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Frontend.ClosureConv (closureConvert, mkEnv) where
+module CPS.ClosureConv (closureConvert, mkEnv) where
 
 import System.IO.Unsafe
 

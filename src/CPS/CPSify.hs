@@ -1,4 +1,4 @@
-module Frontend.CPSify where
+module CPS.CPSify where
 
 import Types.CPS
 import Types.Ident
