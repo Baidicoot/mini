@@ -49,11 +49,17 @@ main = forever $ do
                 let ds = genDataspace ["Repl"] b
                     ns = genNamespace ["Repl"] b
                     in case irify ds ns b of
-                        Left err -> print err
-                        Right c -> do
+                        Left err -> do
+                            print b
+                            print err
+                            print ds
+                            print ns
+                        Right (datadefs, c) -> do
                             putStrLn "Untyped:"
                             prettyPrint c (0::Int)
-                            case annotate (Typespace mempty mempty) c of
+                            let ts = (genConsTypespace datadefs)
+                            print ts
+                            case annotate ts c of
                                 Left err -> print err
                                 Right d -> do
                                     putStrLn "\n\nTyped:"
@@ -61,6 +67,7 @@ main = forever $ do
                                     let e = cpsify ds c
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
+                                    --printEnv (mkEnv e)
                                     let f = closureConvert e
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)

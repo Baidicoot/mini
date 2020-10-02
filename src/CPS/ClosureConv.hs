@@ -1,9 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 
-module CPS.ClosureConv (closureConvert, mkEnv) where
-
-import System.IO.Unsafe
+module CPS.ClosureConv (closureConvert, mkEnv, printEnv) where
 
 import Types.CPS
 import Types.Ident
@@ -96,7 +94,7 @@ collectM :: CExp -> Collector Metadata
 collectM (Fix fns exp) = do
     let names = Set.fromList . catMaybes $ fmap (\(Fun id _ _) -> identToName id) fns
     tell names
-    m <- collectM exp
+    m <- withKnown names $ collectM exp
     withKnown names $ foldM (\m (Fun id args exp) -> fmap (mappend m) . inFn id $ fnArgs args =<< collectM exp) m fns
 collectM (App v vs) = do
     let vs' = valuesToSet vs
@@ -139,6 +137,22 @@ collate :: (ClosureData, Set.Set Name) -> ClosureEnv
 collate (cd, kf) = (Nothing, mempty, mempty, kf, cd)
 
 mkEnv = collate . first reduce . collect
+
+printEnv :: ClosureEnv -> IO ()
+printEnv (fn, rn, rp, kf, cd) = do
+    putStrLn "known functions:"
+    mapM_ putStrLn (Set.toList kf)
+    putStrLn "\nfunction metadata:"
+    mapM_ (\(i, (fv, esc, kc, uc)) -> do
+        putStrLn ("\n"++show i++":")
+        putStrLn "  fv:"
+        mapM_ (putStr . (++", ")) (Set.toList fv)
+        putStrLn "\n  esc:"
+        mapM_ (putStr . (++", ")) (Set.toList esc)
+        putStrLn "\n  kc:"
+        mapM_ (putStr . (++", ")) (Set.toList kc)
+        putStrLn "\n  uc:"
+        mapM_ (putStr . (++", ")) (Set.toList uc)) (Map.toList cd)
 
 type ClosureState = [Name]
 
@@ -210,7 +224,7 @@ needsClosure n = do
 getName :: Name -> ClosureConv Name
 getName n = do
     (_, ns, _, _, _) <- ask
-    pure $ Map.findWithDefault n n ns
+    pure $ Map.findWithDefault ("unk:"++n) n ns
 
 getVal :: Value -> ClosureConv Value
 getVal (Var (LocalIdentifier n)) = fmap (Var . LocalIdentifier) (getName n)
@@ -219,10 +233,12 @@ getVal x = pure x
 getFnPtr :: Name -> ClosureConv Name
 getFnPtr n = do
     (_, _, ns, _, _) <- ask
-    pure $ Map.findWithDefault "unknown" n ns
+    pure $ ns Map.! n
 
 getPtr :: Value -> ClosureConv (Maybe Value)
-getPtr (Var (LocalIdentifier n)) = fmap (Just . Var . LocalIdentifier) $ getFnPtr n
+getPtr (Var (LocalIdentifier n)) = do
+    (_, _, ns, _, _) <- ask
+    pure . fmap (Var . LocalIdentifier) $ Map.lookup n ns
 getPtr _ = pure Nothing
 
 -- rewrite EVERYTHING - *rename* everything
@@ -238,6 +254,7 @@ withCls :: Name -> ClosureConv CExp -> ClosureConv CExp
 withCls f c = do
     f' <- getName f
     fr <- fresh
+    ofv <- getFv f
     ffv <- mapM getName =<< getFv f
     exp <- local (\(a, b, c, d, e) -> (a, Map.insert f fr b, c, d, e)) c
     pure $ Record (fmap (\f -> (Var $ LocalIdentifier f, OffPath 0)) (split f':ffv)) fr exp
@@ -299,7 +316,7 @@ convertExp (Fix defs exp) = do
             LocalIdentifier n -> [(n,args)]
             _ -> []) defs
     fnM <- mapM (\(n,_) -> fmap ((,) n) fresh) fnNamesArgs
-    local (\(a, b, c, d, e) -> (a, Map.union (Map.fromList fnM) b, c, d, e)) $ do
+    local (\(a, b, c, d, e) -> (a, Map.fromList fnM `Map.union` b, c, d, e)) $ do
         needsSplit <- filterM (needsClosure. fst) fnNamesArgs
         splitted <- mapM (uncurry splitFn) needsSplit
         defs' <- mapM convertFun defs
@@ -309,6 +326,7 @@ convertExp (App v vs) = withArgs vs $ do
     mp <- getPtr v
     v' <- getVal v
     vs' <- mapM getVal vs
+    (_, _, k, _, _) <- ask
     case mp of
         Just ptr -> pure $ App ptr (vs'++[v'])
         Nothing -> do

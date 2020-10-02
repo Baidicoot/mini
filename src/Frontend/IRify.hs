@@ -42,7 +42,7 @@ type IRifier = StateT IRState (ReaderT IREnv (Except IRError))
 names :: [Name]
 names = [1..] >>= flip replicateM ['a'..'z']
 
-irify :: Dataspace -> Namespace -> [TopLevel] -> Either IRError IR
+irify :: Dataspace -> Namespace -> [TopLevel] -> Either IRError ([Ind], IR)
 irify (Dataspace ds) ns tl =
     let (nsm, csm) = genImportMap (Include ns)
     in evalIRifier names (nsm, csm, ds) (irifyTL tl)
@@ -278,7 +278,7 @@ buildMatchTree (Just n) matches = do
 
 buildIRFromMatchTree :: MatchTree -> IR
 buildIRFromMatchTree (ExprBranch n []) = 
-    App NoTag (Node NoTag $ Var $ LocalIdentifier n) (Node NoTag $ Var $ fst unit)
+    App NoTag (Node NoTag $ Var $ LocalIdentifier n) (Node NoTag $ Unboxed Unit)
 buildIRFromMatchTree (ExprBranch n args) =
     foldr (\n a -> App NoTag a (Node NoTag (Var $ LocalIdentifier n))) (Node NoTag (Var $ LocalIdentifier n)) args
 buildIRFromMatchTree (Switch n cases) =
@@ -423,7 +423,7 @@ curriedCons ((Ind _ _ is):ids) = do
 curriedCons [] = pure []
 
 -- todo: create env things
-irifyTL :: [TopLevel] -> IRifier IR
+irifyTL :: [TopLevel] -> IRifier ([Ind], IR)
 irifyTL ts = let (da, de) = sortTopLevel ts in do
     dat <- mapM irifyData da
     cons <- curriedCons dat
@@ -431,4 +431,4 @@ irifyTL ts = let (da, de) = sortTopLevel ts in do
     let (ds, exp) = (case ir of -- case in do is *weird*
             Node NoTag (Fix a b) -> (a, b)
             e -> ([], e))
-    pure (Node NoTag $ Fix (cons++ds) exp)
+    pure (dat, Node NoTag $ Fix (cons++ds) exp)

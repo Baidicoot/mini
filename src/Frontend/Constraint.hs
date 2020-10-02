@@ -199,8 +199,8 @@ instance Inferable IRPattern (Map.Map Name Type) where
         b <- fresh
         pure (Node NoTag (TypeVar b), Map.empty)
     infer (IRCons id args) = do
-        glob <- globals
-        case Map.lookup id glob of
+        cons <- constructors
+        case Map.lookup id cons of
             Just sch@(Forall _ scht) ->
                 if arity scht /= length args then
                     throwError $ WrongArgs id args

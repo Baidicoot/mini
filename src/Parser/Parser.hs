@@ -198,8 +198,8 @@ func d = pure $ Func d
 
 parsetoplevel :: [ExprS] -> Parser [TopLevel]
 parsetoplevel = mapM (\x
-    ->  (parsedefn x >>= func)
-    <|> Data <$> parsedata x)
+    ->  Data <$> parsedata x
+    <|> (parsedefn x >>= func))
 
 runParse :: Parser x -> Either [SyntaxError] x
 runParse = runExcept

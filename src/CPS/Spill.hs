@@ -182,6 +182,7 @@ lookupValCtx :: Value -> SpillCtx -> Value
 lookupValCtx v@(Var (LocalIdentifier n)) (_, _, scope) = case Map.lookup n scope of
     Just x -> Var $ LocalIdentifier x
     Nothing -> v
+lookupValCtx v _ = v
 
 lookupValsCtx :: [Value] -> SpillCtx -> [Value]
 lookupValsCtx vs ctx = fmap (flip lookupValCtx ctx) vs

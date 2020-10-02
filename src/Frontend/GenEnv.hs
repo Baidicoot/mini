@@ -2,9 +2,11 @@
 module Frontend.GenEnv where
 
 import Types.Ident
-import Types.Syntax
+import Types.Syntax hiding(Data(..))
+import qualified Types.Syntax as Syn
 import Types.Type
 import Types.Env
+import Types.IR
 import qualified Data.Map as Map
 
 genImportMap :: ImportAction -> (Map.Map Identifier Identifier, Map.Map Identifier Identifier)
@@ -24,7 +26,7 @@ genNamespace ns ts = Namespace ns (collectNames ts) (collectTypeNames ts)
     where
         collectTopLevel :: TopLevel -> [Name]
         collectTopLevel (Func (Defn _ n _ _)) = [n]
-        collectTopLevel (Data (Ind _ _ as)) = fmap (\(Expl n _) -> n) as
+        collectTopLevel (Data (Syn.Ind _ _ as)) = fmap (\(Expl n _) -> n) as
 
         collectNames :: [TopLevel] -> [Name]
         collectNames = concatMap (\t -> collectTopLevel t)
@@ -32,14 +34,20 @@ genNamespace ns ts = Namespace ns (collectNames ts) (collectTypeNames ts)
         collectTypeNames :: [TopLevel] -> [Name]
         collectTypeNames = concatMap (\case
             Func _ -> []
-            (Data (Ind n _ _)) -> [n])
+            (Data (Syn.Ind n _ _)) -> [n])
 
 genDataspace :: [Name] -> [TopLevel] -> Dataspace
 genDataspace ns ts = Dataspace (collectDatas ts)
     where
         collectData :: TopLevel -> Map.Map Identifier (Int, Int, Int)
-        collectData (Data (Ind _ _ cs)) = Map.fromList . fmap (\(Expl n t, i) -> (ExternalIdentifier ns n, (i, length cs, arity t))) $ zip cs [0..]
+        collectData (Data (Syn.Ind _ _ cs)) = Map.fromList . fmap (\(Expl n t, i) -> (ExternalIdentifier ns n, (i, length cs, arity t))) $ zip cs [0..]
         collectData _ = mempty
 
         collectDatas :: [TopLevel] -> Map.Map Identifier (Int, Int, Int)
         collectDatas = mconcat . fmap collectData
+
+genConsTypespace :: [Ind] -> Typespace
+genConsTypespace = Typespace mempty . mconcat . fmap collectData
+    where
+        collectData :: Ind -> Map.Map Identifier Scheme
+        collectData (Ind _ _ cs) = Map.fromList cs
