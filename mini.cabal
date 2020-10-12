@@ -29,10 +29,15 @@ executable mini
     Types.Graph,
     Types.Prim,
     Types.IR,
+    Types.Abstract,
     Frontend.GenEnv,
     Frontend.IRify,
     Frontend.Constraint,
-    Frontend.Solve
+    Frontend.Solve,
+    CPS.CPSify,
+    CPS.CLosureConv,
+    CPS.Spill,
+    Backend.AbstGen
   -- other-extensions:    
   build-depends:
     base >=4.9,

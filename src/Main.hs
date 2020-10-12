@@ -12,6 +12,7 @@ import Types.Graph
 import Types.Pretty
 import Types.IR
 import Types.Env
+import Types.Abstract
 
 import Control.Monad
 import qualified Data.Map as Map
