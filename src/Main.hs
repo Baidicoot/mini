@@ -24,6 +24,7 @@ import Frontend.Solve
 import CPS.CPSify
 import CPS.ClosureConv
 import CPS.Spill
+import Backend.AbstGen
 
 import qualified Types.CPS as CPS
 
@@ -75,3 +76,6 @@ main = forever $ do
                                     let g = spill (regs config) f
                                     putStrLn "\n\nSpilled:"
                                     prettyPrint g (0::Int)
+                                    let h = generateAbstract g (regs config)
+                                    putStrLn "\n\nAbstract:"
+                                    print h
