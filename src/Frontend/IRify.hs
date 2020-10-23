@@ -14,7 +14,6 @@ import Types.Type
 import Types.Env
 import Types.Prim
 import Frontend.GenEnv
-import Builtin.Decls (unit)
 
 import Control.Monad.State
 import Control.Monad.Except

@@ -26,16 +26,16 @@ filterFst f = filterGen (\(a,_) -> f a)
 filterSnd :: (b -> Bool) -> Injection a b -> Injection a b
 filterSnd f = filterGen (\(_,b) -> f b)
 
-lookup :: a -> Injection a b -> [(a,b)]
+lookup :: (Eq a) => a -> Injection a b -> [(a,b)]
 lookup a (Injection ns) = filter (\(a',_) -> a==a') ns
 
-lookupInv :: a -> Injection a b -> Maybe (a,b)
+lookupInv :: (Eq b) => b -> Injection a b -> Maybe (a,b)
 lookupInv b (Injection ns) = listToMaybe $ filter (\(_,b') -> b==b') ns
 
-member :: (Eq a) => Injection a b -> Bool
+member :: (Eq a) => a -> Injection a b -> Bool
 member a (Injection ns) = any (\(a',_) -> a'==a) ns
 
-memberInv :: (Eq b) => Injection a b -> Bool
+memberInv :: (Eq b) => b -> Injection a b -> Bool
 memberInv b (Injection ns) = any (\(_,b') -> b'==b) ns
 
 empty :: Injection a b
@@ -46,8 +46,8 @@ fromList ((a,b):xs) = insert a b (fromList xs)
 fromList [] = mempty
 
 -- left biased union
-union :: Injection a b -> Injection a b -> Injection a b
-union (Injection bs) inj = foldr (\(a,b) inj -> insert a b inj) bs inj
+union :: (Eq b) => Injection a b -> Injection a b -> Injection a b
+union (Injection as) bs = foldr (\(a,b) inj -> insert a b inj) bs as
 
 instance (Eq a, Eq b) => Monoid (Injection a b) where
     mempty = empty

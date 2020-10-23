@@ -35,8 +35,9 @@ executable mini
     Frontend.Constraint,
     Frontend.Solve,
     CPS.CPSify,
-    CPS.CLosureConv,
+    CPS.ClosureConv,
     CPS.Spill,
+    CPS.Meta,
     Backend.AbstGen
   -- other-extensions:    
   build-depends:

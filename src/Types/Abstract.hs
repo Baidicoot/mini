@@ -62,6 +62,7 @@ data Operator
     | Move Register Operand
     | Halt
     | Error String
+    | Comment String
     deriving(Eq)
 
 instance Show Operator where
@@ -72,6 +73,10 @@ instance Show Operator where
     show (Jmp o) = "jmp " ++ show o
     show (Record p r) = "record " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
     show (Select i o r) = "select " ++ show i ++ ", " ++ show o ++ ", " ++ show r
-    show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " show o0 ++ ", " ++ show o1
+    show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " ++ show o0 ++ ", " ++ show o1
+    show (Move a b) = "move " ++ show a ++ ", " ++ show b
+    show Halt = "halt"
+    show (Error str) = "error \"" ++ str ++ "\""
+    show (Comment str) = "// " ++ str
 
     showList xs s = concatMap (\o -> show o ++ "\n") xs

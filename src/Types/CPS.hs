@@ -141,29 +141,29 @@ instance Pretty CExp Int where
 
 -- get the argument positions a variable is used in
 getArg :: Name -> CExp -> Set.Set Int
-getArg n (App _ vs) = Set.fromList . fmap fst . filter (\(i,(v,p)) -> p == Off 0 && v == Var (LocalIdentifier n)) $ zip [0..] vs
+getArg n (App _ vs) = Set.fromList . fmap fst . filter (\(i,v) -> v == Var (LocalIdentifier n)) $ zip [0..] vs
 getArg n (Record _ _ e) = getArg n e
 getArg n (Select _ _ _ e) = getArg n e
-getArg n (Switch _ _ es) = mconcat $ fmap (getArg n) es
-getArg n (Primop _ vs _ _ es) = (Set.fromList . fmap fst . filter (\(i,v) -> v == Var (LocalIdentifier n)) $ zip [0..] vs) `Set.union` (mconcat $ fmap (getArg n) es)
+getArg n (Switch _ es) = mconcat $ fmap (getArg n) es
+getArg n (Primop _ vs _ es) = (Set.fromList . fmap fst . filter (\(i,v) -> v == Var (LocalIdentifier n)) $ zip [0..] vs) `Set.union` (mconcat $ fmap (getArg n) es)
 getArg _ _ = mempty
 
 -- get whether the variable is called
 getCalled :: Name -> CExp -> Bool
-getCalled n (App (Var (LocalIdentifier n)) _) = True
+getCalled n (App (Var (LocalIdentifier m)) _) = n == m
 getCalled n (Record _ _ e) = getCalled n e
 getCalled n (Select _ _ _ e) = getCalled n e
-getCalled n (Switch _ _ es) = foldr or False $ fmap (getCalled n) es
-getCalled n (Primop _ _ _ _ es) = foldr or False $ fmap (getCalled n) es
+getCalled n (Switch _ es) = or $ fmap (getCalled n) es
+getCalled n (Primop _ _ _ es) = or $ fmap (getCalled n) es
 getCalled _ _ = False
 
 maxArgs :: CExp -> Int
 maxArgs (App _ vs) = length vs
 maxArgs (Record _ _ e) = maxArgs e
 maxArgs (Select _ _ _ e) = maxArgs e
-maxArgs (Switch _ _ es) = max $ fmap maxArgs es
-maxArgs (Primop _ _ _ _ es) = max $ fmap maxArgs es
-maxArgs _ _ = 0
+maxArgs (Switch _ es) = foldr max 0 $ fmap maxArgs es
+maxArgs (Primop _ _ _ es) = foldr max 0 $ fmap maxArgs es
+maxArgs _ = 0
 
 getRegs :: Name -> CExp -> Set.Set Int
 getRegs n e = (if getCalled n e then Set.insert 0 else id) (Set.map (+1) (getArg n e))

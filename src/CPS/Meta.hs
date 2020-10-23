@@ -1,4 +1,4 @@
-module CPS.Meta (collect) where
+module CPS.Meta (collect, reduce, ClosureData) where
 
 import Types.CPS
 import Types.Ident

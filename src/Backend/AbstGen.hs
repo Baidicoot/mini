@@ -4,31 +4,32 @@ import Types.Abstract
 import Types.Ident
 import Types.Prim
 import qualified Types.CPS as CPS
+import Types.CPS (CExp, CFun, Value, AccessPath)
 import qualified Types.Injection as Inj
 
 import Prelude hiding(drop)
 import Control.Monad
 import Control.Arrow
-import Control.Monad.RWST
-import Data.List (find, uncons)
+import Control.Monad.RWS hiding(fix)
+import Data.List (find, uncons, nub)
 
 import CPS.Meta
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-type AbstState = (Inj.Inj Name GPR, Map.Map Name [GPR], Int)
+type AbstState = (Inj.Injection Name GPR, Map.Map Name [GPR], Int)
 -- current register operand state, register layouts, current name
 type AbstEnv = (Set.Set Name, Set.Set Name, Int)
 -- known non-escaping functions, known escaping functions, number of registers available
 
 runAbstGen :: AbstGen a -> AbstEnv -> (a, [Operator])
-runAbstGen a e = (\(a,_,c) -> (a,c)) (runRWS a e mempty)
+runAbstGen a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, mempty, 0))
 
 generateAbstract :: CExp -> Int -> [Operator]
 generateAbstract exp regs =
     let (metadata, funcs) = collect exp
-        escFns = (mconcat . fmap (\(_,(_,b,_,_)) -> b) $ Map.toList metadata) `Set.intersection` funcs
+        escFns = (mconcat . fmap (\(_,(_,b,_,_,_)) -> b) $ Map.toList metadata) `Set.intersection` funcs
         nonescFns = funcs `Set.difference` escFns
     in
         snd (runAbstGen (generate exp) (nonescFns, escFns, regs))
@@ -41,7 +42,7 @@ type AbstGen = RWS AbstEnv [Operator] AbstState
 -- escaping functions use r0 for first argument, etc.
 
 max :: AbstGen Int
-max = fmap snd ask
+max = fmap (\(_,_,c) -> c) ask
 
 emit :: Operator -> AbstGen ()
 emit op = tell [op]
@@ -49,16 +50,15 @@ emit op = tell [op]
 unused :: AbstGen GPR
 unused = do
     (env,_,_) <- get
-    a <- find (not . memberInv env) [0..]
-    let (Just b) = a
-    pure b
+    let (Just a) = find (not . flip Inj.memberInv env) [0..]
+    pure a
 
 cull :: CExp -> AbstGen ()
-cull exp = let free = fv exp in modify (\(a,b) -> (Inj.filterFst (`Set.member` free) a, b))
+cull exp = let free = CPS.fv exp in modify (\(a,b,c) -> (Inj.filterFst (`Set.member` free) a, b, c))
 
 getReg :: CExp -> AbstGen GPR
 getReg exp = do
-    cull
+    cull exp
     unused
 
 caseLabel :: AbstGen Int
@@ -68,40 +68,40 @@ caseLabel = do
     pure c
 
 assoc :: Name -> GPR -> AbstGen ()
-assoc n r = modify (\(a,b) -> (Inj.insert n r a, b))
+assoc n r = modify (\(a,b,c) -> (Inj.insert n r a, b, c))
 
 getAssoc :: GPR -> AbstGen (Maybe Name)
 getAssoc r = do
-    env <- get
+    (env, _, _) <- get
     pure . fmap fst $ Inj.lookupInv r env
 
 getPrimaryReg :: Name -> AbstGen (Maybe GPR)
 getPrimaryReg v = do
-    (env, _) <- get
+    (env, _, _) <- get
     case Inj.lookup v env of
-        Just (x:_) -> pure $ Just x
+        ((_, x):_) -> pure $ Just x
         _ -> pure Nothing
 
 desoc :: GPR -> AbstGen ()
-desoc r = modify (\(a,b) -> (Inj.deleteSnd r a, b))
+desoc r = modify (\(a,b,c) -> (Inj.deleteSnd r a, b, c))
 
 keep :: [GPR] -> AbstGen ()
-keep rs = modify (\(a,b) -> (Inj.filterSnd (`elem` rs) a, b))
+keep rs = modify (\(a,b,c) -> (Inj.filterSnd (`elem` rs) a, b, c))
 
 record :: [(Value, AccessPath)] -> Name -> CExp -> AbstGen ()
 record ps n exp = do
-    ps' <- convpaths ps
-    r <- getReg exp
-    assoc n r
-    emit (Record ps' r)
+    ps' <- mapM (\(a,b) -> fmap (flip (,) b) (getOp a)) ps
+    a <- getReg exp
+    assoc n a
+    emit (Record ps' (r a))
     generate exp
 
 select :: Int -> Value -> Name -> CExp -> AbstGen ()
 select i v n exp = do
     o <- getOp v
-    r <- getReg exp
-    assoc n r
-    emit (Select i o r)
+    a <- getReg exp
+    assoc n a
+    emit (Select i o (r a))
     generate exp
 
 jump :: Value -> AbstGen ()
@@ -113,7 +113,7 @@ copy a b = do
     desoc b
     assocd <- getAssoc a
     case assocd of
-        Just v -> assoc b v
+        Just v -> assoc v b
         Nothing -> pure ()
     emit (Move (r b) (r a))
 
@@ -167,17 +167,18 @@ getMovable xs = internal xs
 
 -- make simple, one-step moves
 simpleMoves :: [(GPR, GPR)] -> AbstGen [(GPR, GPR)]
-simpleMoves xs = case getMovable xs of
-    Just ((a,b), rem) -> do
-        move a b
-        simpleMoves rem
-    Nothing -> pure xs
+simpleMoves xs = let xs' = filterDone xs in
+    case getMovable xs' of
+        Just ((a,b), rem) -> do
+            move a b
+            simpleMoves rem
+        Nothing -> pure xs'
 
 filterDone :: [(GPR,GPR)] -> [(GPR,GPR)]
 filterDone = filter (\(a,b) -> a/=b)
 
 displace :: [(GPR,GPR)] -> Maybe ((GPR,GPR), [(GPR, GPR)])
-displace = uncons
+displace = uncons . filterDone
 
 -- expects that all unused registers have been 'cleared'
 permute :: [(GPR, GPR)] -> AbstGen ()
@@ -198,11 +199,11 @@ permute rs = do
 duplicate :: [(GPR, GPR)] -> AbstGen ()
 duplicate = mapM_ (\(a,b) -> copy a b)
 
-makeOperand :: Value -> AbstGen Operand
-makeOperand (CPS.Unboxed l) = pure (ImmLit l)
-makeOperand (CPS.Var (LocalIdentifier v)) = do
-    (known, _) <- ask
-    if v `Set.member` known then
+getOp :: Value -> AbstGen Operand
+getOp (CPS.Unboxed l) = pure (ImmLit l)
+getOp (CPS.Var (LocalIdentifier v)) = do
+    (known, escaping, _) <- ask
+    if v `Set.member` known || v `Set.member` escaping then
         pure (ImmLabel (LocalIdentifier v))
     else do
         reg <- getPrimaryReg v
@@ -214,7 +215,7 @@ fill :: [(Operand, GPR)] -> AbstGen ()
 fill = mapM_ (\(a,b) -> emit (Move (r b) a))
 
 organizeMoves :: [(Value, GPR)] -> AbstGen ([(GPR, GPR)], [(GPR, GPR)], [(Operand, GPR)])
-organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates a in (x,y,b)) . splitLits
+organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates (filterDone (nub a)) in (x,y,b)) . splitLits
     where
         findLast :: (a -> Bool) -> [a] -> Maybe a
         findLast f (x:xs) = case findLast f xs of
@@ -225,7 +226,7 @@ organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates a in (x,y,b)) . spli
         splitLits :: [(Value, GPR)] -> AbstGen ([(GPR, GPR)], [(Operand, GPR)])
         splitLits [] = pure ([], [])
         splitLits ((a,b):xs) = do
-            o <- makeOperand a
+            o <- getOp a
             (moves, fills) <- splitLits xs
             case o of
                 Reg (GPR a') -> pure ((a',b):moves, fills)
@@ -235,6 +236,7 @@ organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates a in (x,y,b)) . spli
         splitDuplicates ((a,b):xs) = case findLast (\(a',_) -> a==a') xs of
             Just (_,b') -> second ((b',b):) (splitDuplicates xs)
             Nothing -> first ((a,b):) (splitDuplicates xs)
+        splitDuplicates [] = ([], [])
 
 doMoves :: [(Value, GPR)] -> AbstGen ()
 doMoves xs = do
@@ -246,14 +248,14 @@ doMoves xs = do
 genLayout :: [Value] -> AbstGen [GPR]
 genLayout (CPS.Var (LocalIdentifier v):xs) = do
     reg <- getPrimaryReg v
-    ls <- getLayout xs
+    ls <- genLayout xs
     case reg of
         Just a -> let a' = (\(Just a) -> a) $ find (not . (`elem` ls)) [0..] in
             pure (a':ls)
         Nothing -> let a' = (\(Just a) -> a) $ find (not . (`elem` ls)) [0..] in
             pure (a':ls)
 genLayout (_:xs) = do
-    ls <- getLayout xs
+    ls <- genLayout xs
     let a = (\(Just a) -> a) $ find (not . (`elem` ls)) [0..]
     pure (a:ls)
 
@@ -269,7 +271,7 @@ getLayout n vs = do
     layout <- case Map.lookup n layouts of
         Just layout -> pure layout
         Nothing -> setLayout n vs
-    pure (ImmLabel . Label $ LocalIdentifier n, zip vs layout)
+    pure (ImmLabel $ LocalIdentifier n, zip vs layout)
 
 irrefutableGetLayout :: Name -> AbstGen [GPR]
 irrefutableGetLayout n = do
@@ -286,17 +288,18 @@ call val@(CPS.Var (LocalIdentifier v)) args = do
     else
         pure (Reg (GPR 0), (val,0):zip args [1..])
     doMoves rmap
+    emit (Comment (v ++ concatMap (\v -> ' ':show v) args))
     emit (Jmp callOp)
 call (CPS.Var v) args = do
     let rmap = zip args [1..]
     doMoves rmap
-    emit (Jmp (ImmLabel (Label v)))
+    emit (Jmp (ImmLabel v))
 
 clearRegs :: AbstGen ()
 clearRegs = modify (\(_,b,c) -> (mempty,b,c))
 
 loadRegs :: [(Name,GPR)] -> AbstGen ()
-loadRegs args = modify (\(_,b,c) -> (fromList args,b,c))
+loadRegs args = modify (\(_,b,c) -> (Inj.fromList args,b,c))
 
 partEsc :: [CFun] -> AbstGen ([CFun], [CFun])
 partEsc (f@(CPS.Fun (LocalIdentifier v) _ _):fs) = do
@@ -317,7 +320,7 @@ partAssigned :: [CFun] -> AbstGen ([CFun], [CFun])
 partAssigned (f@(CPS.Fun (LocalIdentifier v) _ _):fs) = do
     (_, assigned, _) <- get
     (assignedfns, otherfns) <- partAssigned fs
-    if v `Set.member` assigned then
+    if v `Map.member` assigned then
         pure (f:assignedfns, otherfns)
     else
         pure (assignedfns, f:otherfns)
@@ -332,7 +335,7 @@ genNonEsc fns = do
     else do
         mapM_ (\(CPS.Fun (LocalIdentifier n) args exp) -> do
             layout <- irrefutableGetLayout n
-            emit (Define (Label (LocalIdentifier n)))
+            emit (Define (LocalIdentifier n))
             loadRegs (zip args layout)
             generate exp) assignedfns
         genNonEsc otherfns
@@ -341,7 +344,8 @@ fix :: [CFun] -> AbstGen ()
 fix fns = do
     (nonesc, esc) <- partEsc fns
     mapM_ (\(CPS.Fun id args exp) -> do
-        emit (Define (Label id))
+        emit (Comment (show id ++ concatMap (\(a,i) -> ' ':a++":r"++show i) (zip args [1..])))
+        emit (Define id)
         loadRegs (zip args [1..])
         generate exp) esc
     genNonEsc nonesc
