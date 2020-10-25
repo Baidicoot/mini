@@ -49,32 +49,24 @@ valueToName = (\case
     Var (LocalIdentifier id) -> Just id
     _ -> Nothing)
 
-valueToSet :: Value -> Set.Set Name
-valueToSet = (\case
-    Var (LocalIdentifier id) -> Set.singleton id
-    _ -> mempty)
+extractNames :: [Value] -> [Name]
+extractNames (Var (LocalIdentifier n):ns) = n:extractNames ns
+extractNames (_:xs) = extractNames xs
+extractNames [] = []
 
-valuesToSet :: [Value] -> Set.Set Name
-valuesToSet = foldr mappend mempty . fmap valueToSet
-
-identToName :: Identifier -> Maybe Name
-identToName = (\case
-    LocalIdentifier id -> Just id
-    _ -> Nothing)
+extractIdents :: [Value] -> [Identifier]
+extractIdents (Var id:ns) = id:extractIdents ns
+extractIdents (_:xs) = extractIdents xs
+extractIdents [] = []
 
 fv :: CExp -> Set.Set Name
 fv (App n vs) = Set.fromList . catMaybes . fmap valueToName $ (n:vs)
-fv (Fix fns exp) = flip Set.difference (Set.fromList . catMaybes . fmap (\(Fun id _ _) -> identToName id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
+fv (Fix fns exp) = flip Set.difference (Set.fromList . extractLocals . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
 fv (Record vs n exp) = Set.delete n $ (fv exp) `Set.union` (Set.fromList . catMaybes . fmap (valueToName . fst) $ vs)
 fv (Select _ v n exp) = Set.delete n $ Set.fromList (maybeToList (valueToName v)) `Set.union` fv exp
 fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` (Set.fromList . maybeToList . valueToName $ v)
 fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . catMaybes . fmap valueToName $ args)
 fv _ = mempty
-
-mzip :: Monoid m => [m] -> [m] -> [m]
-mzip (a:as) (b:bs) = (a `mappend` b):(mzip as bs)
-mzip as [] = as
-mzip [] bs = bs
 
 type VarDepth = Map.Map Name Int
 
@@ -92,16 +84,6 @@ type VarInfo = (Set.Set Name, VarDepth)
 
 getVarInfo :: CExp -> VarInfo
 getVarInfo exp = (fv exp, getVarDepth exp)
-
-{-
-orderByDepth :: CExp -> VarDepth
-orderByDepth (App n vs) = Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName $ (n:vs)
-orderByDepth (Record vs n exp) = fmap (fmap (+1) . Map.delete n) $ (Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap (valueToName . fst) $ vs):(orderByDepth exp)
-orderByDepth (Select _ v n exp) = fmap (fmap (+1) . Map.delete n) $ (Map.singleton v 0):(orderByDepth exp)
-orderByDepth (Switch v exps) = (Map.fromList . fmap (\x -> (x, 0)) . maybeToList . valueToName $ v):(foldr mzip [] (fmap orderByDepth exps))
-orderByDepth (Primop _ args n exps) = fmap (Map.delete n) $ (Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName $ args):(foldr mzip [] (fmap orderByDepth exps))
-orderByDepth _ = Map.empty
--}
 
 isLet :: CExp -> Bool
 isLet (Select _ _ _ _) = True

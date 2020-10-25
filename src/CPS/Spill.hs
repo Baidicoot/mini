@@ -170,9 +170,9 @@ selectVars ctx@(rn, rc, scope) info bound args = do
 getBoundAndArgs :: CExp -> (Set.Set Name, Set.Set Name)
 getBoundAndArgs exp@(App _ _) = (mempty, fv exp)
 getBoundAndArgs (Record _ n _) = (Set.singleton n, mempty)
-getBoundAndArgs (Select _ v n _) = (Set.singleton n, valueToSet v)
-getBoundAndArgs (Switch v _) = (mempty, valueToSet v)
-getBoundAndArgs (Primop _ vs n _) = (Set.singleton n, mconcat $ fmap valueToSet vs)
+getBoundAndArgs (Select _ v n _) = (Set.singleton n, Set.fromList $ extractNames [v])
+getBoundAndArgs (Switch v _) = (mempty, Set.fromList $ extractNames [v])
+getBoundAndArgs (Primop _ vs n _) = (Set.singleton n, Set.fromList $ extractNames vs)
 getBoundAndArgs _ = (mempty, mempty)
 
 makeSpillStep :: CExp -> SpillCtx -> Spill (SpillCtx, CExp -> CExp)

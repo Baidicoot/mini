@@ -81,7 +81,7 @@ data TypeError
     | WrongArgs Identifier [Name]
     deriving(Eq, Show)
 
-type InferState = ([Name], AssumptionSet)
+type InferState = (Int, AssumptionSet)
 
 type Globals = Map.Map Identifier Scheme
 
@@ -102,15 +102,14 @@ globals = fmap (\(_,b,_)->b) ask
 constructors :: Infer Constructors
 constructors = fmap (\(_,_,c)->c) ask
 
-runInfer :: Infer a -> Globals -> Constructors -> [Name] -> Either TypeError (a, [Name], AssumptionSet, [Constraint])
+runInfer :: Infer a -> Globals -> Constructors -> Int -> Either TypeError (a, Int, AssumptionSet, [Constraint])
 runInfer a g c s = (\(a, (s, as), cs) -> (a, s, as, cs)) <$> runExcept (runRWST a (Set.empty, g, c) (s, []))
 
 fresh :: Infer Name
 fresh = do
-    (names, as) <- get
-    let (n:ns) = names
-    put (ns, as)
-    pure n
+    (n, as) <- get
+    put (n+1, as)
+    pure ('t':show n)
 
 -- borrowed from Solve, will unify once I rework the type system to interleave stages
 instantiateSubst :: Scheme -> Infer (Type, Subst)

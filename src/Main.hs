@@ -24,6 +24,7 @@ import Frontend.Solve
 import CPS.CPSify
 import CPS.ClosureConv
 import CPS.Spill
+import CPS.Meta
 import Backend.AbstGen
 
 import qualified Types.CPS as CPS
@@ -56,21 +57,19 @@ main = forever $ do
                             print err
                             print ds
                             print ns
-                        Right (datadefs, c) -> do
-                            putStrLn "Untyped:"
-                            prettyPrint c (0::Int)
+                        Right ((datadefs, c), names) -> do
+                            --putStrLn "Untyped:"
+                            --prettyPrint c (0::Int)
                             let ts = (genConsTypespace datadefs)
-                            print ts
-                            case annotate ts c of
+                            case annotate ts c names of
                                 Left err -> print err
-                                Right d -> do
-                                    putStrLn "\n\nTyped:"
+                                Right (d, names) -> do
+                                    putStrLn "Typed:"
                                     prettyPrint d (0::Int)
-                                    let e = cpsify ds c
+                                    let (e, names') = cpsify ds c names
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
-                                    --printEnv (mkEnv e)
-                                    let f = closureConvert e
+                                    let f = closureConvert e names'
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)
                                     let g = spill (regs config) f

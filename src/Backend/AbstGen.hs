@@ -28,8 +28,9 @@ runAbstGen a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, mempty, 0))
 
 generateAbstract :: CExp -> Int -> [Operator]
 generateAbstract exp regs =
-    let (metadata, funcs) = collect exp
-        escFns = (mconcat . fmap (\(_,(_,b,_,_,_)) -> b) $ Map.toList metadata) `Set.intersection` funcs
+    let metadata = collect exp
+        funcs = Set.fromList . extractLocals $ Map.keys metadata
+        escFns = (mconcat . fmap (Set.fromList . extractLocals . Set.toList . escaping . snd) $ Map.toList metadata) `Set.intersection` funcs
         nonescFns = funcs `Set.difference` escFns
     in
         snd (runAbstGen (generate exp) (nonescFns, escFns, regs))
@@ -258,6 +259,7 @@ genLayout (_:xs) = do
     ls <- genLayout xs
     let a = (\(Just a) -> a) $ find (not . (`elem` ls)) [0..]
     pure (a:ls)
+genLayout [] = pure []
 
 setLayout :: Name -> [Value] -> AbstGen [GPR]
 setLayout n vs = do
@@ -335,6 +337,7 @@ genNonEsc fns = do
     else do
         mapM_ (\(CPS.Fun (LocalIdentifier n) args exp) -> do
             layout <- irrefutableGetLayout n
+            emit (Comment (n ++ concatMap (\(a,i) -> ' ':a++":r"++show i) (zip args layout)))
             emit (Define (LocalIdentifier n))
             loadRegs (zip args layout)
             generate exp) assignedfns

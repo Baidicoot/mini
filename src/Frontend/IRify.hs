@@ -25,7 +25,7 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-type IRState = [Name]
+type IRState = Int
 type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier (Int, Int, Int))
 
 data IRError
@@ -38,26 +38,19 @@ data IRError
 
 type IRifier = StateT IRState (ReaderT IREnv (Except IRError))
 
-names :: [Name]
-names = [1..] >>= flip replicateM ['a'..'z']
-
-irify :: Dataspace -> Namespace -> [TopLevel] -> Either IRError ([Ind], IR)
+irify :: Dataspace -> Namespace -> [TopLevel] -> Either IRError (([Ind], IR), IRState)
 irify (Dataspace ds) ns tl =
     let (nsm, csm) = genImportMap (Include ns)
-    in evalIRifier names (nsm, csm, ds) (irifyTL tl)
+    in runIRifier 0 (nsm, csm, ds) (irifyTL tl)
 
 runIRifier :: IRState -> IREnv -> IRifier a -> Either IRError (a, IRState)
 runIRifier s e = runExcept . flip runReaderT e . flip runStateT s
 
-evalIRifier :: IRState -> IREnv -> IRifier a -> Either IRError a
-evalIRifier s e = runExcept . flip runReaderT e . flip evalStateT s
-
 fresh :: IRifier Name
 fresh = do
-    names <- get
-    let (n:ns) = names
-    put ns
-    pure n
+    n <- get
+    put (n+1)
+    pure ('v':show n)
 
 withEnv :: [(Identifier, Identifier)] -> IRifier a -> IRifier a
 withEnv ts p = do

@@ -22,14 +22,11 @@ import Control.Monad.State
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-typenames :: [Name]
-typenames = fmap (('t':) . show) [0..]
-
-annotate :: Typespace -> IR -> Either TypeError TaggedIR
-annotate (Typespace globals constructors) ir = do
-    ((_, ir'), ns, _, cs) <- runInfer (infer ir) globals constructors typenames
-    (subst, _) <- runSolve (solve cs) ns
-    pure $ apply subst ir'
+annotate :: Typespace -> IR -> Int -> Either TypeError (TaggedIR, Int)
+annotate (Typespace globals constructors) ir s = do
+    ((_, ir'), s', _, cs) <- runInfer (infer ir) globals constructors s
+    (subst, s'') <- runSolve (solve cs) s'
+    pure $ (apply subst ir', s'')
 
 selectWithRest :: (a -> [a] -> Bool) -> [a] -> (Maybe a, [a])
 selectWithRest = internal []
@@ -40,18 +37,17 @@ selectWithRest = internal []
             | otherwise = internal (r++[x]) f xs
         internal _ _ [] = (Nothing, [])
 
-type Solver = StateT [Name] (Except TypeError)
+type Solver = StateT Int (Except TypeError)
 type Rigid = Set.Set Name
 
-runSolve :: Solver a -> [Name] -> Either TypeError (a, [Name])
+runSolve :: Solver a -> Int -> Either TypeError (a, Int)
 runSolve m = runExcept . runStateT m
 
 fresh :: Solver Type
 fresh = do
-    names <- get
-    let (n:ns) = names
-    put ns
-    pure (Node NoTag (TypeVar n))
+    n <- get
+    put (n+1)
+    pure (Node NoTag (TypeVar ('t':show n)))
 
 instantiateSubst :: Scheme -> Solver (Type, Subst)
 instantiateSubst (Forall poly t) = do

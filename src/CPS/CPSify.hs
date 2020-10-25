@@ -18,15 +18,14 @@ import Data.List (partition)
 
 import qualified Data.Map as Map
 
-type CPSState = ([Name], [Name])
+type CPSState = Int
 type CPSEnv = Map.Map Identifier (Int, Int)
 
 fresh :: CPSifier Name
 fresh = do
-    (names, ks) <- get
-    let (n:ns) = names
-    put (ns, ks)
-    pure n
+    n <- get
+    put (n+1)
+    pure ('v':show n)
 
 index :: Identifier -> CPSifier Int
 index id = do
@@ -37,10 +36,9 @@ index id = do
 
 cont :: CPSifier Name
 cont = do
-    (ns, konts) <- get
-    let (k:ks) = konts
-    put (ns, ks)
-    pure k
+    n <- get
+    put (n+1)
+    pure ('k':show n)
 
 contNames :: [Name]
 contNames = fmap (("k"++) . show) [0..]
@@ -50,11 +48,11 @@ cpsNames = fmap (("c"++) . show) [0..]
 
 type CPSifier = StateT CPSState (Reader CPSEnv)
 
-runCPSify :: [Name] -> CPSEnv -> CPSifier a -> (a, CPSState)
-runCPSify ns e a = runReader (runStateT a (ns, contNames)) e
+runCPSify :: Int -> CPSEnv -> CPSifier a -> (a, CPSState)
+runCPSify ns e a = runReader (runStateT a ns) e
 
-cpsify :: Dataspace -> IR.PolyIR typ NoTag -> CExp
-cpsify (Dataspace env) exp = fst $ runCPSify cpsNames (fmap (\(a, b, _) -> (a, b)) env) (convert exp (\z -> pure Halt))
+cpsify :: Dataspace -> IR.PolyIR typ NoTag -> Int -> (CExp, CPSState)
+cpsify (Dataspace env) exp i = runCPSify i (fmap (\(a, b, _) -> (a, b)) env) (convert exp (\z -> pure Halt))
 
 convertNode :: IR.PolyIRNode typ NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (IR.Var id) c = c (Var id)

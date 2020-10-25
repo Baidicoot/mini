@@ -77,6 +77,6 @@ instance Show Operator where
     show (Move a b) = "move " ++ show a ++ ", " ++ show b
     show Halt = "halt"
     show (Error str) = "error \"" ++ str ++ "\""
-    show (Comment str) = "// " ++ str
+    show (Comment str) = "(* " ++ str ++ " *)"
 
     showList xs s = concatMap (\o -> show o ++ "\n") xs
