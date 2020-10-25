@@ -32,6 +32,8 @@ type ClosureEnv =
     , Map.Map Name Name
 --      known functions
     ,   ( Set.Set Identifier
+--      escaping functions
+        , Set.Set Identifier
 --      per-function data
         , Map.Map Identifier FunctionMeta
 --      closure data
@@ -55,7 +57,7 @@ closureConvert exp i
     . flip runState (i, mempty)
     . runReaderT (convertExp exp)
     $ let fnMeta = collect exp in
-        (Nothing, mempty, mempty, mempty, (Map.keysSet fnMeta, fnMeta, reduce fnMeta))
+        (Nothing, mempty, mempty, mempty, (allKnown fnMeta, allEscaping fnMeta, fnMeta, reduce fnMeta))
 
 fresh :: ClosureConv Name
 fresh = do
@@ -75,31 +77,36 @@ split id = do
 
 currentData :: ClosureConv (Maybe FunctionMeta)
 currentData = do
-    (n, _, _, _, (_, d, _)) <- ask
+    (n, _, _, _, (_, _, d, _)) <- ask
     pure (n >>= flip Map.lookup d)
 
 extraVars :: Name -> ClosureConv [Name]
 extraVars id = do
-    (_, _, _, _, (_, _, c)) <- ask
+    (_, _, _, _, (_, _, _, c)) <- ask
     pure . (\(FunctionClosure s) -> Set.toList s) $ Map.findWithDefault (FunctionClosure mempty) (LocalIdentifier id) c
 
 known :: Name -> ClosureConv Bool
 known n = do
-    (_, _, _, _, (k, _, _)) <- ask
+    (_, _, _, _, (k, _, _, _)) <- ask
     pure $ (LocalIdentifier n) `Set.member` k
 
 escapes :: Name -> ClosureConv Bool
 escapes f = do
-    (n, _, _, _, (_, d, _)) <- ask
+    (n, _, _, _, (_, _, d, _)) <- ask
     case n of
         Just n  -> case Map.lookup n d of
             Just d  -> pure ((LocalIdentifier f) `Set.member` escaping d)
             Nothing -> pure False
         Nothing -> pure False
 
+isEscaping :: Identifier -> ClosureConv Bool
+isEscaping i = do
+    (_, _, _, _, (_, e, _, _)) <- ask
+    pure (i `Set.member` e)
+
 called :: Name -> ClosureConv Bool
 called f = do
-    (n, _, _, _, (_, d, _)) <- ask
+    (n, _, _, _, (_, _, d, _)) <- ask
     case n of
         Just n  -> case Map.lookup n d of
             Just d  -> pure (f `Set.member` unknownCalls d)
@@ -231,7 +238,7 @@ convertExp (Fix fns exp) = do
     splitfns <-
         mapM (\(Fun (LocalIdentifier f) args _) -> splitFn f args =<< extraVars f)
         =<< filterM (\case
-            Fun (LocalIdentifier f) _ _ -> escapes f
+            Fun (LocalIdentifier f) _ _ -> isEscaping (LocalIdentifier f)
             _ -> pure False) fns
     exp' <- convertExp exp
     pure (Fix (fns' ++ splitfns) exp')

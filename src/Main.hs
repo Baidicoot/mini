@@ -16,6 +16,7 @@ import Types.Abstract
 
 import Control.Monad
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Frontend.IRify
 import Frontend.GenEnv
@@ -69,6 +70,8 @@ main = forever $ do
                                     let (e, names') = cpsify ds c names
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
+                                    let metadata = collect e
+                                    print (reduce metadata)
                                     let f = closureConvert e names'
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)

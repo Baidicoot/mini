@@ -1,4 +1,4 @@
-module CPS.Meta (collect, reduce, FunctionMeta(..), FunctionClosure(..)) where
+module CPS.Meta (collect, reduce, FunctionMeta(..), FunctionClosure(..), allKnown, allEscaping) where
 
 import Types.CPS
 import Types.Ident
@@ -96,6 +96,12 @@ collectFunctionMeta (Primop _ vs n exps) =
     in (,) nestedfns . escapes args . uses (extractLocals args) . binds [n] $ this
 collectFunctionMeta _ = (mempty, emptyFunctionMeta)
 
+allKnown :: Map.Map Identifier FunctionMeta -> Set.Set Identifier
+allKnown = Map.keysSet
+
+allEscaping :: Map.Map Identifier FunctionMeta -> Set.Set Identifier
+allEscaping = mconcat . fmap escaping . Map.elems
+
 collect :: CExp -> Map.Map Identifier FunctionMeta
 collect = fst . collectFunctionMeta
 
@@ -105,8 +111,8 @@ reduce :: Map.Map Identifier FunctionMeta -> Map.Map Identifier FunctionClosure
 reduce
     = fmap (\(vars, _) -> FunctionClosure vars)
     . reduceMeta
-    . fmap (\(FunctionMeta f _ k _ n) ->
-        (f, k `Set.difference` n))
+    . fmap (\(FunctionMeta f e k _ n) ->
+        (f, (k `Set.union` (Set.fromList . extractLocals $ Set.toList e)) `Set.difference` n))
     where
         reduceOnce :: Map.Map Identifier (Set.Set Name, Set.Set Name) -> Map.Map Identifier (Set.Set Name, Set.Set Name)
         reduceOnce m
