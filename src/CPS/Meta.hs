@@ -14,23 +14,29 @@ data FunctionMeta = FunctionMeta
     , knownCalls :: Set.Set Name
     , unknownCalls :: Set.Set Name
     , nested :: Set.Set Name
+    , bound :: Set.Set Name
     }
     deriving(Eq, Show)
 
 emptyFunctionMeta :: FunctionMeta
-emptyFunctionMeta = FunctionMeta mempty mempty mempty mempty mempty
+emptyFunctionMeta = FunctionMeta mempty mempty mempty mempty mempty mempty
 
 mergeFunctionMeta :: FunctionMeta -> FunctionMeta -> FunctionMeta
-mergeFunctionMeta (FunctionMeta a c e g i) (FunctionMeta b d f h j) =
+mergeFunctionMeta (FunctionMeta a c e g i k) (FunctionMeta b d f h j l) =
     FunctionMeta
         (a `Set.union` b)
         (c `Set.union` d)
         (e `Set.union` f)
         (g `Set.union` h)
         (i `Set.union` j)
+        (k `Set.union` l)
 
 binds :: [Name] -> FunctionMeta -> FunctionMeta
-binds vars f = f {free = free f `Set.difference` (Set.fromList vars), knownCalls = Set.filter (not . (`elem` vars)) (knownCalls f)}
+binds vars f = f
+    { free = free f `Set.difference` (Set.fromList vars)
+    , knownCalls = Set.filter (not . (`elem` vars)) (knownCalls f)
+    , bound = bound f `Set.union` (Set.fromList vars)
+    }
 
 uses :: [Name] -> FunctionMeta -> FunctionMeta
 uses vars f = f {free = free f `Set.union` (Set.fromList vars)}
@@ -39,7 +45,10 @@ escapes :: [Identifier] -> FunctionMeta -> FunctionMeta
 escapes vars f = f {escaping = escaping f `Set.union` (Set.fromList vars)}
 
 fixes :: [Name] -> FunctionMeta -> FunctionMeta
-fixes fns f = f {free = free f `Set.difference` (Set.fromList fns), unknownCalls = Set.filter (not . (`elem` fns)) (unknownCalls f)}
+fixes fns f = f
+    { free = free f `Set.difference` (Set.fromList fns)
+    , unknownCalls = Set.filter (not . (`elem` fns)) (unknownCalls f)
+    }
 
 nests :: (Map.Map Identifier FunctionMeta) -> FunctionMeta -> FunctionMeta
 nests m f = f
@@ -107,24 +116,30 @@ collect = fst . collectFunctionMeta
 
 newtype FunctionClosure = FunctionClosure (Set.Set Name) deriving(Eq, Show)
 
+-- fix this: - need to include fv from escaping, called that are not already bound by the function
+-- this implies the need for a 'bound' field of the record
 reduce :: Map.Map Identifier FunctionMeta -> Map.Map Identifier FunctionClosure
 reduce
-    = fmap (\(vars, _) -> FunctionClosure vars)
+    = fmap (\(vars, _, _) -> FunctionClosure vars)
     . reduceMeta
-    . fmap (\(FunctionMeta f e k _ n) ->
-        (f, (k `Set.union` (Set.fromList . extractLocals $ Set.toList e)) `Set.difference` n))
+    . fmap (\(FunctionMeta f e k _ _ b) ->
+        (f, k `Set.union` (Set.fromList . extractLocals $ Set.toList e), b))
     where
-        reduceOnce :: Map.Map Identifier (Set.Set Name, Set.Set Name) -> Map.Map Identifier (Set.Set Name, Set.Set Name)
+        reduceOnce ::
+            Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name)
+            -> Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name)
         reduceOnce m
-            = fmap (\(free, fns) ->
-                let (free', _)
+            = fmap (\(free, fns, bound) ->
+                let (free', _, _)
                         = mconcat
                         . fmap (flip (Map.findWithDefault mempty) m . LocalIdentifier)
                         $ Set.toList fns
                 in
-                    (free `Set.union` free', fns)) m
+                    (free `Set.union` (free' `Set.difference` bound), fns, bound)) m
 
-        reduceMeta :: Map.Map Identifier (Set.Set Name, Set.Set Name) -> Map.Map Identifier (Set.Set Name, Set.Set Name)
+        reduceMeta ::
+            Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name)
+            -> Map.Map Identifier (Set.Set Name, Set.Set Name, Set.Set Name)
         reduceMeta m
             | m' == m   = m'
             | otherwise = reduceMeta m'
