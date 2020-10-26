@@ -19,6 +19,12 @@ data TypeNode
     | TypeVar Name
     deriving(Eq)
 
+intty :: Type
+intty = Node NoTag (Builtin IntTy)
+
+unitty :: Type
+unitty = Node NoTag (Builtin UnitTy)
+
 type Type = AppGraph TypeNode
 
 type Kind = Type

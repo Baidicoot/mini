@@ -44,7 +44,6 @@ data PolyIRNode typ tag
     | Unboxed UnboxedLit
     | Match Name [(IRPattern, PolyIR typ tag)]
     | Select Int (PolyIR typ tag)
-    | Primop Primop
     deriving(Eq)
 
 instance (Show typ, Show tag) => Show (PolyIRNode typ tag) where

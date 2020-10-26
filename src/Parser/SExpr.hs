@@ -7,6 +7,7 @@ import Data.Functor
 
 import Types.Ident
 import Types.SExpr
+import Types.Syntax
 
 import Text.Parsec
 import Text.Parsec.String (Parser)
@@ -19,8 +20,5 @@ sexpr n
         node = fmap SNode (whiteSep n)
         sexp = fmap SExpr (whiteSep . parens . many . sexpr $ n)
 
-rpnccNode :: Parser Identifier
-rpnccNode = ident
-
-rpncc :: Parser (SExpr Identifier)
+rpncc :: Parser ExprS
 rpncc = sexpr rpnccNode

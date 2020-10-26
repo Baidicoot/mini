@@ -170,8 +170,8 @@ class Inferable i o where
     infer :: i -> Infer (Type, o)
 
 instance Inferable UnboxedLit UnboxedLit where
-    infer (Int i) = pure (Node NoTag (Builtin IntTy), Int i)
-    infer Unit = pure (Node NoTag (Builtin UnitTy), Unit)
+    infer (Int i) = pure (intty, Int i)
+    infer Unit = pure (unitty, Unit)
 
 {-
 instance Inferable PatternNode (Maybe (Name, Type)) where

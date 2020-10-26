@@ -7,6 +7,19 @@ import Types.Pattern
 import Types.Graph
 import Types.Prim
 
+data SyntaxNode
+    = Ident Identifier
+    | Lit UnboxedLit
+    | Prim Primop
+    | Arr
+    | Ann
+    | Star
+    | Hole
+    | Keyword String
+    deriving(Eq, Show)
+
+type ExprS = SExpr SyntaxNode
+
 data Match
     = Match Expr [(Pattern, Expr)]
     deriving(Eq, Show)

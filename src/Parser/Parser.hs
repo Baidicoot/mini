@@ -9,12 +9,11 @@ import Types.SExpr
 import Types.Ident
 import Types.Syntax
 import Types.Type
+import Types.Prim
 import Types.Pattern
 import Types.Graph
 
 import Data.Char (isLower)
-
-type ExprS = SExpr Identifier
 
 data SyntaxError
     = SyntaxError ExprS String
@@ -49,7 +48,7 @@ parsearr p (SExpr (x:xs)) = do
 parsearr _ x = syntaxError x "arrow"
 
 parseinfixarr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> (AppGraph a) -> [ExprS] -> Parser (AppGraph a)
-parseinfixarr p typ (SNode (LocalIdentifier "->"):x:xs) = do
+parseinfixarr p typ (SNode Arr:x:xs) = do
     xtyp <- p x
     xstyp <- parseinfixarr p xtyp xs
     pure (App NoTag (App NoTag (Node NoTag arrow) typ) xstyp)
@@ -60,11 +59,11 @@ instance InfixArrow TypeNode where
     arrow = FunctionType
 
 parseident :: ExprS -> Parser Identifier
-parseident (SNode x) = pure x
+parseident (SNode (Ident x)) = pure x
 parseident x = syntaxError x "identifier"
 
 parselet :: ExprS -> Parser Let
-parselet (SExpr (SNode (LocalIdentifier "let"):xs@(_:_))) = do
+parselet (SExpr (SNode (Keyword "let"):xs@(_:_))) = do
     defs <- mapM parsedefn (init xs)
     expr <- parseexpr (last xs)
     pure (Let defs expr)
@@ -81,7 +80,7 @@ parsedefn (SExpr [n, args, def]) = do
 parsedefn x = syntaxError x "definition"
 
 parsedata :: ExprS -> Parser Data
-parsedata (SExpr (SNode (LocalIdentifier "ind"):n:xs)) = do
+parsedata (SExpr (SNode (Keyword "ind"):n:xs)) = do
     (name, kind) <- (
         (flip (,) Nothing) <$> parsename n
         <|> (\(Expl n t) -> (n, Just t)) <$> parseannotpoly parsekind parsename n)
@@ -90,7 +89,7 @@ parsedata (SExpr (SNode (LocalIdentifier "ind"):n:xs)) = do
 parsedata x = syntaxError x "inductive"
 
 parsename :: ExprS -> Parser Name
-parsename (SNode (LocalIdentifier n)) = pure n
+parsename (SNode (Ident (LocalIdentifier n))) = pure n
 parsename x = syntaxError x "name"
 
 parsevar :: ExprS -> Parser Name
@@ -100,24 +99,28 @@ parsevar x = do
         (c:_) | isLower c -> pure n
         _ -> syntaxError x "var"
 
-parsereserved :: String -> ExprS -> Parser NoTag
-parsereserved s (SNode (LocalIdentifier n))
-    | s == n = pure NoTag
-parsereserved s x = syntaxError x s
+parseSpecial :: SyntaxNode -> ExprS -> Parser SyntaxNode
+parseSpecial n (SNode m)
+    | n == m = pure n
+parseSpecial n x = syntaxError x ("special " ++ show n)
 
 parselist :: (ExprS -> Parser a) -> ExprS -> Parser [a]
 parselist p (SExpr xs) = mapM p xs
 parselist p (SNode x) = mapM p [SNode x]
 
 parselam :: ExprS -> Parser Lam
-parselam (SExpr [SNode (LocalIdentifier "lam"), ns, expr]) = do
+parselam (SExpr [SNode (Keyword "lam"), ns, expr]) = do
     argns <- parselist parsename ns
     defexp <- parseexpr expr
     pure (Lam argns defexp)
 parselam x = syntaxError x "lambda"
 
+parselit :: ExprS -> Parser UnboxedLit
+parselit (SNode (Lit l)) = pure l
+parselit x = syntaxError x "literal"
+
 parseannotpoly :: (ExprS -> Parser t) -> (ExprS -> Parser a) -> ExprS -> Parser (AnnotationPoly t a)
-parseannotpoly t p (SExpr [SNode (LocalIdentifier "::"), exp, typ]) = do
+parseannotpoly t p (SExpr [exp, SNode Ann, typ]) = do
     e <- p exp
     a <- t typ
     pure (Expl e a)
@@ -128,7 +131,7 @@ parseannot = parseannotpoly parsetype
 
 parsepatternnode :: ExprS -> Parser PatternNode
 parsepatternnode x
-    =   parsereserved "_" x  $> PatternWildcard
+    =   parseSpecial Hole x  $> PatternWildcard
     <|> PatternVar          <$> parsevar x
     <|> PatternCons         <$> parseident x
 
@@ -143,7 +146,7 @@ parsecase (SExpr [p, e]) = do
 parsecase x = syntaxError x "case"
 
 parsematch :: ExprS -> Parser Match
-parsematch (SExpr ((SNode (LocalIdentifier "match")):e:ms)) = do
+parsematch (SExpr ((SNode (Keyword "match")):e:ms)) = do
     expr <- parseexpr e
     cases <- mapM parsecase ms
     pure (Match expr cases)
@@ -156,21 +159,22 @@ parseexprnode exp
     <|> Switch  <$> parsematch exp
     <|> Annot   <$> parseannot parseexpr exp
     <|> Var     <$> parseident exp
+    <|> Literal <$> parselit exp
 
 parseexpr :: ExprS -> Parser Expr
 parseexpr = parseapp parseexprnode
 
 parseparensarr :: ExprS -> Parser TypeNode
-parseparensarr (SExpr [SNode (LocalIdentifier "->")]) = pure FunctionType
+parseparensarr (SExpr [SNode Arr]) = pure FunctionType
 parseparensarr x = syntaxError x "parensArrow"
 
 -- when not busy, refactor to use `parsevar`
 parsenamedtype :: ExprS -> Parser TypeNode
-parsenamedtype x@(SNode (LocalIdentifier "->")) = syntaxError x "namedType"
-parsenamedtype (SNode id@(LocalIdentifier s@(c:_)))
+parsenamedtype x@(SNode Arr) = syntaxError x "namedType"
+parsenamedtype (SNode (Ident id@(LocalIdentifier s@(c:_))))
     | isLower c = pure (TypeVar s)
     | otherwise = pure (NamedType id)
-parsenamedtype (SNode id) = pure (NamedType id)
+parsenamedtype (SNode (Ident id)) = pure (NamedType id)
 parsenamedtype x = syntaxError x "namedType"
 
 parsetypenode :: ExprS -> Parser TypeNode
@@ -185,7 +189,7 @@ parsetype x
 
 parsekindnode :: ExprS -> Parser TypeNode
 parsekindnode x
-    =   parsereserved "*" x $> KindStar
+    =   parseSpecial Star x $> KindStar
 
 parsekind :: ExprS -> Parser Kind
 parsekind x

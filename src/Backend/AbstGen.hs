@@ -11,7 +11,7 @@ import Prelude hiding(drop)
 import Control.Monad
 import Control.Arrow
 import Control.Monad.RWS hiding(fix)
-import Data.List (find, uncons, nub)
+import Data.List (find, uncons, nub, intercalate)
 
 import CPS.Meta
 
@@ -94,6 +94,7 @@ record ps n exp = do
     ps' <- mapM (\(a,b) -> fmap (flip (,) b) (getOp a)) ps
     a <- getReg exp
     assoc n a
+    emit (Comment $ "let " ++ n ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) ps) ++ "}")
     emit (Record ps' (r a))
     generate exp
 
@@ -102,6 +103,7 @@ select i v n exp = do
     o <- getOp v
     a <- getReg exp
     assoc n a
+    emit (Comment $ "let " ++ n ++ " = " ++ show v ++ "[" ++ show i ++ "]")
     emit (Select i o (r a))
     generate exp
 
@@ -145,6 +147,7 @@ swap a b = do
 
 switch :: Value -> [CExp] -> AbstGen ()
 switch v exps = do
+    emit (Comment $ "switch " ++ show v)
     o <- getOp v
     lbls <- mapM (fmap (LocalIdentifier . ("case_"++) . show) . const caseLabel) exps
     table <- fmap (LocalIdentifier . ("table_"++) . show) caseLabel
@@ -286,9 +289,9 @@ call :: Value -> [Value] -> AbstGen ()
 call val@(CPS.Var (LocalIdentifier v)) args = do
     (known, _, _) <- ask
     (callOp, rmap) <- if v `Set.member` known then
-        getLayout v args
-    else
-        pure (Reg (GPR 0), (val,0):zip args [1..])
+            getLayout v args
+        else
+            pure (Reg (GPR 0), (val,0):zip args [1..])
     doMoves rmap
     emit (Comment (v ++ concatMap (\v -> ' ':show v) args))
     emit (Jmp callOp)
@@ -361,4 +364,3 @@ generate (CPS.Select i v n exp) = select i v n exp
 generate (CPS.Switch v exps) = switch v exps
 generate CPS.MatchError = emit (Error "MatchError")
 generate CPS.Halt = emit Halt
--- need to add cases for primops

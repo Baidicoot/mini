@@ -88,12 +88,13 @@ getVarInfo exp = (fv exp, getVarDepth exp)
 isLet :: CExp -> Bool
 isLet (Select _ _ _ _) = True
 isLet (Record _ _ _) = True
+isLet (Primop _ _ _ _) = True
 isLet _ = False
 
 instance Show CExp where
     show (App a args) = show a ++ concatMap (\arg -> ' ':show arg) args
     show (Fix defs exp) = "fix " ++ concatMap (\fn -> show fn ++ "\n") defs ++ "in " ++ show exp
-    show (Record va id exp) = "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show a ++ "=" ++ show v) va) ++ "} in " ++ show exp
+    show (Record va id exp) = "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "} in " ++ show exp
     show (Select i v id exp) = "let " ++ id ++ " = " ++ show v ++ "[" ++ show i ++ "]" ++ " in " ++ show exp
     show (Switch v exp) = "switch " ++ show v ++ concatMap (\cse -> "\n" ++ show cse) exp
     show Halt = "halt"
@@ -120,6 +121,9 @@ instance Pretty CExp Int where
     pretty (Switch v exp) n = "\n" ++ replicate n ' ' ++ "switch " ++ show v ++ concatMap (\(cse, i) -> "\n" ++ replicate (n+4) ' ' ++ show i ++ " -> " ++ pretty cse (n+8)) (zip exp [0..])
     pretty Halt _ = "halt"
     pretty MatchError _ = "fail"
+    pretty (Primop op vs id [exp]) n
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
 
 -- get the argument positions a variable is used in
 getArg :: Name -> CExp -> Set.Set Int
