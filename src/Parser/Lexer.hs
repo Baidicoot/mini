@@ -54,10 +54,11 @@ literalTy
 
 keyword :: Parser String
 keyword
-  =   string "let"
-  <|> string "ind"
+  =   try (string "let")
   <|> string "lam"
+  <|> string "ind"
   <|> string "match"
+  <|> string "fix"
 
 ident :: Parser Identifier
 ident = do
@@ -75,10 +76,11 @@ parens p = do
 
 rpnccNode :: Parser SyntaxNode
 rpnccNode
-  =   Lit         <$> try literal
-  <|> Keyword     <$> keyword
-  <|> string "->"  $> Arr
-  <|> string "::"  $> Ann
-  <|> string "Ty"  $> Star
-  <|> string "_"   $> Hole
-  <|> Ident       <$> ident
+  =   Lit               <$> try literal
+  <|> LitTy             <$> try literalTy
+  <|> Keyword           <$> try keyword
+  <|> try (string "->")  $> Arr
+  <|> try (string "::")  $> Ann
+  <|> try (string "Ty")  $> Star
+  <|> try (string "_")   $> Hole
+  <|> Ident             <$> ident

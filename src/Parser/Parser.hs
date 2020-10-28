@@ -1,9 +1,13 @@
-module Parser.Parser where
+{-# LANGUAGE LambdaCase #-}
 
+module Parser.Parser (toplevelexpr) where
+
+import Prelude hiding(or)
+
+import Data.Monoid
 import Data.Functor
 import Control.Monad
-import Control.Monad.Except
-import Control.Applicative
+import Data.Either
 
 import Types.SExpr
 import Types.Ident
@@ -16,194 +20,125 @@ import Types.Graph
 import Data.Char (isLower)
 
 data SyntaxError
-    = SyntaxError ExprS String
-    | TopLevelVal Definition
-    deriving(Eq, Show)
+    = Expecting String String
+    deriving(Show, Eq)
 
-type Parser = Except [SyntaxError]
+type Parser s a = s -> Either [SyntaxError] a
+type ExprParser a = Parser ExprS a
 
-syntaxError :: ExprS -> String -> Parser a
-syntaxError e s = throwError [SyntaxError e s]
+bothE :: Monoid m => Either m a -> Either m b -> Either m (a,b)
+bothE (Left m) (Left n) = Left (mappend m n)
+bothE (Left m) _ = Left m
+bothE _ (Left n) = Left n
+bothE (Right a) (Right b) = Right (a, b)
 
-parseapps :: (ExprS -> Parser a) -> ExprS -> Parser (AppGraph a)
-parseapps p (SExpr (x:xs)) = do
-    xexpr <- parseapp p x
-    foldM (\acc x -> do
-        exp <- parseapp p x
-        pure (App NoTag acc exp)) xexpr xs
-parseapps _ x = syntaxError x "app"
+both :: Parser s0 a -> Parser s1 b -> Parser (s0, s1) (a, b)
+both a b (s0, s1) = bothE (a s0) (b s1)
 
-parseapp :: (ExprS -> Parser a) -> ExprS -> Parser (AppGraph a)
-parseapp p x
-    =   Node NoTag <$> p x
-    <|> parseapps p x
+many :: Parser s a -> Parser [s] [a]
+many p xs = foldr (\a b -> fmap (uncurry (:)) $ bothE (p a) b) (Right []) xs
 
-class InfixArrow a where
-    arrow :: a
+many1 :: String -> Parser s a -> Parser [s] [a]
+many1 _ p xs@(_:_) = many p xs
+many1 s _ [] = Left [Expecting ("at least one " ++ s) "none"]
 
-parsearr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> ExprS -> Parser (AppGraph a)
-parsearr p (SExpr (x:xs)) = do
-    xtyp <- p x
-    parseinfixarr p xtyp xs
-parsearr _ x = syntaxError x "arrow"
+manyEnd :: String -> Parser s a -> Parser s b -> Parser [s] ([a], b)
+manyEnd _ a b xs@(_:_) = both (many a) b (init xs, last xs)
+manyEnd s _ _ [] = Left [Expecting s "none"]
 
-parseinfixarr :: (InfixArrow a) => (ExprS -> Parser (AppGraph a)) -> (AppGraph a) -> [ExprS] -> Parser (AppGraph a)
-parseinfixarr p typ (SNode Arr:x:xs) = do
-    xtyp <- p x
-    xstyp <- parseinfixarr p xtyp xs
-    pure (App NoTag (App NoTag (Node NoTag arrow) typ) xstyp)
-parseinfixarr _ typ [] = pure typ
-parseinfixarr _ _ x = syntaxError (SExpr x) "infixArrow"
+expr :: ExprParser Expr
+expr (SExpr (x:SNode Ann:xs)) = Node NoTag . Annot <$> annot expr (x, xs)
+expr (SExpr (SNode (Keyword "let"):xs)) = Node NoTag . LetIn <$> letexp xs
+expr (SExpr (SNode (Keyword "fix"):xs)) = Node NoTag . FixIn <$> fixexp xs
+expr (SExpr (SNode (Keyword "lam"):xs)) = Node NoTag . Lambda <$> lamexp xs
+expr (SExpr (SNode (Keyword "match"):xs)) = Node NoTag . Switch <$> matchexp xs
+expr (SNode (Lit l)) = Right (Node NoTag $ Literal l)
+expr (SNode (Ident i)) = Right (Node NoTag $ Var i)
+expr (SExpr xs) = apps "expression" expr xs
+expr s = Left [Expecting "expression" (show s)]
 
-instance InfixArrow TypeNode where
-    arrow = FunctionType
+annot :: ExprParser a -> Parser (ExprS, [ExprS]) (Annotation a)
+annot a (x, xs) = uncurry Expl <$> both a typeexp (x, SExpr xs)
 
-parseident :: ExprS -> Parser Identifier
-parseident (SNode (Ident x)) = pure x
-parseident x = syntaxError x "identifier"
+letexp :: Parser [ExprS] Let
+letexp = fmap (uncurry Let) . manyEnd "expression" valdef expr
 
-parselet :: ExprS -> Parser Let
-parselet (SExpr (SNode (Keyword "let"):xs@(_:_))) = do
-    defs <- mapM parsedefn (init xs)
-    expr <- parseexpr (last xs)
-    pure (Let defs expr)
-parselet x = syntaxError x "let"
+fixexp :: Parser [ExprS] Fix
+fixexp = fmap (uncurry Fix) . manyEnd "expression" fundef expr
 
-parsedefn :: ExprS -> Parser Definition
-parsedefn (SExpr [n, args, def]) = do
-    (name, typ) <- (
-        (flip (,) Nothing) <$> parsename n
-        <|> (\(Expl n t) -> (n, Just t)) <$> parseannot parsename n)
-    argns <- parselist parsename args
-    defexp <- parseexpr def
-    pure (Defn typ name argns defexp)
-parsedefn x = syntaxError x "definition"
+lamexp :: Parser [ExprS] Lam
+lamexp (x:xs) = uncurry Lam <$> both args expr (x, SExpr xs)
+lamexp x = Left [Expecting "lambda" (show x)]
 
-parsedata :: ExprS -> Parser Data
-parsedata (SExpr (SNode (Keyword "ind"):n:xs)) = do
-    (name, kind) <- (
-        (flip (,) Nothing) <$> parsename n
-        <|> (\(Expl n t) -> (n, Just t)) <$> parseannotpoly parsekind parsename n)
-    cases <- mapM (parseannot parsename) xs
-    pure (Ind name kind cases)
-parsedata x = syntaxError x "inductive"
+matchexp :: Parser [ExprS] Match
+matchexp (x:xs) = uncurry Match <$> both expr (many caseexp) (x, xs)
+matchexp x = Left [Expecting "expression" (show x)]
 
-parsename :: ExprS -> Parser Name
-parsename (SNode (Ident (LocalIdentifier n))) = pure n
-parsename x = syntaxError x "name"
+apps :: String -> Parser s (AppGraph a) -> Parser [s] (AppGraph a)
+apps _ p [s] = p s
+apps s p (x:xs) = uncurry (App NoTag) <$> both p (apps s p) (x, xs)
+apps s _ x = Left [Expecting (s ++ " application") "nothing"]
 
-parsevar :: ExprS -> Parser Name
-parsevar x = do
-    n <- parsename x
-    case n of
-        (c:_) | isLower c -> pure n
-        _ -> syntaxError x "var"
+typeexp :: ExprParser Type
+typeexp (SExpr (x:SNode Arr:xs)) = uncurry (-->) <$> both typeexp typeexp (x, SExpr xs)
+typeexp (SNode (Ident (LocalIdentifier i@(c:_))))
+    | isLower c = Right (Node NoTag (TypeVar i))
+typeexp (SNode (Ident i)) = Right (Node NoTag (NamedType i))
+typeexp (SNode (LitTy t)) = Right (Node NoTag (Builtin t))
+typeexp (SNode Star) = Right (Node NoTag KindStar)
+typeexp (SExpr xs) = apps "type" typeexp xs
+typeexp x = Left [Expecting "type" (show x)]
 
-parseSpecial :: SyntaxNode -> ExprS -> Parser SyntaxNode
-parseSpecial n (SNode m)
-    | n == m = pure n
-parseSpecial n x = syntaxError x ("special " ++ show n)
+valdef :: ExprParser ValDef
+valdef (SExpr (d:xs)) = (\((mt,n),e) -> ValDef mt n e) <$> both decl expr (d, SExpr xs)
+valdef x = Left [Expecting "value definition" (show x)]
 
-parselist :: (ExprS -> Parser a) -> ExprS -> Parser [a]
-parselist p (SExpr xs) = mapM p xs
-parselist p (SNode x) = mapM p [SNode x]
+fundef :: ExprParser FunDef
+fundef (SExpr (f:a:xs))
+    =   (\(((mt,n),a),e) -> FunDef mt n a e)
+    <$> both (both decl args) expr ((f, a), SExpr xs)
+fundef x = Left [Expecting "function definition" (show x)]
 
-parselam :: ExprS -> Parser Lam
-parselam (SExpr [SNode (Keyword "lam"), ns, expr]) = do
-    argns <- parselist parsename ns
-    defexp <- parseexpr expr
-    pure (Lam argns defexp)
-parselam x = syntaxError x "lambda"
+args :: ExprParser [Name]
+args (SNode (Ident (LocalIdentifier i))) = Right [i]
+args (SExpr xs) = many1 "name" name xs
 
-parselit :: ExprS -> Parser UnboxedLit
-parselit (SNode (Lit l)) = pure l
-parselit x = syntaxError x "literal"
+caseexp :: ExprParser (Pattern, Expr)
+caseexp (SExpr xs) = let (p, e) = splitArr xs in both patexp expr (SExpr p, SExpr e)
+    where
+        splitArr ((SNode Arr):xs) = ([], xs)
+        splitArr (x:xs) = let (p, e) = splitArr xs in (x:p, e)
+        splitArr _ = ([], [])
+caseexp x = Left [Expecting "case" (show x)]
 
-parseannotpoly :: (ExprS -> Parser t) -> (ExprS -> Parser a) -> ExprS -> Parser (AnnotationPoly t a)
-parseannotpoly t p (SExpr [exp, SNode Ann, typ]) = do
-    e <- p exp
-    a <- t typ
-    pure (Expl e a)
-parseannotpoly _ _ x = syntaxError x "annotation"
+name :: ExprParser Name
+name (SNode (Ident (LocalIdentifier l))) = Right l
+name x = Left [Expecting "name" (show x)]
 
-parseannot :: (ExprS -> Parser a) -> ExprS -> Parser (Annotation a)
-parseannot = parseannotpoly parsetype
+decl :: ExprParser (Maybe Type, Name)
+decl (SNode (Ident (LocalIdentifier l))) = Right (Nothing, l)
+decl (SExpr (SNode (Ident (LocalIdentifier l)):SNode Ann:xs)) = (\t -> (Just t, l)) <$> typeexp (SExpr xs)
+decl x = Left [Expecting "declaration" (show x)]
 
-parsepatternnode :: ExprS -> Parser PatternNode
-parsepatternnode x
-    =   parseSpecial Hole x  $> PatternWildcard
-    <|> PatternVar          <$> parsevar x
-    <|> PatternCons         <$> parseident x
+patexp :: ExprParser Pattern
+patexp (SNode (Ident (LocalIdentifier l@(c:_))))
+    | isLower c = Right (Node NoTag $ PatternVar l)
+patexp (SNode (Ident i)) = Right (Node NoTag $ PatternCons i)
+patexp (SNode Hole) = Right (Node NoTag PatternWildcard)
+patexp (SExpr xs) = apps "pattern" patexp xs
+patexp x = Left [Expecting "pattern" (show x)]
 
-parsepattern :: ExprS -> Parser Pattern
-parsepattern = parseapp parsepatternnode
+indexp :: Parser [ExprS] Data
+indexp (n:xs) = (\((mt, n), ds) -> Ind n mt ds) <$> both decl (many (annotation "name" name)) (n, xs)
+indexp x = Left [Expecting "inductive" (show x)]
 
-parsecase :: ExprS -> Parser (Pattern, Expr)
-parsecase (SExpr [p, e]) = do
-    pat <- parsepattern p
-    exp <- parseexpr e
-    pure (pat, exp)
-parsecase x = syntaxError x "case"
+annotation :: String -> ExprParser a -> ExprParser (Annotation a)
+annotation _ p (SExpr (x:SNode Ann:xs)) = annot p (x, xs)
+annotation s _ x = Left [Expecting ("annotated " ++ s) (show x)]
 
-parsematch :: ExprS -> Parser Match
-parsematch (SExpr ((SNode (Keyword "match")):e:ms)) = do
-    expr <- parseexpr e
-    cases <- mapM parsecase ms
-    pure (Match expr cases)
-parsematch x = syntaxError x "match"
+toplevel :: Parser ExprS TopLevel
+toplevel (SExpr (SNode (Keyword "ind"):xs)) = Data <$> indexp xs
+toplevel x = Func <$> fundef x
 
-parseexprnode :: ExprS -> Parser ExprNode
-parseexprnode exp
-    =   Lambda  <$> parselam exp
-    <|> LetIn   <$> parselet exp
-    <|> Switch  <$> parsematch exp
-    <|> Annot   <$> parseannot parseexpr exp
-    <|> Var     <$> parseident exp
-    <|> Literal <$> parselit exp
-
-parseexpr :: ExprS -> Parser Expr
-parseexpr = parseapp parseexprnode
-
-parseparensarr :: ExprS -> Parser TypeNode
-parseparensarr (SExpr [SNode Arr]) = pure FunctionType
-parseparensarr x = syntaxError x "parensArrow"
-
--- when not busy, refactor to use `parsevar`
-parsenamedtype :: ExprS -> Parser TypeNode
-parsenamedtype x@(SNode Arr) = syntaxError x "namedType"
-parsenamedtype (SNode (Ident id@(LocalIdentifier s@(c:_))))
-    | isLower c = pure (TypeVar s)
-    | otherwise = pure (NamedType id)
-parsenamedtype (SNode (Ident id)) = pure (NamedType id)
-parsenamedtype x = syntaxError x "namedType"
-
-parsetypenode :: ExprS -> Parser TypeNode
-parsetypenode x
-    =   parsenamedtype x
-    <|> parseparensarr x
-
-parsetype :: ExprS -> Parser Type
-parsetype x
-    =   parsearr parsetype x
-    <|> parseapp parsetypenode x
-
-parsekindnode :: ExprS -> Parser TypeNode
-parsekindnode x
-    =   parseSpecial Star x $> KindStar
-
-parsekind :: ExprS -> Parser Kind
-parsekind x
-    =   parsearr parsekind x
-    <|> parseapp parsekindnode x
-
-func :: Definition -> Parser TopLevel
-func d@(Defn _ _ [] _) = throwError [TopLevelVal d]
-func d = pure $ Func d
-
-parsetoplevel :: [ExprS] -> Parser [TopLevel]
-parsetoplevel = mapM (\x
-    ->  Data <$> parsedata x
-    <|> (parsedefn x >>= func))
-
-runParse :: Parser x -> Either [SyntaxError] x
-runParse = runExcept
+toplevelexpr :: Parser [ExprS] [TopLevel]
+toplevelexpr = many toplevel

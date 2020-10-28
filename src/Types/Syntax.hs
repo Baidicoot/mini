@@ -10,6 +10,7 @@ import Types.Prim
 data SyntaxNode
     = Ident Identifier
     | Lit UnboxedLit
+    | LitTy LitType
     | Prim Primop
     | Arr
     | Ann
@@ -25,7 +26,11 @@ data Match
     deriving(Eq, Show)
 
 data Let
-    = Let [Definition] Expr
+    = Let [ValDef] Expr
+    deriving(Eq, Show)
+
+data Fix
+    = Fix [FunDef] Expr
     deriving(Eq, Show)
 
 data Lam
@@ -46,6 +51,7 @@ data ExprNode
     = Var Identifier
     | Annot (Annotation Expr)
     | LetIn Let
+    | FixIn Fix
     | Lambda Lam
     | Literal UnboxedLit
     | Switch Match
@@ -53,11 +59,15 @@ data ExprNode
 
 type Expr = AppGraph ExprNode
 
-data Definition
-    = Defn (Maybe Type) Name [Name] Expr
+data FunDef
+    = FunDef (Maybe Type) Name [Name] Expr
+    deriving(Eq, Show)
+
+data ValDef
+    = ValDef (Maybe Type) Name Expr
     deriving(Eq, Show)
 
 data TopLevel
-    = Func Definition
+    = Func FunDef
     | Data Data
     deriving(Eq, Show)

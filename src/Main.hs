@@ -43,11 +43,12 @@ data Config = Config {regs :: Int}
 config :: Config
 config = Config {regs=10}
 
+
 main = forever $ do
     line <- prompt "> "
     case parse (many rpncc) "" line of
         Left err -> print err
-        Right a -> case runParse (parsetoplevel a) of
+        Right a -> case toplevelexpr a of
             Left err -> print err
             Right b ->
                 let ds = genDataspace ["Repl"] b

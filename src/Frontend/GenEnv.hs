@@ -25,7 +25,7 @@ genNamespace :: [Name] -> [TopLevel] -> Namespace
 genNamespace ns ts = Namespace ns (collectNames ts) (collectTypeNames ts)
     where
         collectTopLevel :: TopLevel -> [Name]
-        collectTopLevel (Func (Defn _ n _ _)) = [n]
+        collectTopLevel (Func (FunDef _ n _ _)) = [n]
         collectTopLevel (Data (Syn.Ind _ _ as)) = fmap (\(Expl n _) -> n) as
 
         collectNames :: [TopLevel] -> [Name]

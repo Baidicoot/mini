@@ -4,7 +4,7 @@ module Frontend.IRify where
 
 -- conversion between AST and uniquely-named IR + match compilation
 
-import Types.Syntax hiding(ExprNode(..), Let(..), Lam(..), Match(..), Data(..))
+import Types.Syntax hiding(ExprNode(..), Let(..), Lam(..), Match(..), Data(..), Fix(..))
 import qualified Types.Syntax as Syntax
 import Types.Ident
 import Types.IR
@@ -78,13 +78,22 @@ lookupCons id = do
         Just (_, _, 0) -> pure . Just . Node NoTag $ Cons id []
         _ -> pure Nothing
 
-irifyDefn :: Definition -> IRifier IR
-irifyDefn (Defn mt _ args expr) = do
+irifyFun :: FunDef -> IRifier IR
+irifyFun (FunDef mt _ args expr) = do
     argns <- mapM (\n -> do
         f <- fresh
         pure (LocalIdentifier n, LocalIdentifier f)) args
     def <- withEnv argns (irifyExpr expr)
     let ir = foldr (\(_, LocalIdentifier a) l -> Node NoTag $ Lam a l) def argns
+    case mt of
+        Just t -> do
+            t <- irifyType t
+            pure . Node NoTag $ Annot ir t
+        Nothing -> pure ir
+
+irifyVal :: ValDef -> IRifier IR
+irifyVal (ValDef mt _ expr) = do
+    ir <- irifyExpr expr
     case mt of
         Just t -> do
             t <- irifyType t
@@ -320,28 +329,25 @@ irifyMatch (Syntax.Match exp cases) = do
     let ir = buildIRFromMatchTree mt
     pure (Node NoTag $ Let b e (Node NoTag $ Fix defs ir))
 
-isLam :: Definition -> Bool
-isLam (Defn _ _ [] _) = False
-isLam _ = True
-
-irifyLet :: Bool -> [Definition] -> Syntax.Expr -> IRifier IR
-irifyLet b (d@(Defn _ n [] _):xs) expr = do
-    ir <- irifyDefn d
+irifyLet :: [ValDef] -> Syntax.Expr -> IRifier IR
+irifyLet (d@(ValDef _ n _):xs) expr = do
+    ir <- irifyVal d
     f <- fresh
-    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet b xs expr)
+    xsexp <- withEnv [(LocalIdentifier n, LocalIdentifier f)] (irifyLet xs expr)
     pure (Node NoTag $ Let f ir xsexp)
-irifyLet _ [] expr = do
+irifyLet [] expr = do
     ir <- irifyExpr expr
     pure ir
-irifyLet tl xs expr = do
-    let (defs, xs') = (takeWhile isLam xs, dropWhile isLam xs)
-    ns <- mapM (\(Defn _ n _ _) -> do
+
+irifyFix :: Bool -> [FunDef] -> Syntax.Expr -> IRifier IR
+irifyFix tl defs expr = do
+    ns <- mapM (\(FunDef _ n _ _) -> do
         f <- if tl then lookupEnv (LocalIdentifier n) else fmap LocalIdentifier fresh
         pure (LocalIdentifier n, f)) defs
     newdefs <- withEnv ns $ mapM (\(d, (_, f)) -> do
-        ir <- irifyDefn d
+        ir <- irifyFun d
         pure (f, ir)) (defs `zip` ns)
-    expr <- withEnv ns (irifyLet tl xs' expr)
+    expr <- withEnv ns (irifyExpr expr)
     pure (Node NoTag $ Fix newdefs expr)
 
 irifyNode :: Syntax.ExprNode -> IRifier IR
@@ -355,10 +361,11 @@ irifyNode (Syntax.Annot (Expl a t)) = do
     a <- irifyExpr a
     t <- irifyType t
     pure (Node NoTag $ Annot a t)
-irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet False defs expr
+irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet defs expr
 irifyNode (Syntax.Lambda l) = irifyLam l
 irifyNode (Syntax.Switch m) = irifyMatch m
 irifyNode (Syntax.Literal l) = pure . Node NoTag $ Unboxed l
+irifyNode (Syntax.FixIn (Syntax.Fix defs expr)) = irifyFix False defs expr
 
 irifyPoly :: (a -> IRifier (AppGraph b)) -> AppGraph a -> IRifier (AppGraph b)
 irifyPoly irfn = fmap join . traverse irfn
@@ -390,13 +397,13 @@ irifyData (Syntax.Ind n mk cs) = do
     n <- lookupType (LocalIdentifier n)
     pure (Ind n mk cs)
 
-sortTopLevel :: [TopLevel] -> ([Syntax.Data], [Definition])
+sortTopLevel :: [TopLevel] -> ([Syntax.Data], [FunDef])
 sortTopLevel ((Data d):xs) = let (da, de) = sortTopLevel xs in (d:da, de)
 sortTopLevel ((Func f):xs) = let (da, de) = sortTopLevel xs in (da, f:de)
 sortTopLevel [] = ([], [])
 
-irifyVals :: [Definition] -> IRifier IR
-irifyVals de = irifyLet True de (Node NoTag (Syntax.Literal Unit))
+irifyTLD :: [FunDef] -> IRifier IR
+irifyTLD de = irifyFix True de (Node NoTag (Syntax.Literal Unit))
 
 nullary :: Type -> Bool
 nullary = (==0) . arity
@@ -419,7 +426,7 @@ irifyTL :: [TopLevel] -> IRifier ([Ind], IR)
 irifyTL ts = let (da, de) = sortTopLevel ts in do
     dat <- mapM irifyData da
     cons <- curriedCons dat
-    ir <- irifyVals de
+    ir <- irifyTLD de
     let (ds, exp) = (case ir of -- case in do is *weird*
             Node NoTag (Fix a b) -> (a, b)
             e -> ([], e))

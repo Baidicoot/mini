@@ -13,8 +13,7 @@ data LitType
     deriving(Eq, Show)
 
 data Primop
-    = CCall String
-    | AAdd
+    = AAdd
     | ASub
     | ADiv
     | AMul
@@ -25,7 +24,6 @@ instance Show Primop where
     show ASub = "#-"
     show AMul = "#*"
     show ADiv = "#/"
-    show (CCall s) = "ccall(" ++ s ++ ")"
 
 instance Show UnboxedLit where
     show (Int i) = '#':(show i)
