@@ -74,8 +74,8 @@ parens p = do
   char ')'
   pure a
 
-rpnccNode :: Parser SyntaxNode
-rpnccNode
+rpnccTok :: Parser SyntaxNode
+rpnccTok
   =   Lit               <$> try literal
   <|> LitTy             <$> try literalTy
   <|> Keyword           <$> try keyword

@@ -17,12 +17,22 @@ data SyntaxNode
     | Star
     | Hole
     | Keyword String
-    deriving(Eq, Show)
+    deriving(Eq)
+
+instance Show SyntaxNode where
+    show (Ident id) = show id
+    show (Lit l) = show l
+    show (Prim o) = show o
+    show Arr = "->"
+    show Ann = "::"
+    show Star = "Ty"
+    show Hole = "_"
+    show (Keyword s) = s
 
 type ExprS = SExpr SyntaxNode
 
 data Match
-    = Match Expr [(Pattern, Expr)]
+    = Match Expr [(SourcePattern, Expr)]
     deriving(Eq, Show)
 
 data Let
@@ -41,10 +51,10 @@ data AnnotationPoly t a
     = Expl a t
     deriving(Eq, Show)
 
-type Annotation = AnnotationPoly Type
+type Annotation = AnnotationPoly SourceType
 
 data Data
-    = Ind Name (Maybe Kind) [Annotation Name]
+    = Ind Name (Maybe SourceType) [Annotation Name]
     deriving(Eq, Show)
 
 data ExprNode
@@ -57,14 +67,14 @@ data ExprNode
     | Switch Match
     deriving(Eq, Show)
 
-type Expr = AppGraph ExprNode
+type Expr = SourceGraph ExprNode
 
 data FunDef
-    = FunDef (Maybe Type) Name [Name] Expr
+    = FunDef (Maybe SourceType) Name [Name] Expr
     deriving(Eq, Show)
 
 data ValDef
-    = ValDef (Maybe Type) Name Expr
+    = ValDef (Maybe SourceType) Name Expr
     deriving(Eq, Show)
 
 data TopLevel

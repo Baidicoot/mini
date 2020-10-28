@@ -304,11 +304,11 @@ instance Inferable TypeNode TypeNode where
     infer FunctionType = pure (functionkind, FunctionType)
     infer KindStar = pure (Node NoTag KindStar, KindStar)
 
-instance Inferable i o => Inferable (AppGraph i) (TaggedAppGraph Type o) where
-    infer (Node NoTag i) = do
+instance Inferable i o => Inferable (TaggedAppGraph t i) (TaggedAppGraph Type o) where
+    infer (Node _ i) = do
         (t, e) <- infer i
         pure (t, Node t e)
-    infer (App NoTag e0 e1) = do
+    infer (App _ e0 e1) = do
         (t0, e0') <- infer e0
         (t1, e1') <- infer e1
         b <- fresh

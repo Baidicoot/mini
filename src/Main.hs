@@ -43,10 +43,9 @@ data Config = Config {regs :: Int}
 config :: Config
 config = Config {regs=10}
 
-
 main = forever $ do
     line <- prompt "> "
-    case parse (many rpncc) "" line of
+    case parse (many rpncc) "repl" line of
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err

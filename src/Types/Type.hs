@@ -11,6 +11,8 @@ import Control.Monad
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+import Text.Parsec.Pos
+
 data TypeNode
     = FunctionType
     | KindStar
@@ -25,7 +27,11 @@ intty = Node NoTag (Builtin IntTy)
 unitty :: Type
 unitty = Node NoTag (Builtin UnitTy)
 
+type SourceType = SourceGraph TypeNode
+
 type Type = AppGraph TypeNode
+
+type PolyType t = TaggedAppGraph t TypeNode
 
 type Kind = Type
 
@@ -36,22 +42,27 @@ instance Show TypeNode where
     show (TypeVar s) = s
     show (Builtin t) = show t
 
-showPar :: Type -> String
+showPar :: PolyType t -> String
 showPar (Node _ t) = show t
 showPar t = "(" ++ show t ++ ")"
 
-showArg :: Type -> String
+showArg :: PolyType t -> String
 showArg (App _ (App _ (Node _ FunctionType) i) o) = "(" ++ showArg i ++ " ⟶ " ++ show o ++ ")"
 showArg t = show t
 
-instance {-# OVERLAPPING #-} Show Type where
+instance {-# OVERLAPPING #-} Show (PolyType t) where
     show (App _ (App _ (Node _ FunctionType) i) o) = showArg i ++ " ⟶ " ++ show o
     show (App _ a b) = show a ++ showPar b
     show (Node _ t) = show t
 
-data Scheme = Forall (Set.Set Name) Type deriving(Eq)
+data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(Eq)
+type Scheme = PolyScheme NoTag
+type SourceScheme = PolyScheme SourcePos
 
-instance Show Scheme where
+untagScheme :: PolyScheme a -> Scheme
+untagScheme (Forall x t) = Forall x (untag t)
+
+instance Show (PolyScheme t) where
     show (Forall ns t) = "∀" ++ unwords (Set.toList ns) ++ ". " ++ show t
 
 type Monomorphic = Set.Set Name
@@ -88,15 +99,18 @@ infixr 9 -->
 (-->) :: Type -> Type -> Type
 a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b
 
-arity :: Type -> Int
-arity (App NoTag (App NoTag (Node NoTag FunctionType) _) b) = 1 + arity b
+fnTag :: t ->  TaggedAppGraph t TypeNode -> TaggedAppGraph t TypeNode -> TaggedAppGraph t TypeNode
+fnTag t a b = App t (App t (Node t FunctionType) a) b
+
+arity :: PolyType t -> Int
+arity (App _ (App _ (Node _ FunctionType) _) b) = 1 + arity b
 arity _ = 0
 
-zipArgs :: Type -> [Name] -> Maybe ([(Name, Type)], Type)
+zipArgs :: PolyType t -> [Name] -> Maybe ([(Name, PolyType t)], PolyType t)
 zipArgs t ns
     | arity t == length ns = Just $ internal t ns
     where
-        internal (App NoTag (App NoTag (Node NoTag FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
+        internal (App _ (App _ (Node _ FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
             ((x, a):rs, r)
         internal t [] = ([], t)
 zipArgs _ _ = Nothing
@@ -113,6 +127,6 @@ instance Substitutable a => Substitutable [a] where
     apply = map . apply
     ftv = foldr (Set.union . ftv) Set.empty
 
-generalize :: Monomorphic -> Type -> Scheme
+generalize :: Monomorphic -> PolyType t -> PolyScheme t
 generalize mono t = Forall as t
-    where as = ftv t `Set.difference` mono
+    where as = ftv (untag t) `Set.difference` mono

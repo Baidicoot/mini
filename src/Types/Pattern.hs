@@ -17,6 +17,7 @@ instance Show PatternNode where
     show (PatternVar n) = n
     show PatternWildcard = "_"
 
+type SourcePattern = SourceGraph PatternNode
 type Pattern = AppGraph PatternNode
 
 vars :: Pattern -> Set.Set Name

@@ -25,6 +25,11 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+import Text.Parsec.Pos
+
+tmpPos :: SourcePos
+tmpPos = initialPos "tmp"
+
 type IRState = Int
 type IREnv = (Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier (Int, Int, Int))
 
@@ -87,7 +92,7 @@ irifyFun (FunDef mt _ args expr) = do
     let ir = foldr (\(_, LocalIdentifier a) l -> Node NoTag $ Lam a l) def argns
     case mt of
         Just t -> do
-            t <- irifyType t
+            t <- irifyType (untag t)
             pure . Node NoTag $ Annot ir t
         Nothing -> pure ir
 
@@ -96,7 +101,7 @@ irifyVal (ValDef mt _ expr) = do
     ir <- irifyExpr expr
     case mt of
         Just t -> do
-            t <- irifyType t
+            t <- irifyType (untag t)
             pure . Node NoTag $ Annot ir t
         Nothing -> pure ir
 
@@ -324,7 +329,7 @@ irifyMatch :: Syntax.Match -> IRifier IR
 irifyMatch (Syntax.Match exp cases) = do
     e <- irifyExpr exp
     b <- fresh
-    (defs, parts) <- makeCases b cases
+    (defs, parts) <- makeCases b (fmap (first untag) cases)
     mt <- buildMatchTree (Just b) parts
     let ir = buildIRFromMatchTree mt
     pure (Node NoTag $ Let b e (Node NoTag $ Fix defs ir))
@@ -359,7 +364,7 @@ irifyNode (Syntax.Var id) = do
         Nothing -> pure (Node NoTag $ Var id)
 irifyNode (Syntax.Annot (Expl a t)) = do
     a <- irifyExpr a
-    t <- irifyType t
+    t <- irifyType (untag t)
     pure (Node NoTag $ Annot a t)
 irifyNode (Syntax.LetIn (Syntax.Let defs expr)) = irifyLet defs expr
 irifyNode (Syntax.Lambda l) = irifyLam l
@@ -367,11 +372,11 @@ irifyNode (Syntax.Switch m) = irifyMatch m
 irifyNode (Syntax.Literal l) = pure . Node NoTag $ Unboxed l
 irifyNode (Syntax.FixIn (Syntax.Fix defs expr)) = irifyFix False defs expr
 
-irifyPoly :: (a -> IRifier (AppGraph b)) -> AppGraph a -> IRifier (AppGraph b)
-irifyPoly irfn = fmap join . traverse irfn
+irifyPoly :: (a -> IRifier (TaggedAppGraph t b)) -> TaggedAppGraph t a -> IRifier (TaggedAppGraph t b)
+irifyPoly irfn = fmap joinApp . traverse irfn
 
 irifyExpr :: Expr -> IRifier IR
-irifyExpr = irifyPoly irifyNode
+irifyExpr = irifyPoly irifyNode . untag
 
 irifyTypeNode :: Map.Map Name Name -> TypeNode -> IRifier (TypeNode, Map.Map Name Name)
 irifyTypeNode env (NamedType n) = do
@@ -392,10 +397,10 @@ irifyData :: Syntax.Data -> IRifier Ind
 irifyData (Syntax.Ind n mk cs) = do
     cs <- mapM (\(Expl a t) -> do
         n <- lookupEnv (LocalIdentifier a)
-        t <- irifyType t
+        t <- irifyType (untag t)
         pure (n, t)) cs
     n <- lookupType (LocalIdentifier n)
-    pure (Ind n mk cs)
+    pure (Ind n (fmap untag mk) cs)
 
 sortTopLevel :: [TopLevel] -> ([Syntax.Data], [FunDef])
 sortTopLevel ((Data d):xs) = let (da, de) = sortTopLevel xs in (d:da, de)
@@ -403,7 +408,7 @@ sortTopLevel ((Func f):xs) = let (da, de) = sortTopLevel xs in (da, f:de)
 sortTopLevel [] = ([], [])
 
 irifyTLD :: [FunDef] -> IRifier IR
-irifyTLD de = irifyFix True de (Node NoTag (Syntax.Literal Unit))
+irifyTLD de = irifyFix True de (Node tmpPos (Syntax.Literal Unit))
 
 nullary :: Type -> Bool
 nullary = (==0) . arity
@@ -428,6 +433,6 @@ irifyTL ts = let (da, de) = sortTopLevel ts in do
     cons <- curriedCons dat
     ir <- irifyTLD de
     let (ds, exp) = (case ir of -- case in do is *weird*
-            Node NoTag (Fix a b) -> (a, b)
+            Node _ (Fix a b) -> (a, b)
             e -> ([], e))
     pure (dat, Node NoTag $ Fix (cons++ds) exp)

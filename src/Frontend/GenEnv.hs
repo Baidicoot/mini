@@ -7,6 +7,7 @@ import qualified Types.Syntax as Syn
 import Types.Type
 import Types.Env
 import Types.IR
+import Types.Graph (untag)
 import qualified Data.Map as Map
 
 genImportMap :: ImportAction -> (Map.Map Identifier Identifier, Map.Map Identifier Identifier)
@@ -40,7 +41,7 @@ genDataspace :: [Name] -> [TopLevel] -> Dataspace
 genDataspace ns ts = Dataspace (collectDatas ts)
     where
         collectData :: TopLevel -> Map.Map Identifier (Int, Int, Int)
-        collectData (Data (Syn.Ind _ _ cs)) = Map.fromList . fmap (\(Expl n t, i) -> (ExternalIdentifier ns n, (i, length cs, arity t))) $ zip cs [0..]
+        collectData (Data (Syn.Ind _ _ cs)) = Map.fromList . fmap (\(Expl n t, i) -> (ExternalIdentifier ns n, (i, length cs, arity (untag t)))) $ zip cs [0..]
         collectData _ = mempty
 
         collectDatas :: [TopLevel] -> Map.Map Identifier (Int, Int, Int)
@@ -50,4 +51,4 @@ genConsTypespace :: [Ind] -> Typespace
 genConsTypespace = Typespace mempty . mconcat . fmap collectData
     where
         collectData :: Ind -> Map.Map Identifier Scheme
-        collectData (Ind _ _ cs) = Map.fromList cs
+        collectData (Ind _ _ cs) = Map.fromList (fmap (\(a,Forall x t) -> (a,Forall x (untag t))) cs)

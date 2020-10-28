@@ -18,10 +18,14 @@ import Types.Pattern
 import Types.Graph
 
 import Data.Char (isLower)
+import Text.Parsec.Pos
 
 data SyntaxError
-    = Expecting String String
-    deriving(Show, Eq)
+    = Expecting String String SourcePos
+
+instance Show SyntaxError where
+    show (Expecting a b p) = "'" ++ sourceName p ++ "': expecting " ++ a ++ ", got " ++ b ++ ", at line " ++ show (sourceLine p) ++ ", column " ++ show (sourceColumn p)
+    showList xs = ((concatMap ((++"\n") . show) xs)++)
 
 type Parser s a = s -> Either [SyntaxError] a
 type ExprParser a = Parser ExprS a
@@ -38,106 +42,107 @@ both a b (s0, s1) = bothE (a s0) (b s1)
 many :: Parser s a -> Parser [s] [a]
 many p xs = foldr (\a b -> fmap (uncurry (:)) $ bothE (p a) b) (Right []) xs
 
-many1 :: String -> Parser s a -> Parser [s] [a]
-many1 _ p xs@(_:_) = many p xs
-many1 s _ [] = Left [Expecting ("at least one " ++ s) "none"]
+many1 :: String -> SourcePos -> Parser s a -> Parser [s] [a]
+many1 _ _ p xs@(_:_) = many p xs
+many1 s p _ [] = Left [Expecting ("at least one " ++ s) "nothing" p]
 
-manyEnd :: String -> Parser s a -> Parser s b -> Parser [s] ([a], b)
-manyEnd _ a b xs@(_:_) = both (many a) b (init xs, last xs)
-manyEnd s _ _ [] = Left [Expecting s "none"]
+manyEnd :: String -> SourcePos -> Parser s a -> Parser s b -> Parser [s] ([a], b)
+manyEnd _ _ a b xs@(_:_) = both (many a) b (init xs, last xs)
+manyEnd s p _ _ [] = Left [Expecting s "nothing" p]
 
 expr :: ExprParser Expr
-expr (SExpr (x:SNode Ann:xs)) = Node NoTag . Annot <$> annot expr (x, xs)
-expr (SExpr (SNode (Keyword "let"):xs)) = Node NoTag . LetIn <$> letexp xs
-expr (SExpr (SNode (Keyword "fix"):xs)) = Node NoTag . FixIn <$> fixexp xs
-expr (SExpr (SNode (Keyword "lam"):xs)) = Node NoTag . Lambda <$> lamexp xs
-expr (SExpr (SNode (Keyword "match"):xs)) = Node NoTag . Switch <$> matchexp xs
-expr (SNode (Lit l)) = Right (Node NoTag $ Literal l)
-expr (SNode (Ident i)) = Right (Node NoTag $ Var i)
-expr (SExpr xs) = apps "expression" expr xs
-expr s = Left [Expecting "expression" (show s)]
+expr (SExpr _ (x:SNode p Ann:xs)) = Node p . Annot <$> annot expr (x, SExpr p xs)
+expr (SExpr _ (SNode p (Keyword "let"):xs)) = Node p . LetIn <$> letexp p xs
+expr (SExpr _ (SNode p (Keyword "fix"):xs)) = Node p . FixIn <$> fixexp p xs
+expr (SExpr _ (SNode p (Keyword "lam"):xs)) = Node p . Lambda <$> lamexp p xs
+expr (SExpr _ (SNode p (Keyword "match"):xs)) = Node p . Switch <$> matchexp p xs
+expr (SNode p (Lit l)) = Right (Node p $ Literal l)
+expr (SNode p (Ident i)) = Right (Node p $ Var i)
+expr (SExpr p xs) = apps "expression" p expr xs
+expr s = Left [Expecting "expression" (display s) (getPos s)]
 
-annot :: ExprParser a -> Parser (ExprS, [ExprS]) (Annotation a)
-annot a (x, xs) = uncurry Expl <$> both a typeexp (x, SExpr xs)
+annot :: ExprParser a -> Parser (ExprS, ExprS) (Annotation a)
+annot a (x, xs) = uncurry Expl <$> both a typeexp (x, xs)
 
-letexp :: Parser [ExprS] Let
-letexp = fmap (uncurry Let) . manyEnd "expression" valdef expr
+letexp :: SourcePos -> Parser [ExprS] Let
+letexp p = fmap (uncurry Let) . manyEnd "expression" p valdef expr
 
-fixexp :: Parser [ExprS] Fix
-fixexp = fmap (uncurry Fix) . manyEnd "expression" fundef expr
+fixexp :: SourcePos -> Parser [ExprS] Fix
+fixexp p = fmap (uncurry Fix) . manyEnd "expression" p fundef expr
 
-lamexp :: Parser [ExprS] Lam
-lamexp (x:xs) = uncurry Lam <$> both args expr (x, SExpr xs)
-lamexp x = Left [Expecting "lambda" (show x)]
+lamexp :: SourcePos -> Parser [ExprS] Lam
+lamexp _ (x:xs) = uncurry Lam <$> both args expr (x, SExpr (getPos x) xs)
+lamexp p x = Left [Expecting "lambda" "nothing" p]
 
-matchexp :: Parser [ExprS] Match
-matchexp (x:xs) = uncurry Match <$> both expr (many caseexp) (x, xs)
-matchexp x = Left [Expecting "expression" (show x)]
+matchexp :: SourcePos -> Parser [ExprS] Match
+matchexp _ (x:xs) = uncurry Match <$> both expr (many caseexp) (x, xs)
+matchexp p x = Left [Expecting "expression" "nothing" p]
 
-apps :: String -> Parser s (AppGraph a) -> Parser [s] (AppGraph a)
-apps _ p [s] = p s
-apps s p (x:xs) = uncurry (App NoTag) <$> both p (apps s p) (x, xs)
-apps s _ x = Left [Expecting (s ++ " application") "nothing"]
+apps :: String -> SourcePos -> Parser ExprS (SourceGraph a) -> Parser [ExprS] (SourceGraph a)
+apps _ _ p [s] = p s
+apps s o p (x:xs) = uncurry (App o) <$> both p (apps s (getPos x) p) (x, xs)
+apps s p _ x = Left [Expecting (s ++ " application") "nothing" p]
 
-typeexp :: ExprParser Type
-typeexp (SExpr (x:SNode Arr:xs)) = uncurry (-->) <$> both typeexp typeexp (x, SExpr xs)
-typeexp (SNode (Ident (LocalIdentifier i@(c:_))))
-    | isLower c = Right (Node NoTag (TypeVar i))
-typeexp (SNode (Ident i)) = Right (Node NoTag (NamedType i))
-typeexp (SNode (LitTy t)) = Right (Node NoTag (Builtin t))
-typeexp (SNode Star) = Right (Node NoTag KindStar)
-typeexp (SExpr xs) = apps "type" typeexp xs
-typeexp x = Left [Expecting "type" (show x)]
+typeexp :: ExprParser SourceType
+typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (fnTag p) <$> both typeexp typeexp (x, SExpr p xs)
+typeexp (SNode p (Ident (LocalIdentifier i@(c:_))))
+    | isLower c = Right (Node p (TypeVar i))
+typeexp (SNode p (Ident i)) = Right (Node p (NamedType i))
+typeexp (SNode p (LitTy t)) = Right (Node p (Builtin t))
+typeexp (SNode p Star) = Right (Node p KindStar)
+typeexp (SExpr p xs) = apps "type" p typeexp xs
+typeexp x = Left [Expecting "type" (display x) (getPos x)]
 
 valdef :: ExprParser ValDef
-valdef (SExpr (d:xs)) = (\((mt,n),e) -> ValDef mt n e) <$> both decl expr (d, SExpr xs)
-valdef x = Left [Expecting "value definition" (show x)]
+valdef (SExpr _ (d:xs)) = (\((mt,n),e) -> ValDef mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
+valdef x = Left [Expecting "value definition" (display x) (getPos x)]
 
 fundef :: ExprParser FunDef
-fundef (SExpr (f:a:xs))
+fundef (SExpr _ (f:a:xs))
     =   (\(((mt,n),a),e) -> FunDef mt n a e)
-    <$> both (both decl args) expr ((f, a), SExpr xs)
-fundef x = Left [Expecting "function definition" (show x)]
+    <$> both (both decl args) expr ((f, a), SExpr (getPos a) xs)
+fundef x = Left [Expecting "function definition" (display x) (getPos x)]
 
 args :: ExprParser [Name]
-args (SNode (Ident (LocalIdentifier i))) = Right [i]
-args (SExpr xs) = many1 "name" name xs
+args (SNode _ (Ident (LocalIdentifier i))) = Right [i]
+args (SExpr p xs) = many1 "name" p name xs
+args x = Left [Expecting "arguments" "nothing" (getPos x)]
 
-caseexp :: ExprParser (Pattern, Expr)
-caseexp (SExpr xs) = let (p, e) = splitArr xs in both patexp expr (SExpr p, SExpr e)
+caseexp :: ExprParser (SourcePattern, Expr)
+caseexp (SExpr pp xs) = (\(p,e,ep) -> both patexp expr (SExpr pp p, SExpr ep e)) =<< splitArr pp xs
     where
-        splitArr ((SNode Arr):xs) = ([], xs)
-        splitArr (x:xs) = let (p, e) = splitArr xs in (x:p, e)
-        splitArr _ = ([], [])
-caseexp x = Left [Expecting "case" (show x)]
+        splitArr _ ((SNode ep Arr):xs) = Right ([], xs, ep)
+        splitArr _ (x:xs) = (\(p, e, ep) -> (x:p, e, ep)) <$> splitArr (getPos x) xs
+        splitArr p _ = Left [Expecting "::" "nothing" p]
+caseexp x = Left [Expecting "case" (display x) (getPos x)]
 
 name :: ExprParser Name
-name (SNode (Ident (LocalIdentifier l))) = Right l
-name x = Left [Expecting "name" (show x)]
+name (SNode _ (Ident (LocalIdentifier l))) = Right l
+name x = Left [Expecting "name" (display x) (getPos x)]
 
-decl :: ExprParser (Maybe Type, Name)
-decl (SNode (Ident (LocalIdentifier l))) = Right (Nothing, l)
-decl (SExpr (SNode (Ident (LocalIdentifier l)):SNode Ann:xs)) = (\t -> (Just t, l)) <$> typeexp (SExpr xs)
-decl x = Left [Expecting "declaration" (show x)]
+decl :: ExprParser (Maybe SourceType, Name)
+decl (SNode _ (Ident (LocalIdentifier l))) = Right (Nothing, l)
+decl (SExpr _ (SNode _ (Ident (LocalIdentifier l)):SNode p Ann:xs)) = (\t -> (Just t, l)) <$> typeexp (SExpr p xs)
+decl x = Left [Expecting "declaration" (display x) (getPos x)]
 
-patexp :: ExprParser Pattern
-patexp (SNode (Ident (LocalIdentifier l@(c:_))))
-    | isLower c = Right (Node NoTag $ PatternVar l)
-patexp (SNode (Ident i)) = Right (Node NoTag $ PatternCons i)
-patexp (SNode Hole) = Right (Node NoTag PatternWildcard)
-patexp (SExpr xs) = apps "pattern" patexp xs
-patexp x = Left [Expecting "pattern" (show x)]
+patexp :: ExprParser SourcePattern
+patexp (SNode p (Ident (LocalIdentifier l@(c:_))))
+    | isLower c = Right (Node p $ PatternVar l)
+patexp (SNode p (Ident i)) = Right (Node p $ PatternCons i)
+patexp (SNode p Hole) = Right (Node p PatternWildcard)
+patexp (SExpr p xs) = apps "pattern" p patexp xs
+patexp x = Left [Expecting "pattern" (display x) (getPos x)]
 
-indexp :: Parser [ExprS] Data
-indexp (n:xs) = (\((mt, n), ds) -> Ind n mt ds) <$> both decl (many (annotation "name" name)) (n, xs)
-indexp x = Left [Expecting "inductive" (show x)]
+indexp :: SourcePos -> Parser [ExprS] Data
+indexp _ (n:xs) = (\((mt, n), ds) -> Ind n mt ds) <$> both decl (many (annotation "name" name)) (n, xs)
+indexp p x = Left [Expecting "inductive" "nothing" p]
 
 annotation :: String -> ExprParser a -> ExprParser (Annotation a)
-annotation _ p (SExpr (x:SNode Ann:xs)) = annot p (x, xs)
-annotation s _ x = Left [Expecting ("annotated " ++ s) (show x)]
+annotation _ p (SExpr _ (x:SNode pos Ann:xs)) = annot p (x, SExpr pos xs)
+annotation s _ x = Left [Expecting ("annotated " ++ s) (display x) (getPos x)]
 
 toplevel :: Parser ExprS TopLevel
-toplevel (SExpr (SNode (Keyword "ind"):xs)) = Data <$> indexp xs
+toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data <$> indexp p xs
 toplevel x = Func <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]

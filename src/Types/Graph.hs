@@ -9,12 +9,18 @@ import Control.Applicative
 import Data.Foldable
 import Data.Traversable
 
+import Text.Parsec.Pos
+
 import Types.Pretty
 
 data TaggedAppGraph t a
     = App t (TaggedAppGraph t a) (TaggedAppGraph t a)
     | Node t a
     deriving(Eq)
+
+getTag :: TaggedAppGraph t a -> t
+getTag (App t _ _) = t
+getTag (Node t _) = t
 
 data NoTag = NoTag deriving(Eq, Ord)
 
@@ -26,12 +32,11 @@ instance Monoid NoTag where
     mappend _ _ = NoTag
 
 type AppGraph = TaggedAppGraph NoTag
+type SourceGraph = TaggedAppGraph SourcePos
 
-instance (Show t, Show a) => Show (TaggedAppGraph t a) where
+instance (Show a) => Show (TaggedAppGraph t a) where
     show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
-    show (Node t a) = show a ++ (let t' = show t in case t' of
-        [] -> ""
-        _ -> " :: " ++ t')
+    show (Node t a) = show a
 
 instance (Pretty a d, Show t) => Pretty (TaggedAppGraph t a) d where
     pretty (App _ a n@(Node _ _)) d = pretty a d ++ " " ++ pretty n d
@@ -69,4 +74,8 @@ instance Foldable (TaggedAppGraph t) where
 
 instance Traversable (TaggedAppGraph t) where
     traverse f (Node t x) = fmap (Node t) (f x)
-    traverse f (App t a b) = liftA2 (App t) (traverse f a) (traverse f b) 
+    traverse f (App t a b) = liftA2 (App t) (traverse f a) (traverse f b)
+
+untag :: TaggedAppGraph t a -> AppGraph a
+untag (App _ a b) = App NoTag (untag a) (untag b)
+untag (Node _ x) = Node NoTag x
