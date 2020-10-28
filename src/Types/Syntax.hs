@@ -7,6 +7,8 @@ import Types.Pattern
 import Types.Graph
 import Types.Prim
 
+-- need to add source positions to syntax
+
 data SyntaxNode
     = Ident Identifier
     | Lit UnboxedLit
