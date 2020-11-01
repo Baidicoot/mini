@@ -3,24 +3,46 @@ module Types.Pattern where
 
 import Types.Ident
 import Types.Graph
+import Types.Prim
 
 import qualified Data.Set as Set
 
-data PatternNode
-    = PatternCons Identifier
-    | PatternVar Name
-    | PatternWildcard
-    deriving(Eq)
+data Pattern tag
+    = PatternCons tag Identifier [Pattern tag]
+    | PatternLit tag UnboxedLiteral
+    | PatternVar tag Name
+    | PatternWildcard tag
+    deriving(Eq, Show)
 
-instance Show PatternNode where
-    show (PatternCons id) = show id
-    show (PatternVar n) = n
-    show PatternWildcard = "_"
+data PatternConstructor
+    = ConsCons Identifier Int
+    | ConsLit UnboxedLiteral
+    | ConsWild
+    deriving(Eq, Show)
 
-type SourcePattern = SourceGraph PatternNode
-type Pattern = AppGraph PatternNode
+pvars :: Pattern tag -> Set.Set Name
+pvars (PatternCons _ _ ps) = mconcat (fmap pvars ps)
+pvars (PatternVar _ n) = Set.singleton n
+pvars _ = mempty
 
-vars :: Pattern -> Set.Set Name
-vars = foldr Set.union Set.empty . fmap (\case
-    PatternVar n -> Set.singleton n
-    _ -> Set.empty)
+inc :: PatternConstructor -> PatternConstructor
+inc (ConsConstructor id x) = ConsConstructor id (x+1)
+inc x = x
+
+cons :: Pattern tag -> PatternConstructor
+cons (PatternCons _ id xs) = ConsCons id (length xs)
+cons (PatternLit _ l) = ConsLit l
+cons (PatternVar _ v) = ConsVar v
+cons (PatternWildcard _) = ConsWild
+
+fits :: PatternConstructor -> PatternConstructor -> Bool
+_ `fits` ConsWild = True
+x `fits` y = x == y
+
+len :: PatternConstructor -> Int
+len (ConsCons _ i) = i
+len _ = 0
+
+pargs :: Pattern tag -> [Pattern tag]
+pargs (PatternCons _ _ xs) = xs
+pargs _ = []

@@ -7,10 +7,15 @@ import Types.Pattern
 import Types.Graph
 import Types.Prim
 
--- need to add source positions to syntax
+import Text.Parsec.Pos
+
+data SyntaxIdent
+    = SynGlobal Module Name
+    | SynLocal Name
+    deriving(Eq, Show)
 
 data SyntaxNode
-    = Ident Identifier
+    = Ident SyntaxIdent
     | Lit UnboxedLit
     | LitTy LitType
     | Prim Primop
@@ -67,16 +72,17 @@ data ExprNode
     | Lambda Lam
     | Literal UnboxedLit
     | Switch Match
+    | Primop Primop
     deriving(Eq, Show)
 
 type Expr = SourceGraph ExprNode
 
 data FunDef
-    = FunDef (Maybe SourceType) Name [Name] Expr
+    = FunDef SourcePos (Maybe SourceType) Name [Name] Expr
     deriving(Eq, Show)
 
 data ValDef
-    = ValDef (Maybe SourceType) Name Expr
+    = ValDef SourcePos (Maybe SourceType) Name Expr
     deriving(Eq, Show)
 
 data TopLevel

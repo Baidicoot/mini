@@ -94,12 +94,12 @@ typeexp (SExpr p xs) = apps "type" p typeexp xs
 typeexp x = Left [Expecting "type" (display x) (getPos x)]
 
 valdef :: ExprParser ValDef
-valdef (SExpr _ (d:xs)) = (\((mt,n),e) -> ValDef mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
+valdef (SExpr p (d:xs)) = (\((mt,n),e) -> ValDef p mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
 valdef x = Left [Expecting "value definition" (display x) (getPos x)]
 
 fundef :: ExprParser FunDef
-fundef (SExpr _ (f:a:xs))
-    =   (\(((mt,n),a),e) -> FunDef mt n a e)
+fundef (SExpr p (f:a:xs))
+    =   (\(((mt,n),a),e) -> FunDef p mt n a e)
     <$> both (both decl args) expr ((f, a), SExpr (getPos a) xs)
 fundef x = Left [Expecting "function definition" (display x) (getPos x)]
 

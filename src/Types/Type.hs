@@ -106,6 +106,9 @@ arity :: PolyType t -> Int
 arity (App _ (App _ (Node _ FunctionType) _) b) = 1 + arity b
 arity _ = 0
 
+arityS :: PolyScheme t -> Int
+arityS (Forall _ t) = arity t
+
 zipArgs :: PolyType t -> [Name] -> Maybe ([(Name, PolyType t)], PolyType t)
 zipArgs t ns
     | arity t == length ns = Just $ internal t ns

@@ -19,6 +19,12 @@ data Primop
     | AMul
     deriving(Eq)
 
+arityOp :: Primop -> Int
+arityOp AAdd = 2
+arityOp ASub = 2
+arityOp ADiv = 2
+arityOp AMul = 2
+
 instance Show Primop where
     show AAdd = "#+"
     show ASub = "#-"
