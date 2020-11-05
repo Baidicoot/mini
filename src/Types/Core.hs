@@ -40,7 +40,7 @@ data CoreNode tag
     | Lam Name (Core tag)
     | Val Value
     | Match Name [(PatternBinding, tag, Core tag)]
-    | Annot (Core tag) Scheme
+    | Annot (Core tag) Type
     | Cons Identifier [Value]
     | Prim Primop [Value]
     | Error String
@@ -48,6 +48,7 @@ data CoreNode tag
 
 type Core tag = TaggedAppGraph tag (CoreNode tag)
 
+{-
 aconv :: Map.Map Name Name -> Core t -> Core t
 aconv m (Val (Var (LocalIdentifier n))) = Val . Var . LocalIdentifier $ Map.findWithDefault n n m
 aconv m (Let n a b) = Let n (aconv m a) (aconv m b)
@@ -56,6 +57,7 @@ aconv m (Lam n e) = Lam n (aconv m e)
 aconv m (Match n p) = Match n (map (\(a,b,c) -> (a,b,aconv m c)) p)
 aconv m (Annot a t) = Annot (aconv m a) t
 aconv _ x = x
+-}
 
 instance Show (CoreNode tag) where
     show (Let n ds ir) = "let " ++ n ++ " = " ++ show ds ++ " in\n" ++ show ir

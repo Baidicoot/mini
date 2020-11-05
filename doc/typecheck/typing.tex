@@ -1,0 +1,164 @@
+\documentclass{article}
+\usepackage{mathpartir}
+\usepackage{amssymb}
+\usepackage{biblatex}
+\title{\textbf{Bidirectional Typing Rules for Mini}}
+\author{Aidan Ewart}
+
+\bibliography{typing}
+
+\addtolength{\topmargin}{-3cm}
+\addtolength{\textheight}{3cm}
+\begin{document}
+\maketitle
+
+Judgements take the conventional bidirectional form of $\Gamma \vdash t \Rightarrow^m \tau$ and $\Gamma \vdash t \Leftarrow^m \tau$.
+Otherwise, rules operate in essentially the same manner as \cite{GADT:1}, i.e. we add a 'modifier' $m$, indicating whether the type $\tau$ is 'rigid'.
+Similarly to \cite{GADT:1}, we add a function $\Gamma \vdash t \upharpoonleft^m$, which infers the rigidity of the type of $t$.
+Note that this does not infer the type of $t$. We also add a commutative function $\lfloor m_1, m_2 \rfloor$, such that $\lfloor r, r \rfloor = r$,
+and $\forall x. \lfloor w, x \rfloor = w$, used in inference of the rigidity.
+
+\medskip
+
+\fbox{$ \Gamma \vdash t \Rightarrow^m \tau $}
+
+\begin{mathpar}
+    \inferrule[Var]
+        { v : \forall \bar{a}. \tau \in \Gamma }
+        { \Gamma \vdash v \Rightarrow^m [ \overline{ a \mapsto \upsilon } ] \tau }
+
+    \inferrule[App]
+        { \Gamma \vdash f \Rightarrow^w \tau_1 \to \tau_2
+        \\ \Gamma \vdash x \Leftarrow^w \tau_1 }
+        { \Gamma \vdash \texttt{($f$ $x$)} \Rightarrow^m \tau_2 }
+
+    \inferrule[Abs-Infer]
+        { \Gamma, x :^m \tau_1 \vdash t \Leftarrow^m \tau_2 }
+        { \Gamma \vdash \texttt{(lam $x$ $t$)} \Rightarrow^m \tau_1 \to \tau_2 }
+
+    \inferrule[Let]
+        { \Gamma \vdash u \upharpoonleft^{m_1}
+        \\ \Gamma \vdash u \Rightarrow^w \tau_1
+        \\ \bar{a} = \mathrm{ftv} ( \tau_1 ) - \mathrm{ftv} ( \Gamma )
+        \\ \Gamma, x :^{m_1} \forall \bar{a}. \tau_1 \vdash t \Rightarrow^{m_2} \tau_2 }
+        { \Gamma \vdash \texttt{(let ($x$ $u$) $t$)} \Rightarrow^{m_2} \tau_2 }
+
+    \inferrule[Fix]
+        { \Gamma \vdash \overline{u_1, u_2 \upharpoonleft^{m_1}}
+        \\ \overline{a_1 = \mathrm{ftv} ( \tau_3 ) - \mathrm{ftv} ( \Gamma ) }
+        \\ \Gamma,
+            \overline{x_1 :^{m_1} \forall a_1. \tau_3},
+            \overline{x_2 :^{m_1} \tau_1} \vdash
+            \overline{u_1 \Leftarrow^w \forall a_1. \tau_3},
+            \overline{u_2 \Leftarrow^w \tau_1},
+        \\ \overline{a_2 = \mathrm{ftv} ( \tau_1 ) - \mathrm{ftv} ( \Gamma ) }
+        \\ \Gamma,
+            \overline{x_1 :^{m_1} \forall a_1. \tau_3},
+            \overline{x_2 :^{m_1} \forall a_2. \tau_1} \vdash
+            t \Rightarrow^{m_2} \tau_2 }
+        { \Gamma \vdash \texttt{(fix $\overline{\texttt{($x_1$ ($u_1$::$\tau_3$))}}$ $\overline{\texttt{($x_2$ $u_2$)}}$ $t$)} \Rightarrow^{m_2} \tau_2 }
+
+    \inferrule[Ann]
+        { \bar{a} = \mathrm{ftv}( \tau ) - \mathrm{ftv}( \Gamma )
+        \\ \Gamma, \bar{a} \vdash x \Leftarrow^r \tau }
+        { \Gamma \vdash \texttt {($x$::$\tau$)} \Rightarrow^m \tau }
+
+    \inferrule[Match]
+        { \Gamma \vdash u \upharpoonleft^{m_p}
+        \\ \Gamma \vdash u \Rightarrow^w \tau_p
+        \\ \Gamma \vdash \overline{\langle p, t \rangle} \Rightarrow^{\langle m_p, m_t, \tau_p \rangle} \tau_t }
+        { \Gamma \vdash \texttt{(match $u$ $\overline{\texttt{($p$ -> $t$)}}$)} \Rightarrow^{m_t} \tau_t }
+
+    \inferrule[Lit]
+        { L : \tau \in \Gamma }
+        { \Gamma \vdash L \Rightarrow^m \tau }
+    
+    \inferrule[Cons]
+        { C : \forall \bar{a}. \bar{\tau_1} \to \bar{\tau_2} \in \Gamma
+        \\ \theta = [\overline{a \mapsto \upsilon}] \; \mathrm{ s.t. } \;
+        \overline{\Gamma \vdash \theta(v) \Leftarrow^r \tau_1} }
+        { \Gamma \vdash C \bar{v} \Rightarrow^m \theta(\tau_2) }
+
+    \inferrule[Primop]
+        { O : \bar{\tau_1} \to \tau_2
+        \\ \theta = [\overline{a \mapsto \upsilon}] \; \mathrm{ s.t. } \;
+        \overline{\Gamma \vdash \theta(v) \Leftarrow^r \tau_1} }
+        { \Gamma \vdash O \bar{v} \Rightarrow^m \tau_2 }
+
+\end{mathpar}
+
+\clearpage
+
+\fbox{$ \Gamma \vdash \langle p, t \rangle \Rightarrow^{\langle m_p, m_t, \tau_p \rangle} \tau_t $}
+
+\begin{mathpar}
+    \inferrule[PCon-W]
+        { C : \forall \bar{a}. \bar{\tau_1} \to T \bar{\tau_2} \in \Gamma
+        \\ \theta = [\overline{ a \mapsto \upsilon }] \; \mathrm{ s.t. } \;
+        \theta(\bar{\tau_2}) = \bar{\tau_v}
+        \\ \Gamma, \overline{v :^w \theta(\tau_v)} \vdash t \Rightarrow^m \tau_t }
+        { \Gamma \vdash \langle C \bar{v}, t \rangle \Rightarrow^{\langle w, m, P \bar{\tau_v} \rangle} \tau_t }
+
+    \inferrule[PCon-R]
+        { C : \forall \bar{a}. \bar{\tau_1} \to T \bar{\tau_2} \in \Gamma
+        \\ \theta = \mathrm{mgu}(\tau_p, \tau_2) 
+        \\ \Gamma, \overline{v :^r \theta(\tau_v)} \vdash \theta(t) \Rightarrow^m \theta(\tau_t) }
+        { \Gamma \vdash \langle C \bar{v}, t \rangle \Rightarrow^{\langle r, m, P \bar{\tau_v} \rangle} \tau_t }
+
+    \inferrule[PLit]
+        { L : \tau_p \in \Gamma 
+        \\ \Gamma \vdash t \Rightarrow^{m_t} \tau_t }
+        { \Gamma \vdash \langle L, t \rangle \Rightarrow^{\langle m_p, m_t, \tau_p \rangle} \tau_t }
+    
+    \inferrule[PWild]
+        { \Gamma \vdash t \Rightarrow^{m_t} \tau_t }
+        { \Gamma \vdash \langle \_, t \rangle \Rightarrow^{\langle m_p, m_t, \tau_p \rangle} \tau_t }
+
+\end{mathpar}
+
+\fbox{$ \Gamma \vdash t \Leftarrow^m \tau $}
+
+\begin{mathpar}
+    \inferrule[Abs-Check]
+        { \Gamma, x :^m \tau_1 \vdash t \Leftarrow^m \tau_2 }
+        { \Gamma \vdash \texttt{(lam $x$ $t$)} \Leftarrow^m \tau_1 \to \tau_2 }
+
+    \inferrule[Check-Infer]
+        { \Gamma \vdash t \Rightarrow^m \tau }
+        { \Gamma \vdash t \Leftarrow^m \tau }
+
+\end{mathpar}
+
+\fbox{$ \Gamma \vdash t \upharpoonleft^m $}
+
+\begin{mathpar}
+    \inferrule[Scr-Var]
+        { v \upharpoonleft^m \in \Gamma }
+        { \Gamma \vdash v \upharpoonleft^m }
+    
+    \inferrule[Scr-App]
+        { \Gamma \vdash f \upharpoonleft^{m_1}
+        \\ \Gamma \vdash x \upharpoonleft^{m_2} }
+        { \Gamma \vdash \texttt{($f$ $x$)} \upharpoonleft^{\lfloor m_1, m_2 \rfloor} }
+
+    \inferrule[Scr-Let]
+        { \Gamma \vdash u \upharpoonleft^{m_1}
+        \\ \Gamma, x \upharpoonleft^{m_1} \vdash t \upharpoonleft^{m_2} }
+        { \Gamma \vdash \texttt{(let ($x$ $u$) $t$)} \upharpoonleft^{m_2} }
+
+    \inferrule[Scr-Abs]
+        { \Gamma, x \upharpoonleft^w \vdash t \upharpoonleft^{m_1} }
+        { \Gamma \vdash \texttt{(lam $x$ $t$)} \upharpoonleft^{m_1} }
+
+    \inferrule[Scr-Ann]
+        { }
+        { \Gamma \vdash \texttt{($x$::$\tau$)} \upharpoonleft^r }
+
+    \inferrule[Scr-Other]
+        { }
+        { \Gamma \vdash t \upharpoonleft^w }
+\end{mathpar}
+
+\printbibliography
+
+\end{document}

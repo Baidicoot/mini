@@ -84,7 +84,7 @@ apps s o p (x:xs) = uncurry (App o) <$> both p (apps s (getPos x) p) (x, xs)
 apps s p _ x = Left [Expecting (s ++ " application") "nothing" p]
 
 typeexp :: ExprParser SourceType
-typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (fnTag p) <$> both typeexp typeexp (x, SExpr p xs)
+typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (\a b -> App p (App p (Node p FunctionType) a) b) <$> both typeexp typeexp (x, SExpr p xs)
 typeexp (SNode p (Ident (LocalIdentifier i@(c:_))))
     | isLower c = Right (Node p (TypeVar i))
 typeexp (SNode p (Ident i)) = Right (Node p (NamedType i))

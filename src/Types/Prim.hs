@@ -25,6 +25,11 @@ arityOp ASub = 2
 arityOp ADiv = 2
 arityOp AMul = 2
 
+litPrimTy :: UnboxedLit -> LitType
+litPrimTy (Int _) = IntTy
+litPrimTy (Char _) = CharTy
+litPrimTy UnitTy = Unit
+
 instance Show Primop where
     show AAdd = "#+"
     show ASub = "#-"

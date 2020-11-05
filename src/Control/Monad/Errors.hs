@@ -35,8 +35,17 @@ revert = recover id
 ignore :: (MonadErrors e m) => m a -> m ()
 ignore = recover (const ()) ()
 
+err :: (MonadErrors e m) => a -> e -> m a
+err a = revert a . throw
+
+report :: (MonadErrors e m) => e -> m ()
+report = ignore . throw
+
 throwL :: (MonadErrors [e] m) => e -> m a
 throwL = throw . (:[])
+
+errL :: (MonadErrors e m) => a -> e -> m a
+errL a e = revert a (throwL e)
 
 instance (Monad m, Monoid e) => MonadErrors (ErrorsT e m) where
     throw e = ErrorsT $ return (Just e,Nothing)

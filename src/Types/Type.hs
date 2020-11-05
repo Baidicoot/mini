@@ -27,6 +27,15 @@ intty = Node NoTag (Builtin IntTy)
 unitty :: Type
 unitty = Node NoTag (Builtin UnitTy)
 
+litTy :: UnboxedLit -> Type
+litTy = Node NoTag . Builtin . litPrimTy
+
+opTy :: Primop -> Type
+opTy AAdd = intty --> intty --> intty
+opTy ASub = intty --> intty --> intty
+opTy ADiv = intty --> intty --> intty
+opTy AMul = intty --> intty --> intty
+
 type SourceType = SourceGraph TypeNode
 
 type Type = AppGraph TypeNode
@@ -59,13 +68,15 @@ data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(E
 type Scheme = PolyScheme NoTag
 type SourceScheme = PolyScheme SourcePos
 
+unquantified :: PolyType t -> PolyScheme t
+unquantified = Forall mempty
+
 untagScheme :: PolyScheme a -> Scheme
 untagScheme (Forall x t) = Forall x (untag t)
 
 instance Show (PolyScheme t) where
     show (Forall ns t) = "∀" ++ unwords (Set.toList ns) ++ ". " ++ show t
 
-type Monomorphic = Set.Set Name
 type Subst = Map.Map Name Type
 
 class Substitutable a where
@@ -75,6 +86,16 @@ class Substitutable a where
 instance Substitutable Subst where
     apply s = fmap (apply s)
     ftv = foldr Set.union Set.empty . fmap ftv
+
+instance {-# OVERLAPPING #-} Substitutable (TaggedAppGraph s TypeNode) where
+    apply s = join . fmap (applyN s)
+        where
+            applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
+            applyN _ t = (Node NoTag t)
+    ftv = foldr mappend mempty . fmap ftvN
+        where
+            ftvN (TypeVar n) = Set.singleton n
+            ftvN _ = Set.empty
 
 instance (Substitutable s, Substitutable a) => Substitutable (TaggedAppGraph s a) where
     apply s (App t a b) = App (apply s t) (apply s a) (apply s b)
@@ -87,40 +108,64 @@ instance Substitutable NoTag where
     apply _ _ = NoTag
     ftv _ = mempty
 
-applyN :: Subst -> TypeNode -> Type
-applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
-applyN _ t = (Node NoTag t)
+data UnifyError
+    = OccursUE Name Type
+    | MatchUE Type Type
+    | UnifyUE Type Type
+    deriving(Eq, Show)
 
-ftvN :: TypeNode -> Set.Set Name
-ftvN (TypeVar n) = Set.singleton n
-ftvN _ = Set.empty
+infixr 4 @@
+(@@) :: Subst -> Subst -> Subst
+a @@ b = Map.fromList [(u, apply a t) | (u, t) <- Map.toList b]
+
+mapsTo :: Name -> Type -> Subst
+mapsTo n t = Map.singleton n t
+
+varBind :: Name -> Type -> Either UnifyError Subst
+varBind u t
+    | t == TVar u = Right mempty
+    | u `Set.elem` ftv t = Left (OccursUE u t)
+    | otherwise = Right (u `mapsTo` t)
+
+mgu :: Type -> Type -> Either UnifyError Subst
+mgu (App _ a b) (App _ c d) = do
+    s1 <- mgu a c
+    s2 <- mgu (apply s1 b) (apply s1 d)
+    Right (s1 @@ s2)
+mgu (Node _ (TypeVar u)) t = varBind u t
+mgu t (Node _ (TypeVar u)) = varBind u t
+mgu a b
+    | a == b = Right mempty
+mgu a b = Left (UnifyUE a b)
+
+match :: Type -> Type -> Either UnifyError Subst
+match (App _ a b) (App _ c d) = do
+    s1 <- match a c
+    s2 <- match (apply s1 b) (apply s1 d)
+    Right (s1 @@ s2)
+match (Node _ (TypeVar u)) t = varBind u t
+match a b
+    | a == b = Right mempty
+match a b = Left (MatchUE a b)
 
 infixr 9 -->
 (-->) :: Type -> Type -> Type
 a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b
 
-fnTag :: t ->  TaggedAppGraph t TypeNode -> TaggedAppGraph t TypeNode -> TaggedAppGraph t TypeNode
-fnTag t a b = App t (App t (Node t FunctionType) a) b
-
 arity :: PolyType t -> Int
 arity (App _ (App _ (Node _ FunctionType) _) b) = 1 + arity b
 arity _ = 0
 
-arityS :: PolyScheme t -> Int
-arityS (Forall _ t) = arity t
+aritySc :: PolyScheme t -> Int
+aritySc (Forall _ t) = arity t
 
-zipArgs :: PolyType t -> [Name] -> Maybe ([(Name, PolyType t)], PolyType t)
-zipArgs t ns
-    | arity t == length ns = Just $ internal t ns
-    where
-        internal (App _ (App _ (Node _ FunctionType) a) b) (x:xs) = let (rs, r) = internal b xs in
-            ((x, a):rs, r)
-        internal t [] = ([], t)
-zipArgs _ _ = Nothing
+resTy :: Type -> Type
+resTy (App _ (App _ (Node _ FunctionType) a) b) = resTy b
+resTy x = x
 
-instance {-# OVERLAPPING #-} Substitutable Type where -- pretty sure they aren't overlapping?
-    apply s = join . fmap (applyN s)
-    ftv = foldr mappend mempty . fmap ftvN
+argTys :: Type -> [Type]
+argTys (App _ (App _ (Node _ FunctionType) a) b) = a:argTys b
+argTys _ = []
 
 instance Substitutable Scheme where
     apply s (Forall ns t) = Forall ns (apply (foldr (\n s -> Map.delete n s) s ns) t)
@@ -130,6 +175,6 @@ instance Substitutable a => Substitutable [a] where
     apply = map . apply
     ftv = foldr (Set.union . ftv) Set.empty
 
-generalize :: Monomorphic -> PolyType t -> PolyScheme t
-generalize mono t = Forall as t
-    where as = ftv (untag t) `Set.difference` mono
+instance Substitutable a => Substitutable (Map.Map n a) where
+    apply = fmap . apply
+    ftv = foldr (Set.union . ftv) Set.empty
