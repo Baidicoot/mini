@@ -7,17 +7,22 @@ import Types.Prim
 
 import qualified Data.Set as Set
 
+import Text.Parsec.Pos
+
 data Pattern tag
     = PatternCons tag Identifier [Pattern tag]
-    | PatternLit tag UnboxedLiteral
+    | PatternLit tag UnboxedLit
     | PatternVar tag Name
     | PatternWildcard tag
     deriving(Eq, Show)
 
+type SourcePattern = Pattern SourcePos
+
 data PatternConstructor
     = ConsCons Identifier Int
-    | ConsLit UnboxedLiteral
+    | ConsLit UnboxedLit
     | ConsWild
+    | ConsVar Name
     deriving(Eq, Show)
 
 pvars :: Pattern tag -> Set.Set Name
@@ -26,7 +31,7 @@ pvars (PatternVar _ n) = Set.singleton n
 pvars _ = mempty
 
 inc :: PatternConstructor -> PatternConstructor
-inc (ConsConstructor id x) = ConsConstructor id (x+1)
+inc (ConsCons id x) = ConsCons id (x+1)
 inc x = x
 
 cons :: Pattern tag -> PatternConstructor

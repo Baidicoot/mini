@@ -19,7 +19,7 @@ data TypeNode
     | Builtin LitType
     | NamedType Identifier
     | TypeVar Name
-    deriving(Eq)
+    deriving(Eq, Ord)
 
 intty :: Type
 intty = Node NoTag (Builtin IntTy)
@@ -68,6 +68,9 @@ data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(E
 type Scheme = PolyScheme NoTag
 type SourceScheme = PolyScheme SourcePos
 
+quantified :: PolyScheme t -> Set.Set Name
+quantified (Forall a _) = a
+
 unquantified :: PolyType t -> PolyScheme t
 unquantified = Forall mempty
 
@@ -87,7 +90,7 @@ instance Substitutable Subst where
     apply s = fmap (apply s)
     ftv = foldr Set.union Set.empty . fmap ftv
 
-instance {-# OVERLAPPING #-} Substitutable (TaggedAppGraph s TypeNode) where
+instance {-# OVERLAPPING #-} Substitutable Type where
     apply s = join . fmap (applyN s)
         where
             applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
@@ -123,8 +126,8 @@ mapsTo n t = Map.singleton n t
 
 varBind :: Name -> Type -> Either UnifyError Subst
 varBind u t
-    | t == TVar u = Right mempty
-    | u `Set.elem` ftv t = Left (OccursUE u t)
+    | t == Node NoTag (TypeVar u) = Right mempty
+    | u `Set.member` ftv t = Left (OccursUE u t)
     | otherwise = Right (u `mapsTo` t)
 
 mgu :: Type -> Type -> Either UnifyError Subst

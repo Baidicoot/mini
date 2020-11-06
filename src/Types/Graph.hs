@@ -16,7 +16,7 @@ import Types.Pretty
 data TaggedAppGraph t a
     = App t (TaggedAppGraph t a) (TaggedAppGraph t a)
     | Node t a
-    deriving(Eq)
+    deriving(Eq, Ord)
 
 getTag :: TaggedAppGraph t a -> t
 getTag (App t _ _) = t

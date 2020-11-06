@@ -28,12 +28,13 @@ data ModuleExports = ModuleExports
 
 instance Monoid ModuleExports where
     mempty = ModuleExports mempty mempty mempty mempty mempty mempty
-    mappend (ModuleExports a c e g i) (ModuleExports _ d f h j) = ModuleExports
+    mappend (ModuleExports a c e g i k) (ModuleExports _ d f h j l) = ModuleExports
         a
         (c <> d)
         (e <> f)
         (g <> h)
         (i <> j)
+        (k <> l)
 
 -- GADT type stores GADTs with their local name.
 data GADT

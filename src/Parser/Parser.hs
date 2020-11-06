@@ -127,10 +127,9 @@ decl x = Left [Expecting "declaration" (display x) (getPos x)]
 
 patexp :: ExprParser SourcePattern
 patexp (SNode p (Ident (LocalIdentifier l@(c:_))))
-    | isLower c = Right (Node p $ PatternVar l)
-patexp (SNode p (Ident i)) = Right (Node p $ PatternCons i)
-patexp (SNode p Hole) = Right (Node p PatternWildcard)
-patexp (SExpr p xs) = apps "pattern" p patexp xs
+    | isLower c = Right (PatternVar p l)
+patexp (SNode p Hole) = Right (PatternWildcard p)
+patexp (SExpr p (SNode _ (Ident l):xs)) = PatternCons p l <$> many patexp xs
 patexp x = Left [Expecting "pattern" (display x) (getPos x)]
 
 indexp :: SourcePos -> Parser [ExprS] Data

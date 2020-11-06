@@ -4,20 +4,20 @@ data UnboxedLit
     = Int Int
     | Char Char
     | Unit
-    deriving(Eq)
+    deriving(Eq, Ord)
 
 data LitType
     = IntTy
     | CharTy
     | UnitTy
-    deriving(Eq, Show)
+    deriving(Eq, Show, Ord)
 
 data Primop
     = AAdd
     | ASub
     | ADiv
     | AMul
-    deriving(Eq)
+    deriving(Eq, Ord)
 
 arityOp :: Primop -> Int
 arityOp AAdd = 2
@@ -28,7 +28,7 @@ arityOp AMul = 2
 litPrimTy :: UnboxedLit -> LitType
 litPrimTy (Int _) = IntTy
 litPrimTy (Char _) = CharTy
-litPrimTy UnitTy = Unit
+litPrimTy Unit = UnitTy
 
 instance Show Primop where
     show AAdd = "#+"

@@ -1,5 +1,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 module TypeCheck.Check where
 
 import Types.Graph
@@ -15,6 +17,8 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
+import Text.Parsec.Pos
+
 data Rigidity
     = R
     | W
@@ -24,16 +28,16 @@ minR :: Rigidity -> Rigidity -> Rigidity
 minR R R = R
 minR _ _ = W
 
-data TypeError t
-    = OccursFail t Name Type
-    | UnifyFail t Type Type
-    | MatchFail t Type Type
-    | NotInScope t Identifier
-    | ArityErr t Type
-    | ImmedErr t Int Int
+data TypeError
+    = OccursFail SourcePos Name Type
+    | UnifyFail SourcePos Type Type
+    | MatchFail SourcePos Type Type
+    | NotInScope SourcePos Identifier
+    | ArityErr SourcePos Type
+    | ImmedErr SourcePos Int Int
     deriving(Eq, Show)
 
-fromUE :: UnifyError -> t -> TypeError t
+fromUE :: UnifyError -> SourcePos -> TypeError
 fromUE (OccursUE n t) p = OccursFail p n t
 fromUE (UnifyUE a b) p = UnifyFail p a b
 fromUE (MatchUE a b) p = MatchFail p a b
@@ -44,106 +48,105 @@ instance Substitutable Gamma where
     apply s (Gamma (a, b, c, d)) = Gamma (apply s a, b, c, d)
     ftv (Gamma (a, b, c, d)) = ftv a `mappend` d
 
-type Checker t = ErrorsT [TypeError t] (ReaderT Gamma (State (Int, Subst)))
+type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
-liftUE :: t -> Either UnifyError a -> Checker t a
+liftUE :: SourcePos -> Either UnifyError a -> Checker a
 liftUE _ (Right a) = pure a
 liftUE p (Left e) = throw [fromUE e p]
 
-getSubst :: Checker t Subst
+getSubst :: Checker Subst
 getSubst = fmap snd get
 
-extSubst :: Subst -> Checker t ()
+extSubst :: Subst -> Checker ()
 extSubst s' = modify (\(n,s) -> (n,s' @@ s))
 
-matches :: t -> Type -> Type -> Checker t ()
+matches :: SourcePos -> Type -> Type -> Checker ()
 matches t a b = do
     s  <- getSubst
     s' <- revert mempty $ liftUE t (match (apply s a) (apply s b))
     extSubst s'
 
-unify :: t -> Type -> Type -> Checker t ()
+unify :: SourcePos -> Type -> Type -> Checker ()
 unify t a b = do
     s  <- getSubst
     s' <- revert mempty $ liftUE t (mgu a b)
     extSubst s'
 
-immedMatch :: t -> (Core t) -> [a] -> [b] -> Checker t ()
-immedMatch t e a b =
+immedMatch :: SourcePos -> [a] -> [b] -> Checker ()
+immedMatch t a b =
     if length a /= length b then
-        report [ImmedErr t e (length a) (length b)]
+        report [ImmedErr t (length a) (length b)]
     else
         pure ()
 
-newest :: Substitutable t => t -> Checker p t
+newest :: Substitutable t => t -> Checker t
 newest t = do
     s <- getSubst
     pure (apply s t)
 
-fresh :: Checker p Name
+fresh :: Checker Name
 fresh = do
     (n,s) <- get
     put (n+1,s)
     pure ('t':show n)
 
-freshTV :: Checker p Type
+freshTV :: Checker Type
 freshTV = do
     f <- fresh
     pure (Node NoTag (TypeVar f))
 
-generalize :: Type -> Checker p Scheme
+generalize :: Type -> Checker Scheme
 generalize t = do
     g <- ask
     s <- getSubst
     let t' = apply s t
     let a = ftv t' `Set.difference` ftv g
-    theta <- mapM (flip fmap fresh . (,)) (Set.toList a)
-    pure . Forall a $ apply (Map.fromList theta) t'
+    pure $ Forall a t'
 
-instantiate :: Scheme -> Checker p Type
+instantiate :: Scheme -> Checker Type
 instantiate (Forall a t) = do
-    theta <- mapM (flip fmap fresh . (,)) (Set.toList a)
-    pure (apply theta t)
+    theta <- mapM (flip fmap freshTV . (,)) (Set.toList a)
+    pure (apply (Map.fromList theta) t)
 
-lookupLocal :: Identifier -> p -> Checker p Scheme
+lookupLocal :: Identifier -> SourcePos -> Checker Scheme
 lookupLocal i t = do
-    Gamma (a,_,_) <- ask
+    Gamma (a,_,_,_) <- ask
     case Map.lookup i a of
         Just sc -> pure sc
         Nothing -> do
             f <- fresh
             err (Forall (Set.singleton f) . Node NoTag $ TypeVar f) [NotInScope t i]
 
-lookupCons :: Identifier -> p -> Checker p Scheme
+lookupCons :: Identifier -> SourcePos -> Checker Scheme
 lookupCons i t = do
-    Gamma (_,_,a) <- ask
+    Gamma (_,_,a,_) <- ask
     case Map.lookup i a of
         Just sc -> pure sc
         Nothing -> do
             f <- fresh
             err (Forall (Set.singleton f) . Node NoTag $ TypeVar f) [NotInScope t i]
 
-lookupRigidity :: Identifier -> p -> Checker p Rigidity
-lookupRigidity i t = do
-    Gamma (_,_,a) <- ask
+lookupRigidity :: Identifier -> Checker Rigidity
+lookupRigidity i = do
+    Gamma (_,a,_,_) <- ask
     case Map.lookup i a of
         Just r  -> pure r
-        Nothing -> err W [NotInScope t i]
+        Nothing -> pure W
 
-withTypes :: [(Identifier, Scheme)] -> Checker p a -> Checker p a
+withTypes :: [(Identifier, Scheme)] -> Checker a -> Checker a
 withTypes ts = local (\(Gamma (a,b,c,d)) -> Gamma (Map.fromList ts `mappend` a,b,c,d))
 
-withFV :: Set.Set Name -> Checker p a -> Checker p a
+withFV :: Set.Set Name -> Checker a -> Checker a
 withFV v = local (\(Gamma (a,b,c,d)) -> Gamma (a,b,c,d `mappend` v))
 
-withRigidity :: [(Identifier, Rigidity)] -> Checker p a -> Checker p a
+withRigidity :: [(Identifier, Rigidity)] -> Checker a -> Checker a
 withRigidity rs = local (\(Gamma (a,b,c,d)) -> Gamma (a,Map.fromList rs `mappend` b,c,d))
 
-withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker p a -> Checker p a
+withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker a -> Checker a
 withEnv rts = withRigidity (fmap (\(a,b,c)->(a,b)) rts) . withTypes (fmap (\(a,b,c)->(a,c)) rts)
 
-splitArr :: p -> Type -> Checker p (Type, Type)
-splitArr p = newest >>= internal
+splitArr :: SourcePos -> Type -> Checker (Type, Type)
+splitArr p = newest >=> internal
     where
     internal (App _ (App _ (Node _ FunctionType) a) b) = pure (a, b)
     internal t = do
@@ -153,20 +156,20 @@ splitArr p = newest >>= internal
         report [ArityErr p t']
         pure (t1, t2)
 
-class Inferable t w p | t -> w, t -> p where
+class Inferable t w | t -> w where
     -- bidirectional typechecking augmented with inferred substitutions
-    check :: Rigidity -> t -> Type -> Checker p w
-    infer :: Rigidity -> t -> Checker p (w, Type)
-    rigid :: t -> Checker p Rigidity
+    check :: Rigidity -> t -> Type -> Checker w
+    infer :: Rigidity -> t -> Checker (w, Type)
+    rigid :: t -> Checker Rigidity
 
-instance Inferable (Core t) (Core Type) t where
+instance Inferable (Core SourcePos) (Core Type) where
     -- VAR
     infer m (Node p (Val (Var i))) = do
         s <- lookupLocal i p
         t <- instantiate s
-        pure (Node t (Val (Var i)), t)
+        pure (Node t . Val $ Var i, t)
     -- LIT
-    infer m (Node p (Val (Lit l))) = pure (Node (litTy l) (Val (Lit l)), litTy l)
+    infer m (Node p (Val (Lit l))) = pure (Node (litTy l) . Val $ Lit l, litTy l)
     -- APP
     infer m (App p f x) = do
         (f',ft) <- infer W f
@@ -183,33 +186,33 @@ instance Inferable (Core t) (Core Type) t where
     infer m (Node p (Annot x t)) = do
         sigma <- generalize t
         tau   <- instantiate sigma
-        x'    <- withFV a (check x tau)
+        x'    <- withFV (quantified sigma) (check m x tau)
         pure (x', tau)
     -- PRIM
-    infer m e@(Node p (Prim op vs)) = do
-        let vs' = fmap (Node p . Val) vs
+    infer m (Node p (Prim op vs)) = do
         let t1 = argTys (opTy op)
         let t2 = resTy  (opTy op)
-        immedMatch p e vs' t1
-        mapM_ (uncurry (check m)) (zip vs' t1)
-        pure (Node t2 (Prim op vs'), t2)
-    -- CONS
-    infer m e@(Node p (Cons i vs)) = do
+        immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
+        mapM_ (uncurry (check m :: (Core SourcePos) -> Type -> Checker (Core Type))) (zip vs' t1)
+        pure (Node t2 (Prim op vs), t2)
+    -- CONS
+    infer m (Node p (Cons i vs)) = do
         sc <- lookupCons i p
         ty <- instantiate sc
         let t1 = argTys ty
         let t2 = resTy  ty
-        immedMatch p e vs' t1
-        mapM_ (uncurry (check m)) (zip vs' t1)
-        pure (Node t2 (Cons i vs'), t2)
+        immedMatch p vs t1
+        let vs' = fmap (Node p . Val) vs
+        mapM_ (uncurry (check m :: (Core SourcePos) -> Type -> Checker (Core Type))) (zip vs' t1)
+        pure (Node t2 (Cons i vs), t2)
     -- LET
     infer m (Node p (Let x u t)) = do
         m1      <- rigid u
         (u',t1) <- infer W u
         s1      <- generalize t1
         (t',t2) <- withEnv [(LocalIdentifier x,m1,s1)] (infer m t)
-        pure (Node t2 (Let x u' t'))
+        pure (Node t2 (Let x u' t'), t2)
     -- FIX
     infer m (Node p (Fix fs t)) = do
         imtxs <- mapM (\case
@@ -221,20 +224,20 @@ instance Inferable (Core t) (Core Type) t where
                 t <- freshTV
                 pure (i,m,Forall mempty t,x)) fs
         let env = fmap (\(a,b,c,d)->(a,b,c)) imtxs
-        imtxs' <- fmap unzip . withEnv env . flip mapM imtxs $ \(i,m,sc,x) -> do
+        imtxs' <- withEnv env . flip mapM imtxs $ \(i,m,sc,x) -> do
             t       <- instantiate sc
-            (x',t') <- check W x t
-            sc'     <- generalize t'
+            x'      <- check W x t
+            sc'     <- generalize t
             pure (i,m,sc',x')
         let env' = fmap (\(a,b,c,d)->(a,b,c)) imtxs'
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs'
         (t',t2) <- withEnv env' (infer m t)
-        pure (Node t2 (Fix fs' t'))
+        pure (Node t2 (Fix fs' t'), t2)
     
     -- ABS-CHECK
     check m (Node p (Lam x t)) ft = do
         (t1,t2) <- splitArr p ft
-        t' <- withEnv [(LocalIdentifier x,m,t1)] (check m t t2)
+        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t t2)
         pure (Node (t1 --> t2) (Lam x t'))
     -- CHECK-INFER
     check m t t1 = do
@@ -243,7 +246,7 @@ instance Inferable (Core t) (Core Type) t where
         pure t'
     
     -- SCR-VAR
-    rigid (Node p (Val (Var i)) = lookupRigidity i
+    rigid (Node p (Val (Var i))) = lookupRigidity i
     -- SCR-APP
     rigid (App p a b) = do
         m1 <- rigid a

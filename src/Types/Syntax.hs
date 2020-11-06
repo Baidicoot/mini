@@ -9,13 +9,8 @@ import Types.Prim
 
 import Text.Parsec.Pos
 
-data SyntaxIdent
-    = SynGlobal Module Name
-    | SynLocal Name
-    deriving(Eq, Show)
-
 data SyntaxNode
-    = Ident SyntaxIdent
+    = Ident Identifier
     | Lit UnboxedLit
     | LitTy LitType
     | Prim Primop

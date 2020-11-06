@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Types.IR where
+module Types.Core where
 
 import Types.Ident
 import Types.Graph
@@ -62,19 +62,19 @@ aconv _ x = x
 instance Show (CoreNode tag) where
     show (Let n ds ir) = "let " ++ n ++ " = " ++ show ds ++ " in\n" ++ show ir
     show (Fix ds ir) = "fix " ++ intercalate "\n    " (fmap (\(n, ir) -> show n ++ " = " ++ show ir) ds) ++ " in\n" ++ show ir
-    show (Cons id args) = "{" ++ show id ++ concatMap (',':) args ++ "}"
+    show (Cons id args) = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
     show (Annot ir ty) = "(" ++ show ir ++ " :: " ++ show ty ++ ")"
     show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
     show (Match ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
 
-instance Pretty (CoreNode tag) Int where
+instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Let v ds ir) n = "\n" ++ replicate n ' ' ++ "let " ++ v ++ " = " ++ pretty ds (n+4) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix ds ir) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> show v ++ " = " ++ pretty ir (n+8)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Annot ir ty) n = "(" ++ pretty ir n ++ " :: " ++ show ty ++ ")"
     pretty (Lam v ir) n = "(\\" ++ v ++ ". " ++ pretty ir n ++ ")"
     pretty (Val i) _ = show i
-    pretty (Cons id args) _ = "{" ++ show id ++ concatMap (',':) args ++ "}"
+    pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
     pretty (Match ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
 
 instance (Substitutable tag) => Substitutable (CoreNode tag) where

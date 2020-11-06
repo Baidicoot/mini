@@ -10,7 +10,8 @@ import Types.Type
 import Types.Ident
 import Types.Graph
 import Types.Pretty
-import Types.IR
+--import Types.IR
+import Types.Core
 import Types.Env
 import Types.Abstract
 
@@ -18,11 +19,13 @@ import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import Frontend.IRify
-import Frontend.GenEnv
-import Frontend.Constraint
-import Frontend.Solve
-import CPS.CPSify
+--import Frontend.IRify
+--import Frontend.GenEnv
+--import Frontend.Constraint
+--import Frontend.Solve
+--import CPS.CPSify
+import Elaborate.Elaborate
+import TypeCheck.Check
 import CPS.ClosureConv
 import CPS.Spill
 import CPS.Meta
@@ -49,7 +52,8 @@ main = forever $ do
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err
-            Right b ->
+            Right b -> print b
+                {-
                 let ds = genDataspace ["Repl"] b
                     ns = genNamespace ["Repl"] b
                     in case irify ds ns b of
@@ -81,3 +85,4 @@ main = forever $ do
                                     let h = generateAbstract g (regs config)
                                     putStrLn "\n\nAbstract:"
                                     print h
+                            -}
