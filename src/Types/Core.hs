@@ -14,11 +14,6 @@ import qualified Data.Map as Map
 
 import Control.Arrow
 
-data Value
-    = Var Identifier
-    | Lit UnboxedLit
-    deriving(Eq, Ord)
-
 instance Show Value where
     show (Var i) = show i
     show (Lit l) = show l
@@ -47,6 +42,20 @@ data CoreNode tag
     deriving(Eq, Ord)
 
 type Core tag = TaggedAppGraph tag (CoreNode tag)
+
+untagCore :: Core tag -> Core NoTag
+untagCore = untag . fmap untagCoreN
+    where
+        untagCoreN :: CoreNode tag -> CoreNode NoTag
+        untagCoreN (Let n a b) = Let n (untagCore a) (untagCore b)
+        untagCoreN (Fix fs b) = Fix (fmap (\(a,b)->(a,untagCore b)) fs) (untagCore b)
+        untagCoreN (Lam n a) = Lam n (untagCore a)
+        untagCoreN (Match n cs) = Match n (fmap (\(a,b,c)->(a,NoTag,untagCore c)) cs)
+        untagCoreN (Annot a t) = Annot (untagCore a) t
+        untagCoreN (Val v) = Val v
+        untagCoreN (Cons i vs) = Cons i vs
+        untagCoreN (Prim p vs) = Prim p vs
+        untagCoreN (Error s) = Error s
 
 {-
 aconv :: Map.Map Name Name -> Core t -> Core t

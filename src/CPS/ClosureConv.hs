@@ -4,6 +4,7 @@ module CPS.ClosureConv (closureConvert) where
 
 import Types.CPS
 import Types.Ident
+import Types.Prim
 
 import Control.Arrow
 import Control.Applicative

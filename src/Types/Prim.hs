@@ -1,4 +1,5 @@
 module Types.Prim where
+import Types.Ident
 
 data UnboxedLit
     = Int Int
@@ -17,6 +18,11 @@ data Primop
     | ASub
     | ADiv
     | AMul
+    deriving(Eq, Ord)
+
+data Value
+    = Var Identifier
+    | Lit UnboxedLit
     deriving(Eq, Ord)
 
 arityOp :: Primop -> Int

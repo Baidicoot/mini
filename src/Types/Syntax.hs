@@ -11,7 +11,7 @@ import Text.Parsec.Pos
 
 data SyntaxNode
     = Ident Identifier
-    | Lit UnboxedLit
+    | SynLit UnboxedLit
     | LitTy LitType
     | Prim Primop
     | Arr
@@ -23,7 +23,7 @@ data SyntaxNode
 
 instance Show SyntaxNode where
     show (Ident id) = show id
-    show (Lit l) = show l
+    show (SynLit l) = show l
     show (Prim o) = show o
     show Arr = "->"
     show Ann = "::"

@@ -76,7 +76,7 @@ parens p = do
 
 rpnccTok :: Parser SyntaxNode
 rpnccTok
-  =   Lit               <$> try literal
+  =   SynLit            <$> try literal
   <|> LitTy             <$> try literalTy
   <|> Keyword           <$> try keyword
   <|> try (string "->")  $> Arr

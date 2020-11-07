@@ -23,7 +23,7 @@ import qualified Data.Set as Set
 --import Frontend.GenEnv
 --import Frontend.Constraint
 --import Frontend.Solve
---import CPS.CPSify
+import CPS.CPSify
 import Elaborate.Elaborate
 import TypeCheck.Check
 import CPS.ClosureConv
@@ -72,21 +72,10 @@ main = forever $ do
                                     putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
                                     print s
-                            --putStrLn "Untyped:"
-                            --prettyPrint c (0::Int)
-                            {-
-                            let ts = (genConsTypespace datadefs)
-                            case annotate ts c names of
-                                Left err -> print err
-                                Right (d, names) -> do
-                                    putStrLn "Typed:"
-                                    prettyPrint d (0::Int)
-                                    let (e, names') = cpsify ds c names
+                                    let (e, s2) = cpsify mempty (untagCore d) s1
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
-                                    let metadata = collect e
-                                    print (reduce metadata)
-                                    let f = closureConvert e names'
+                                    let f = closureConvert e s2
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)
                                     let g = spill (regs config) f
@@ -95,4 +84,3 @@ main = forever $ do
                                     let h = generateAbstract g (regs config)
                                     putStrLn "\n\nAbstract:"
                                     print h
-                            -}

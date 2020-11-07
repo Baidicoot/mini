@@ -13,7 +13,7 @@ import Types.SExpr
 import Types.Ident
 import Types.Syntax
 import Types.Type
-import Types.Prim
+import Types.Prim hiding(Value(..))
 import Types.Pattern
 import Types.Graph
 
@@ -56,7 +56,7 @@ expr (SExpr _ (SNode p (Keyword "let"):xs)) = Node p . LetIn <$> letexp p xs
 expr (SExpr _ (SNode p (Keyword "fix"):xs)) = Node p . FixIn <$> fixexp p xs
 expr (SExpr _ (SNode p (Keyword "lam"):xs)) = Node p . Lambda <$> lamexp p xs
 expr (SExpr _ (SNode p (Keyword "match"):xs)) = Node p . Switch <$> matchexp p xs
-expr (SNode p (Lit l)) = Right (Node p $ Literal l)
+expr (SNode p (SynLit l)) = Right (Node p $ Literal l)
 expr (SNode p (Ident i)) = Right (Node p $ Var i)
 expr (SExpr p xs) = apps "expression" p expr xs
 expr s = Left [Expecting "expression" (display s) (getPos s)]

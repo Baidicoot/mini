@@ -12,14 +12,9 @@ import Data.Maybe (maybeToList, catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
-data Value
-    = Var Identifier
-    | Unboxed UnboxedLit
-    deriving(Eq)
-
 instance Show Value where
     show (Var id) = show id
-    show (Unboxed u) = show u
+    show (Lit u) = show u
 
 data CFun
     = Fun Identifier [Name] CExp

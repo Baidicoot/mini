@@ -9,6 +9,7 @@ import Types.Type
 import Types.Ident
 import Types.Core
 import Types.Env
+import Types.Prim
 
 import Control.Monad.Reader
 import Control.Monad.Errors
@@ -192,6 +193,7 @@ infFixDefs fs = do
     withEnv fenv . flip mapM fs $ \(i,x) -> do
         (x',t) <- infer W x
         sc'    <- generalize t
+        m      <- rigid x
         pure (i,m,sc',x')
 
 infLetDef :: Name -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)

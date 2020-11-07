@@ -4,7 +4,7 @@ import Types.Abstract
 import Types.Ident
 import Types.Prim
 import qualified Types.CPS as CPS
-import Types.CPS (CExp, CFun, Value, AccessPath)
+import Types.CPS (CExp, CFun, AccessPath)
 import qualified Types.Injection as Inj
 
 import Prelude hiding(drop)
@@ -204,8 +204,8 @@ duplicate :: [(GPR, GPR)] -> AbstGen ()
 duplicate = mapM_ (\(a,b) -> copy a b)
 
 getOp :: Value -> AbstGen Operand
-getOp (CPS.Unboxed l) = pure (ImmLit l)
-getOp (CPS.Var (LocalIdentifier v)) = do
+getOp (Lit l) = pure (ImmLit l)
+getOp (Var (LocalIdentifier v)) = do
     (known, escaping, _) <- ask
     if v `Set.member` known || v `Set.member` escaping then
         pure (ImmLabel (LocalIdentifier v))
@@ -250,7 +250,7 @@ doMoves xs = do
     fill fills
 
 genLayout :: [Value] -> AbstGen [GPR]
-genLayout (CPS.Var (LocalIdentifier v):xs) = do
+genLayout (Var (LocalIdentifier v):xs) = do
     reg <- getPrimaryReg v
     ls <- genLayout xs
     case reg of
@@ -286,7 +286,7 @@ irrefutableGetLayout n = do
         Nothing -> error ("irrefutable layout lookup failed for " ++ n)
 
 call :: Value -> [Value] -> AbstGen ()
-call val@(CPS.Var (LocalIdentifier v)) args = do
+call val@(Var (LocalIdentifier v)) args = do
     (known, _, _) <- ask
     (callOp, rmap) <- if v `Set.member` known then
             getLayout v args
@@ -295,7 +295,7 @@ call val@(CPS.Var (LocalIdentifier v)) args = do
     doMoves rmap
     emit (Comment (v ++ concatMap (\v -> ' ':show v) args))
     emit (Jmp callOp)
-call (CPS.Var v) args = do
+call (Var v) args = do
     let rmap = zip args [1..]
     doMoves rmap
     emit (Jmp (ImmLabel v))

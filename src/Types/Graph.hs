@@ -49,14 +49,14 @@ prettypar a d
     | otherwise = "(" ++ pretty a d ++ ")"
 
 instance (Show a) => Show (TaggedAppGraph t a) where
-    show (App _ a b) = showpar a ++ " " ++ showpar b
+    show (App _ a b) = show a ++ " " ++ showpar b
     show (Node t a) = show a
 
 instance (Pretty a d, Show t) => Pretty (TaggedAppGraph t a) d where
     showtag (Node _ a) d = showtag a d
     showtag (App _ a b) d = showtag a d && showtag b d
 
-    pretty (App _ a b) d = prettypar a d ++ " " ++ prettypar b d
+    pretty (App _ a b) d = pretty a d ++ " " ++ prettypar b d
     pretty (Node t a) d
         | showtag a d = pretty a d ++ " :: " ++ show t
         | otherwise = pretty a d
