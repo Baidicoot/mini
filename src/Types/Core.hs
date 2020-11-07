@@ -67,6 +67,7 @@ instance Show (CoreNode tag) where
     show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
     show (Match ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Error s) = "error " ++ show s
 
 instance Show tag => Pretty (CoreNode tag) Int where
     showtag (Let _ _ _) _ = True
@@ -81,6 +82,7 @@ instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Val i) _ = show i
     pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
     pretty (Match ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
+    pretty (Error s) _ = "error " ++ show s
 
 instance (Substitutable tag) => Substitutable (CoreNode tag) where
     apply s (Fix ds ir) = Fix (fmap (\(a, b) -> (a, apply s b)) ds) (apply s ir)

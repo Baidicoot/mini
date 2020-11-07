@@ -179,6 +179,28 @@ class Inferable t w | t -> w where
     infer :: Rigidity -> t -> Checker (w, Type)
     rigid :: t -> Checker Rigidity
 
+infFixDefs :: [(Identifier, Core SourcePos)] -> Checker [(Identifier,Rigidity,Scheme,Core Type)]
+infFixDefs fs = do
+    fenv <- mapM (\case
+        (i,Node p (Annot x t)) -> do
+            sc <- generalize t
+            pure (i,R,sc)
+        (i,x) -> do
+            m <- rigid x
+            t <- freshTV
+            pure (i,m,Forall mempty t)) fs
+    withEnv fenv . flip mapM fs $ \(i,x) -> do
+        (x',t) <- infer W x
+        sc'    <- generalize t
+        pure (i,m,sc',x')
+
+infLetDef :: Name -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)
+infLetDef x u = do
+    m1 <- rigid u
+    (u',t1) <- infer W u
+    s1 <- generalize t1
+    pure (LocalIdentifier x,m1,s1,u')
+
 instance Inferable (Core SourcePos) (Core Type) where
     -- VAR
     infer m (Node p (Val (Var i))) = do
@@ -222,38 +244,41 @@ instance Inferable (Core SourcePos) (Core Type) where
         let vs' = fmap (Node p . Val) vs
         mapM_ (uncurry (check m :: (Core SourcePos) -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Cons i vs), t2)
-    -- LET
+    -- LET-INFER
     infer m (Node p (Let x u t)) = do
-        m1      <- rigid u
-        (u',t1) <- infer W u
-        s1      <- generalize t1
-        (t',t2) <- withEnv [(LocalIdentifier x,m1,s1)] (infer m t)
+        (x',m1,s1,u') <- infLetDef x u
+        (t',t2) <- withEnv [(x',m1,s1)] (infer m t)
         pure (Node t2 (Let x u' t'), t2)
-    -- FIX
+    -- FIX-INFER
     infer m (Node p (Fix fs t)) = do
-        fenv <- mapM (\case
-            (i,Node p (Annot x t)) -> do
-                sc <- generalize t
-                pure (i,R,sc)
-            (i,x) -> do
-                m <- rigid x
-                t <- freshTV
-                pure (i,m,Forall mempty t)) fs
-        imtxs <- withEnv fenv . flip mapM fs $ \(i,x) -> do
-            (x',t) <- infer W x
-            sc'    <- generalize t
-            pure (i,m,sc',x')
+        imtxs <- infFixDefs fs
         let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
         (t',t2) <- withEnv tenv (infer m t)
         pure (Node t2 (Fix fs' t'), t2)
-    
+
     -- ABS-CHECK
     check m (Node p (Lam x t)) s1 = do
         (t1,t2) <- splitArr p =<< instantiate s1
         s2 <- generalize t2
         t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t s2)
         pure (Node (t1 --> t2) (Lam x t'))
+    -- LET-CHECK
+    check m (Node p (Let x u t)) s = do
+        t1 <- instantiate s
+        s1 <- generalize t1
+        (x',m1,s1,u') <- infLetDef x u
+        t' <- withEnv [(x',m1,s1)] (check m t s1)
+        pure (Node t1 (Let x u' t'))
+    -- FIX-CHECK
+    check m (Node p (Fix fs t)) s = do
+        t1 <- instantiate s
+        s1 <- generalize t1
+        imtxs <- infFixDefs fs
+        let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
+        let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
+        t' <- withEnv tenv (check m t s1)
+        pure (Node t1 (Fix fs' t'))
     -- CHECK-INFER
     check m t t1 = do
         (t',t2) <- infer m t
@@ -277,3 +302,11 @@ instance Inferable (Core SourcePos) (Core Type) where
     rigid (Node p (Annot x t)) = pure R
     -- SCR-OTHER
     rigid t = pure W
+
+pcon :: Rigidity -> Rigidity -> Type -> Scheme -> (PatternBinding, SourcePos, Core SourcePos) -> Checker (Core Type, Type)
+-- PCON-W
+pcon W m tp st (ConsPattern c v,s,t) = undefined
+-- PCON-R
+pcon R m tp st (ConsPattern c v,s,t) = undefined
+pcon _ m tp st (WildcardPattern,s,t) = undefined
+pcon _ m tp st (LiteralPattern l,s,t) = undefined
