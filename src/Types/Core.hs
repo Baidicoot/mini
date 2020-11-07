@@ -69,6 +69,11 @@ instance Show (CoreNode tag) where
     show (Match ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
 
 instance Show tag => Pretty (CoreNode tag) Int where
+    showtag (Let _ _ _) _ = True
+    showtag (Fix _ _) _ = True
+    showtag (Lam _ _) _ = True
+    showtag _ _ = False
+
     pretty (Let v ds ir) n = "\n" ++ replicate n ' ' ++ "let " ++ v ++ " = " ++ pretty ds (n+4) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix ds ir) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> show v ++ " = " ++ pretty ir (n+8)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Annot ir ty) n = "(" ++ pretty ir n ++ " :: " ++ show ty ++ ")"

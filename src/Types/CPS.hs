@@ -106,9 +106,13 @@ instance Show AccessPath where
     show (SelPath x y) = show y ++ "[" ++ show x ++ "]"
 
 instance Pretty CFun Int where
+    showtag _ _ = False
+
     pretty (Fun v args exp) n = intercalate " " (show v:args) ++ " = " ++ pretty exp (n+4)
 
 instance Pretty CExp Int where
+    showtag _ _ = False
+
     pretty (App a args) _ = show a ++ concatMap (\arg -> ' ':show arg) args
     --"\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> v ++ " = " ++ pretty ir (n+4)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix defs exp) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\fn -> pretty fn (n+4)) defs) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
