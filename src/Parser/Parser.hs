@@ -79,9 +79,11 @@ matchexp _ (x:xs) = uncurry Match <$> both expr (many caseexp) (x, xs)
 matchexp p x = Left [Expecting "expression" "nothing" p]
 
 apps :: String -> SourcePos -> Parser ExprS (SourceGraph a) -> Parser [ExprS] (SourceGraph a)
-apps _ _ p [s] = p s
-apps s o p (x:xs) = uncurry (App o) <$> both p (apps s (getPos x) p) (x, xs)
-apps s p _ x = Left [Expecting (s ++ " application") "nothing" p]
+apps s p _ [] = Left [Expecting (s ++ " application") "nothing" p]
+apps s o p (x:xs) = p x >>= internal xs
+    where
+        internal (x:xs) y = p x >>= internal xs . App o y
+        internal [] y = Right y
 
 typeexp :: ExprParser SourceType
 typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (\a b -> App p (App p (Node p FunctionType) a) b) <$> both typeexp typeexp (x, SExpr p xs)
