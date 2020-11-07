@@ -68,11 +68,11 @@ data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(E
 type Scheme = PolyScheme NoTag
 type SourceScheme = PolyScheme SourcePos
 
-quantified :: PolyScheme t -> Set.Set Name
-quantified (Forall a _) = a
+qualified :: PolyScheme t -> Set.Set Name
+qualified (Forall a _) = a
 
-unquantified :: PolyType t -> PolyScheme t
-unquantified = Forall mempty
+unqualified :: PolyType t -> PolyScheme t
+unqualified = Forall mempty
 
 untagScheme :: PolyScheme a -> Scheme
 untagScheme (Forall x t) = Forall x (untag t)
@@ -113,13 +113,14 @@ instance Substitutable NoTag where
 
 data UnifyError
     = OccursUE Name Type
-    | MatchUE Type Type
+    | MatchUE Type Scheme
     | UnifyUE Type Type
+    | RigidUE Name Type
     deriving(Eq, Show)
 
 infixr 4 @@
 (@@) :: Subst -> Subst -> Subst
-a @@ b = Map.fromList [(u, apply a t) | (u, t) <- Map.toList b]
+a @@ b = Map.fromList [(u, apply a t) | (u, t) <- Map.toList b] `mappend` a
 
 mapsTo :: Name -> Type -> Subst
 mapsTo n t = Map.singleton n t
@@ -141,14 +142,16 @@ mgu a b
     | a == b = Right mempty
 mgu a b = Left (UnifyUE a b)
 
-match :: Type -> Type -> Either UnifyError Subst
-match (App _ a b) (App _ c d) = do
-    s1 <- match a c
-    s2 <- match (apply s1 b) (apply s1 d)
+match :: Type -> Scheme -> Either UnifyError Subst
+match (App _ w x) (Forall a (App _ y z)) = do
+    s1 <- match w (Forall a y)
+    s2 <- match (apply s1 x) (Forall a $ apply s1 z)
     Right (s1 @@ s2)
-match (Node _ (TypeVar u)) t = varBind u t
-match a b
-    | a == b = Right mempty
+match (Node _ (TypeVar u)) (Forall a t) = varBind u t
+match t (Forall a (Node _ (TypeVar u)))
+    | not (u `Set.member` a) = varBind u t
+match x (Forall a y)
+    | x == y = Right mempty
 match a b = Left (MatchUE a b)
 
 infixr 9 -->

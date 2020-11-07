@@ -1,4 +1,4 @@
-module Elaborate.Elaborate where
+module Elaborate.Elaborate (elaborate, ElabWarning(..), ElabError(..), MatchWarning(..)) where
 
 import Types.Pattern
 import Types.Core
@@ -39,6 +39,14 @@ type Call tag = (Name, [Name], tag)
 type ElabEnv = (Module, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme)
 type ElabState = Int
 type Elaborator = ErrorsT [ElabError] (RWS ElabEnv [ElabWarning] ElabState)
+
+elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> Either ([ElabError], [ElabWarning]) (Core SourcePos, [GADT], Int, [ElabWarning])
+elaborate i m e tl =
+    let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
+        (res, s, w) = runElab (elabTL tl) env i
+    in case res of
+        Right (c, g) -> Right (c, g, s, w)
+        Left e -> Left (e, w)
 
 runElab :: Elaborator a -> ElabEnv -> ElabState -> (Either [ElabError] a, ElabState, [ElabWarning])
 runElab m r s = runRWS (runErrorsT m) r s
@@ -222,6 +230,8 @@ genFns (Syn.Func d@(Syn.FunDef _ _ n _ _):xs) = do
     e' <- elabFun d
     xs' <- genFns xs
     pure ((n',e'):xs')
+genFns (x:xs) = genFns xs
+genFns [] = pure []
 
 elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT])
 elabTL xs = do

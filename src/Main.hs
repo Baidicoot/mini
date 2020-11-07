@@ -52,19 +52,29 @@ main = forever $ do
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err
-            Right b -> print b
-                {-
-                let ds = genDataspace ["Repl"] b
-                    ns = genNamespace ["Repl"] b
-                    in case irify ds ns b of
-                        Left err -> do
-                            print b
-                            print err
-                            print ds
-                            print ns
-                        Right ((datadefs, c), names) -> do
+            Right b -> case elaborate 0 ["Repl"] mempty b of
+                        Left (e,w) -> do
+                            putStrLn "elaboration failed with:"
+                            print e
+                            putStrLn "warnings:"
+                            print w
+                        Right (c, g, s0, w) -> do
+                            putStrLn "elaboration succeded with warnings:"
+                            print w
+                            putStrLn "resulting in:"
+                            print c
+                            print g
+                            case typecheck s0 mempty c of
+                                Left e -> do
+                                    putStrLn "typecheck failed with:"
+                                    print e
+                                Right (d,s,s1) -> do
+                                    putStrLn "typecheck resulted in:"
+                                    prettyPrint d (0::Int)
+                                    print s
                             --putStrLn "Untyped:"
                             --prettyPrint c (0::Int)
+                            {-
                             let ts = (genConsTypespace datadefs)
                             case annotate ts c names of
                                 Left err -> print err

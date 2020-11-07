@@ -31,7 +31,8 @@ minR _ _ = W
 data TypeError
     = OccursFail SourcePos Name Type
     | UnifyFail SourcePos Type Type
-    | MatchFail SourcePos Type Type
+    | MatchFail SourcePos Type Scheme
+    | RigidFail SourcePos Name Type
     | NotInScope SourcePos Identifier
     | ArityErr SourcePos Type
     | ImmedErr SourcePos Int Int
@@ -41,6 +42,7 @@ fromUE :: UnifyError -> SourcePos -> TypeError
 fromUE (OccursUE n t) p = OccursFail p n t
 fromUE (UnifyUE a b) p = UnifyFail p a b
 fromUE (MatchUE a b) p = MatchFail p a b
+fromUE (RigidUE n t) p = RigidFail p n t
 
 newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, Map.Map Identifier Scheme, Set.Set Name)
 
@@ -49,6 +51,22 @@ instance Substitutable Gamma where
     ftv (Gamma (a, b, c, d)) = ftv a `mappend` d
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
+
+typecheck :: Int -> Env -> Core SourcePos -> Either [TypeError] (Core Type, Subst, Int)
+typecheck i e c =
+    let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
+        (r,i',s) = runChecker
+            env
+            (i,mempty)
+            (infer W c)
+    in case r of
+        Right (c,t) -> Right (apply s c, s, i')
+        Left e -> Left e
+
+runChecker :: Gamma -> (Int, Subst) -> Checker a -> (Either [TypeError] a, Int, Subst)
+runChecker e s m =
+    let (a,(b,c)) = runState (runReaderT (runErrorsT m) e) s
+    in (a,b,c)
 
 liftUE :: SourcePos -> Either UnifyError a -> Checker a
 liftUE _ (Right a) = pure a
@@ -60,7 +78,7 @@ getSubst = fmap snd get
 extSubst :: Subst -> Checker ()
 extSubst s' = modify (\(n,s) -> (n,s' @@ s))
 
-matches :: SourcePos -> Type -> Type -> Checker ()
+matches :: SourcePos -> Type -> Scheme -> Checker ()
 matches t a b = do
     s  <- getSubst
     s' <- revert mempty $ liftUE t (match (apply s a) (apply s b))
@@ -69,7 +87,7 @@ matches t a b = do
 unify :: SourcePos -> Type -> Type -> Checker ()
 unify t a b = do
     s  <- getSubst
-    s' <- revert mempty $ liftUE t (mgu a b)
+    s' <- revert mempty $ liftUE t (mgu (apply s a) (apply s b))
     extSubst s'
 
 immedMatch :: SourcePos -> [a] -> [b] -> Checker ()
@@ -146,19 +164,18 @@ withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker a -> Checker a
 withEnv rts = withRigidity (fmap (\(a,b,c)->(a,b)) rts) . withTypes (fmap (\(a,b,c)->(a,c)) rts)
 
 splitArr :: SourcePos -> Type -> Checker (Type, Type)
-splitArr p = newest >=> internal
-    where
-    internal (App _ (App _ (Node _ FunctionType) a) b) = pure (a, b)
-    internal t = do
-        t1 <- freshTV
-        t2 <- freshTV
-        t' <- newest t
-        report [ArityErr p t']
-        pure (t1, t2)
+splitArr p t = do
+    t1 <- freshTV
+    t2 <- freshTV
+    matches p t (Forall mempty (t1 --> t2))
+    t' <- newest t
+    case t' of
+        App _ (App _ (Node _ FunctionType) a) b -> pure (a,b)
+        _ {- match has failed -}                -> pure (t1,t2)
 
 class Inferable t w | t -> w where
     -- bidirectional typechecking augmented with inferred substitutions
-    check :: Rigidity -> t -> Type -> Checker w
+    check :: Rigidity -> t -> Scheme -> Checker w
     infer :: Rigidity -> t -> Checker (w, Type)
     rigid :: t -> Checker Rigidity
 
@@ -174,37 +191,36 @@ instance Inferable (Core SourcePos) (Core Type) where
     infer m (App p f x) = do
         (f',ft) <- infer W f
         (t1,t2) <- splitArr p ft
-        x'      <- check W x t1
+        x'      <- check W x (unqualified t1)
         pure (App t2 f' x', t2)
     -- ABS-INFER
     infer m (Node p (Lam x t)) = do
-        t1  <- freshTV
-        t2  <- freshTV
-        t'  <- withTypes [(LocalIdentifier x, Forall mempty t1)] (check m t t2)
+        t1 <- freshTV
+        (t',t2) <- withTypes [(LocalIdentifier x, Forall mempty t1)] (infer m t)
         pure (Node (t1 --> t2) (Lam x t'), t1 --> t2)
     -- ANN
     infer m (Node p (Annot x t)) = do
         sigma <- generalize t
+        x'    <- withFV (qualified sigma) (check m x sigma)
         tau   <- instantiate sigma
-        x'    <- withFV (quantified sigma) (check m x tau)
         pure (x', tau)
     -- PRIM
     infer m (Node p (Prim op vs)) = do
-        let t1 = argTys (opTy op)
+        t1 <- mapM generalize (argTys (opTy op))
         let t2 = resTy  (opTy op)
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: (Core SourcePos) -> Type -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: (Core SourcePos) -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Prim op vs), t2)
     -- CONS
     infer m (Node p (Cons i vs)) = do
         sc <- lookupCons i p
         ty <- instantiate sc
-        let t1 = argTys ty
+        t1 <- mapM generalize (argTys ty)
         let t2 = resTy  ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: (Core SourcePos) -> Type -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: (Core SourcePos) -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Cons i vs), t2)
     -- LET
     infer m (Node p (Let x u t)) = do
@@ -215,29 +231,28 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node t2 (Let x u' t'), t2)
     -- FIX
     infer m (Node p (Fix fs t)) = do
-        imtxs <- mapM (\case
+        fenv <- mapM (\case
             (i,Node p (Annot x t)) -> do
                 sc <- generalize t
-                pure (i,R,sc,x)
+                pure (i,R,sc)
             (i,x) -> do
                 m <- rigid x
                 t <- freshTV
-                pure (i,m,Forall mempty t,x)) fs
-        let env = fmap (\(a,b,c,d)->(a,b,c)) imtxs
-        imtxs' <- withEnv env . flip mapM imtxs $ \(i,m,sc,x) -> do
-            t       <- instantiate sc
-            x'      <- check W x t
-            sc'     <- generalize t
+                pure (i,m,Forall mempty t)) fs
+        imtxs <- withEnv fenv . flip mapM fs $ \(i,x) -> do
+            (x',t) <- infer W x
+            sc'    <- generalize t
             pure (i,m,sc',x')
-        let env' = fmap (\(a,b,c,d)->(a,b,c)) imtxs'
-        let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs'
-        (t',t2) <- withEnv env' (infer m t)
+        let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
+        let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
+        (t',t2) <- withEnv tenv (infer m t)
         pure (Node t2 (Fix fs' t'), t2)
     
     -- ABS-CHECK
-    check m (Node p (Lam x t)) ft = do
-        (t1,t2) <- splitArr p ft
-        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t t2)
+    check m (Node p (Lam x t)) s1 = do
+        (t1,t2) <- splitArr p =<< instantiate s1
+        s2 <- generalize t2
+        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t s2)
         pure (Node (t1 --> t2) (Lam x t'))
     -- CHECK-INFER
     check m t t1 = do
