@@ -91,6 +91,12 @@ unify t a b = do
     s' <- revert mempty $ liftUE t (mgu (apply s a) (apply s b))
     extSubst s'
 
+unifier :: SourcePos -> Type -> Type -> Checker Subst
+unifier t a b = do
+    s <- getSubst
+    s' <- revert mempty $ liftUE t (mgu (apply s a) (apply s b))
+    pure (s' @@ s)
+
 immedMatch :: SourcePos -> [a] -> [b] -> Checker ()
 immedMatch t a b =
     if length a /= length b then
@@ -131,7 +137,7 @@ lookupLocal :: Identifier -> SourcePos -> Checker Scheme
 lookupLocal i t = do
     Gamma (a,_,_,_) <- ask
     case Map.lookup i a of
-        Just sc -> pure sc
+        Just sc -> newest sc
         Nothing -> do
             f <- fresh
             err (Forall (Set.singleton f) . Node NoTag $ TypeVar f) [NotInScope t i]
@@ -305,10 +311,30 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- SCR-OTHER
     rigid t = pure W
 
-pcon :: Rigidity -> Rigidity -> Type -> Scheme -> (PatternBinding, SourcePos, Core SourcePos) -> Checker (Core Type, Type)
+pcon :: Rigidity -> Rigidity -> Type -> Scheme -> (PatternBinding, SourcePos, Core SourcePos) -> Checker (Core Type)
 -- PCON-W
-pcon W m tp st (ConsPattern c v,s,t) = undefined
+pcon W m tp st (ConsPattern c v,s,t) = do
+    p <- instantiate =<< lookupCons c s
+    let pargs = argTys p
+    let pres = resTy p
+    immedMatch s pargs v
+    matches s pres (unqualified tp)
+    let env = fmap (\(v,t)->(LocalIdentifier v,W,unqualified t)) $ zip v pargs
+    withEnv env (check m t st)
 -- PCON-R
-pcon R m tp st (ConsPattern c v,s,t) = undefined
-pcon _ m tp st (WildcardPattern,s,t) = undefined
-pcon _ m tp st (LiteralPattern l,s,t) = undefined
+pcon R m tp st (ConsPattern c v,s,t) = do
+    p <- instantiate =<< lookupCons c s
+    let pargs = argTys p
+    let pres = resTy p
+    immedMatch s pargs v
+    theta <- unifier s p tp
+    let env = fmap (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) $ zip v pargs
+    tt <- instantiate st
+    st <- generalize (apply theta tt)
+    withEnv env (check m t st)
+-- PWILD
+pcon _ m tp st (WildcardPattern,s,t) = check m t st
+-- PLIT
+pcon _ m tp st (LiteralPattern l,s,t) = do
+    matches s (litTy l) (unqualified tp)
+    check m t st
