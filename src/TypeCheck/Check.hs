@@ -217,6 +217,10 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node t . Val $ Var i, t)
     -- LIT
     infer m (Node p (Val (Lit l))) = pure (Node (litTy l) . Val $ Lit l, litTy l)
+    -- ERROR
+    infer m (Node p (Error s)) = do
+        t <- freshTV
+        pure (Node t (Error s), t)
     -- APP
     infer m (App p f x) = do
         (f',ft) <- infer W f
