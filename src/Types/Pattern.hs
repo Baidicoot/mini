@@ -6,6 +6,7 @@ import Types.Graph
 import Types.Prim
 
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 import Text.Parsec.Pos
 
@@ -17,6 +18,11 @@ data Pattern tag
     deriving(Eq, Show)
 
 type SourcePattern = Pattern SourcePos
+
+prename :: Map.Map Name Name -> Pattern tag -> Pattern tag
+prename m (PatternVar t n) = PatternVar t $ Map.findWithDefault n n m
+prename m (PatternCons t i ps) = PatternCons t i $ fmap (prename m) ps
+prename _ x = x
 
 data PatternConstructor
     = ConsCons Identifier Int

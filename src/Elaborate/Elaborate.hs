@@ -143,7 +143,8 @@ elabMatch t (Syn.Match e ps) = do
             []      -> fmap (:[]) fresh
         let lamexp = foldr (\n -> Node t . Lam n) e' argns
         n <- fresh
-        pure ((p,(n,argns,getTag e)),lamexp)) ps
+        let p' = prename (Map.fromList $ fmap (\(LocalIdentifier a,LocalIdentifier b)->(a,b)) fvexp) p
+        pure ((p',(n,argns,getTag e)),lamexp)) ps
     m <- matchComp t n (fmap fst exprCalls)
     pure . Node t . Fix (fmap (\((_,(n,_,_)),e) -> (LocalIdentifier n,e)) exprCalls) . Node t $ Let n e' m
 
