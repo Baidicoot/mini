@@ -61,7 +61,7 @@ showArg t = show t
 
 instance {-# OVERLAPPING #-} Show (PolyType t) where
     show (App _ (App _ (Node _ FunctionType) i) o) = showArg i ++ " ⟶ " ++ show o
-    show (App _ a b) = show a ++ showPar b
+    show (App _ a b) = show a ++ " " ++ showPar b
     show (Node _ t) = show t
 
 data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(Eq)
@@ -116,7 +116,13 @@ data UnifyError
     | MatchUE Type Scheme
     | UnifyUE Type Type
     | RigidUE Name Type
-    deriving(Eq, Show)
+    deriving(Eq)
+
+instance Show UnifyError where
+    show (OccursUE n t) = "the metavariable '" ++ n ++ "' occurs in '" ++ show t ++ "'"
+    show (MatchUE t s) = "could not match '" ++ show t ++ "' with '" ++ show s ++ "'"
+    show (UnifyUE t1 t2) = "could not unify '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
+    show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ n ++ "'"
 
 infixr 4 @@
 (@@) :: Subst -> Subst -> Subst

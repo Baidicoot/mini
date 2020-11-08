@@ -18,6 +18,8 @@ module Control.Monad.Errors
     , throw
     , throwL
     , report
+    , toEither
+    , ErrorsResult(..)
     ) where
 
 import Control.Monad.Identity
@@ -36,15 +38,27 @@ type Errors e a = ErrorsT e Identity a
 second :: (b -> c) -> (a, b) -> (a, c)
 second f (a,b) = (a,f b)
 
-runErrors :: (Monoid e) => Errors e a -> Either e a
+data ErrorsResult e a
+    = FailWithResult e a
+    | Fail e
+    | Success a
+    deriving(Eq, Show)
+
+toEither :: ErrorsResult e a -> Either e a
+toEither (FailWithResult e _) = Left e
+toEither (Fail e) = Left e
+toEither (Success a) = Right a
+
+runErrors :: (Monoid e) => Errors e a -> ErrorsResult e a
 runErrors = runIdentity . runErrorsT
 
-runErrorsT :: (Monad m, Monoid e) => ErrorsT e m a -> m (Either e a)
+runErrorsT :: (Monad m, Monoid e) => ErrorsT e m a -> m (ErrorsResult e a)
 runErrorsT (ErrorsT action) = do
     a <- action
     case a of
-        (Just e,_) -> pure (Left e)
-        (_,Just a) -> pure (Right a)
+        (Just e,Just a) -> pure (FailWithResult e a)
+        (Just e,_) -> pure (Fail e)
+        (_,Just a) -> pure (Success a)
         _ -> error "no idea how you got here"
 
 class MonadErrors e m | m -> e where

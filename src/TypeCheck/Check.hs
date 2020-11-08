@@ -29,21 +29,22 @@ minR :: Rigidity -> Rigidity -> Rigidity
 minR R R = R
 minR _ _ = W
 
+data UnifyAction
+    = UnifyAct Type Type
+    | MatchAct Type Scheme
+    deriving(Eq)
+
+instance Show UnifyAction where
+    show (UnifyAct t1 t2) = "unifying '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
+    show (MatchAct t1 s2) = "matching '" ++ show t1 ++ "' with '" ++ show s2 ++ "'"
+
 data TypeError
-    = OccursFail SourcePos Name Type
-    | UnifyFail SourcePos Type Type
-    | MatchFail SourcePos Type Scheme
-    | RigidFail SourcePos Name Type
+    = UnifyError SourcePos UnifyError UnifyAction
     | NotInScope SourcePos Identifier
     | ArityErr SourcePos Type
     | ImmedErr SourcePos Int Int
+    | Debug String
     deriving(Eq, Show)
-
-fromUE :: UnifyError -> SourcePos -> TypeError
-fromUE (OccursUE n t) p = OccursFail p n t
-fromUE (UnifyUE a b) p = UnifyFail p a b
-fromUE (MatchUE a b) p = MatchFail p a b
-fromUE (RigidUE n t) p = RigidFail p n t
 
 newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, Map.Map Identifier Scheme, Set.Set Name)
 
@@ -53,7 +54,11 @@ instance Substitutable Gamma where
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
-typecheck :: Int -> Env -> Core SourcePos -> Either [TypeError] (Core Type, Int)
+liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
+liftUE t a (Right x) = pure x
+liftUE t a (Left e) = throw [UnifyError t e a]
+
+typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, Int)
 typecheck i e c =
     let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
         (r,i',s) = runChecker
@@ -61,17 +66,14 @@ typecheck i e c =
             (i,mempty)
             (infer W c)
     in case r of
-        Right (c,t) -> Right (apply s c, i')
-        Left e -> Left e
+        Success (c,t) -> Success (apply s c, i')
+        FailWithResult e (c,t) -> FailWithResult e (apply s c, i')
+        Fail e -> Fail e
 
-runChecker :: Gamma -> (Int, Subst) -> Checker a -> (Either [TypeError] a, Int, Subst)
+runChecker :: Gamma -> (Int, Subst) -> Checker a -> (ErrorsResult [TypeError] a, Int, Subst)
 runChecker e s m =
     let (a,(b,c)) = runState (runReaderT (runErrorsT m) e) s
     in (a,b,c)
-
-liftUE :: SourcePos -> Either UnifyError a -> Checker a
-liftUE _ (Right a) = pure a
-liftUE p (Left e) = throw [fromUE e p]
 
 getSubst :: Checker Subst
 getSubst = fmap snd get
@@ -82,19 +84,19 @@ extSubst s' = modify (\(n,s) -> (n,s' @@ s))
 matches :: SourcePos -> Type -> Scheme -> Checker ()
 matches t a b = do
     s  <- getSubst
-    s' <- revert mempty $ liftUE t (match (apply s a) (apply s b))
+    s' <- revert mempty $ liftUE t (MatchAct (apply s a) (apply s b)) (match (apply s a) (apply s b))
     extSubst s'
 
 unify :: SourcePos -> Type -> Type -> Checker ()
 unify t a b = do
     s  <- getSubst
-    s' <- revert mempty $ liftUE t (mgu (apply s a) (apply s b))
+    s' <- revert mempty $ liftUE t (UnifyAct (apply s a) (apply s b)) (mgu (apply s a) (apply s b))
     extSubst s'
 
 unifier :: SourcePos -> Type -> Type -> Checker Subst
 unifier t a b = do
     s <- getSubst
-    s' <- revert mempty $ liftUE t (mgu (apply s a) (apply s b))
+    s' <- revert mempty $ liftUE t (UnifyAct (apply s a) (apply s b)) (mgu (apply s a) (apply s b))
     pure (s' @@ s)
 
 immedMatch :: SourcePos -> [a] -> [b] -> Checker ()
@@ -235,7 +237,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- ANN
     infer m (Node p (Annot x t)) = do
         sigma <- generalize t
-        x'    <- withFV (qualified sigma) (check m x sigma)
+        x'    <- withFV (qualified sigma) (check R x sigma)
         tau   <- instantiate sigma
         pure (x', tau)
     -- PRIM
@@ -269,7 +271,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         (t',t2) <- withEnv tenv (infer m t)
         pure (Node t2 (Fix fs' t'), t2)
     -- MATCH-INFER
-    infer m (Node p (Match n cs)) = do
+    infer m (Node p (Match _ n cs)) = do
         tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
         tt <- freshTV
         cs' <- mapM (\case
@@ -295,37 +297,31 @@ instance Inferable (Core SourcePos) (Core Type) where
                 (t',tt') <- infer m t
                 unify s tt tt'
                 pure (WildcardPattern,tt',t')) cs
-        pure (Node tt (Match n cs'), tt)
+        pure (Node tt (Match (Just tp) n cs'), tt)
 
     -- ABS-CHECK
-    check m (Node p (Lam x t)) s1 = do
-        (t1,t2) <- splitArr p =<< instantiate s1
-        s2 <- generalize t2
-        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t s2)
+    check m (Node p (Lam x t)) (Forall a s1) = do
+        (t1,t2) <- splitArr p s1
+        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t (Forall a t2))
         pure (Node (t1 --> t2) (Lam x t'))
     -- LET-CHECK
-    check m (Node p (Let x u t)) s = do
-        t1 <- instantiate s
-        s1 <- generalize t1
+    check m (Node p (Let x u t)) (Forall a t2) = do
         (x',m1,s1,u') <- infLetDef x u
-        t' <- withEnv [(x',m1,s1)] (check m t s1)
-        pure (Node t1 (Let x u' t'))
+        t' <- withEnv [(x',m1,s1)] (check m t (Forall a t2))
+        pure (Node t2 (Let x u' t'))
     -- FIX-CHECK
-    check m (Node p (Fix fs t)) s = do
-        t1 <- instantiate s
-        s1 <- generalize t1
+    check m (Node p (Fix fs t)) (Forall a t1) = do
         imtxs <- infFixDefs fs
         let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
-        t' <- withEnv tenv (check m t s1)
+        t' <- withEnv tenv (check m t (Forall a t1))
         pure (Node t1 (Fix fs' t'))
     -- MATCH-CHECK
-    check m (Node p (Match n cs)) s = do
+    check m (Node p (Match _ n cs)) (Forall a ts) = do
         m1 <- lookupRigidity (LocalIdentifier n)
         tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
-        cs' <- mapM (pcon m1 m tp s) cs
-        ts <- instantiate s
-        pure (Node ts (Match n cs'))
+        cs' <- mapM (pcon m1 m tp (Forall a ts)) cs
+        pure (Node ts (Match (Just tp) n cs'))
     -- CHECK-INFER
     check m t t1 = do
         (t',t2) <- infer m t
@@ -350,6 +346,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- SCR-OTHER
     rigid t = pure W
 
+-- need to check matching of types: seems to match expression type to pattern type
 pcon :: Rigidity -> Rigidity -> Type -> Scheme
     -> (PatternBinding, SourcePos, Core SourcePos)
     -> Checker (PatternBinding, Type, Core Type)
@@ -369,7 +366,7 @@ pcon R m tp st (ConsPattern c v,s,t) = do
     let pargs = argTys p
     let pres = resTy p
     immedMatch s pargs v
-    theta <- unifier s p tp
+    theta <- unifier s pres tp
     let env = fmap (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) $ zip v pargs
     tt <- instantiate st
     st <- generalize (apply theta tt)

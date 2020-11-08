@@ -9,3 +9,4 @@ doc/typecheck/*
 !doc/typecheck/typing.pdf
 !doc/typecheck/typing.tex
 Frontend-Old
+Types-Old

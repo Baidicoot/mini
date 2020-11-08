@@ -91,10 +91,14 @@ deconstruct n ns (m,c,r) =
 selectvar :: [UncompiledBranch tag] -> Name
 selectvar (((n,_):_,_,_):_) = n
 
+unreachable :: [UncompiledBranch tag] -> MatchCompiler tag ()
+unreachable [] = pure ()
+unreachable xs = tell [Unreachable xs]
+
 compileMatch :: Show tag => tag -> [UncompiledBranch tag] -> MatchCompiler tag (Core tag)
 compileMatch t [] = tell [Incomplete] >> pure (Node t . Error $ "MatchError: partial match at " ++ show t)
 compileMatch t (x:xs)
-    | finished x = tell [Unreachable xs] >> pure (finish x)
+    | finished x = unreachable xs >> pure (finish x)
 compileMatch t bs = do
     let n = selectvar bs
     let gs = group n bs
@@ -103,7 +107,7 @@ compileMatch t bs = do
         let bs' = fmap (deconstruct n argns) bs
         tree <- compileMatch t bs'
         pure (mkBind argns p, t, tree)) gs
-    pure (Node t $ Match n gs')
+    pure (Node t $ Match Nothing n gs')
 
 matchcomp :: Show tag => Int -> Name -> tag -> [(Pattern tag, Call tag)] -> (Core tag, Int, [MatchWarning tag])
 matchcomp i n t ps =

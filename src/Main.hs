@@ -16,6 +16,7 @@ import Types.Env
 import Types.Abstract
 
 import Control.Monad
+import Control.Monad.Errors (ErrorsResult(..), toEither)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -52,7 +53,7 @@ main = forever $ do
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err
-            Right b -> case elaborate 0 ["Repl"] mempty b of
+            Right b -> case toEither $ elaborate 0 ["Repl"] mempty b of
                         Left (e,w) -> do
                             putStrLn "elaboration failed with:"
                             print e
@@ -65,10 +66,15 @@ main = forever $ do
                             print c
                             let consenv = importWithAction include (includeGADTs ["Repl"] g)
                             case typecheck s0 consenv c of
-                                Left e -> do
+                                Fail e -> do
                                     putStrLn "typecheck failed with:"
                                     print e
-                                Right (d,s1) -> do
+                                FailWithResult e (d,_) -> do
+                                    putStrLn "typecheck failed with result:"
+                                    print d
+                                    putStrLn "errors:"
+                                    print e
+                                Success (d,s1) -> do
                                     putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
                                     let (e, s2) = cpsify mempty (untagCore d) s1
