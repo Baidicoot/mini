@@ -63,15 +63,14 @@ main = forever $ do
                             print w
                             putStrLn "resulting in:"
                             print c
-                            print g
-                            case typecheck s0 mempty c of
+                            let consenv = importWithAction include (includeGADTs ["Repl"] g)
+                            case typecheck s0 consenv c of
                                 Left e -> do
                                     putStrLn "typecheck failed with:"
                                     print e
-                                Right (d,s,s1) -> do
+                                Right (d,s1) -> do
                                     putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
-                                    print s
                                     let (e, s2) = cpsify mempty (untagCore d) s1
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)

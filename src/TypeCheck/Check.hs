@@ -53,7 +53,7 @@ instance Substitutable Gamma where
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
-typecheck :: Int -> Env -> Core SourcePos -> Either [TypeError] (Core Type, Subst, Int)
+typecheck :: Int -> Env -> Core SourcePos -> Either [TypeError] (Core Type, Int)
 typecheck i e c =
     let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
         (r,i',s) = runChecker
@@ -61,7 +61,7 @@ typecheck i e c =
             (i,mempty)
             (infer W c)
     in case r of
-        Right (c,t) -> Right (apply s c, s, i')
+        Right (c,t) -> Right (apply s c, i')
         Left e -> Left e
 
 runChecker :: Gamma -> (Int, Subst) -> Checker a -> (Either [TypeError] a, Int, Subst)

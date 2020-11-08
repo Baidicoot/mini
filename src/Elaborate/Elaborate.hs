@@ -131,6 +131,14 @@ elabLam t (Syn.Lam args exp) = do
     exp' <- withTerms argm (elabExpr exp)
     pure $ foldr (\(_,LocalIdentifier n) -> Node t . Lam n) exp' argm
 
+elabPat :: Map.Map Name Name -> SourcePattern -> Elaborator SourcePattern
+elabPat m (PatternCons t i ps) = do
+    i' <- lookupTerm t i
+    ps' <- mapM (elabPat m) ps
+    pure (PatternCons t i' ps')
+elabPat m (PatternVar t n) = pure (PatternVar t (Map.findWithDefault n n m))
+elabPat _ x = pure x
+
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
     n <- fresh
@@ -143,7 +151,7 @@ elabMatch t (Syn.Match e ps) = do
             []      -> fmap (:[]) fresh
         let lamexp = foldr (\n -> Node t . Lam n) e' argns
         n <- fresh
-        let p' = prename (Map.fromList $ fmap (\(LocalIdentifier a,LocalIdentifier b)->(a,b)) fvexp) p
+        p' <- elabPat (Map.fromList $ fmap (\(LocalIdentifier a,LocalIdentifier b)->(a,b)) fvexp) p
         pure ((p',(n,argns,getTag e)),lamexp)) ps
     m <- matchComp t n (fmap fst exprCalls)
     pure . Node t . Fix (fmap (\((_,(n,_,_)),e) -> (LocalIdentifier n,e)) exprCalls) . Node t $ Let n e' m

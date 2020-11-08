@@ -5,6 +5,7 @@ module Types.Env
     , ImportAction(..)
     , Env(..)
     , importWithAction
+    , include
     ) where
 
 import Types.Ident
@@ -37,6 +38,7 @@ instance Monoid ModuleExports where
         (k <> l)
 
 -- GADT type stores GADTs with their local name.
+-- (But global type names)
 data GADT
     = GADT Name [(Name,Scheme)]
     deriving(Eq, Show)
@@ -68,6 +70,7 @@ data Env = Env
     , consInfo :: Map.Map Identifier (Int, Scheme, GADT)
     , types :: Map.Map Identifier Scheme
     , kinds :: Map.Map Identifier Kind }
+    deriving(Show)
 
 instance Monoid Env where
     mempty = Env mempty mempty mempty mempty mempty
@@ -92,6 +95,9 @@ hide terms types (ModuleExports m a b c d e) = ModuleExports m
     (filter (not . (`elem` terms) . fst) c)
     (filter (not . (`elem` types) . fst) d)
     (filter (not . (`elem` terms) . fst) e)
+
+include :: ImportAction
+include = ImportAsHiding [] [] []
 
 importWithAction :: ImportAction -> ModuleExports -> Env
 importWithAction (ImportAsHiding m ns ts) me = importAs [] (hide ns ts me)
