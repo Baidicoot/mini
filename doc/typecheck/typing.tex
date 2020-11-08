@@ -54,9 +54,9 @@ and $\forall x. \lfloor w, x \rfloor = w$, used in inference of the rigidity.
         { \Gamma \vdash \texttt {($x$::$\tau$)} \Rightarrow^m \tau }
 
     \inferrule[Match-Infer]
-        { \Gamma \vdash u \upharpoonleft^{m_p}
-        \\ \Gamma \vdash u \Rightarrow^w \tau_p
-        \\ \Gamma \vdash \overline{\langle p, t \rangle} \Rightarrow^{\langle m_p, m_t, \tau_p \rangle} \tau_t }
+        { \Gamma \vdash u \Rightarrow^w \tau_p
+        \\ \Gamma \vdash \overline{p \Leftarrow^w \bar{\tau_v} \to \tau_p}
+        \\ \overline{\Gamma, \overline{p_v :^w \tau_v} \vdash t \Rightarrow \tau_t} }
         { \Gamma \vdash \texttt{(match $u$ $\overline{\texttt{($p$ -> $t$)}}$)} \Rightarrow^{m_t} \tau_t }
 
     \inferrule[Lit]
@@ -110,13 +110,31 @@ and $\forall x. \lfloor w, x \rfloor = w$, used in inference of the rigidity.
 
 \end{mathpar}
 
+\fbox{$ \Gamma \vdash p, t \Rightarrow^{\langle m_t, \tau_p \rangle} \tau_t $}
+
+\begin{mathpar}
+    \inferrule[PCon-Infer]
+        { C : \forall \bar{a}. \bar{\tau_1} \to P \bar{\tau_v} \in \Gamma
+        \\ \Gamma, \overline{ v :^w \tau_v } \vdash t \Rightarrow^{m_t} \tau_t }
+        { \Gamma \vdash C \bar{v}, t \Rightarrow^{\langle m_t, P \bar{\tau_v} \rangle} \tau_t }
+    
+    \inferrule[PLit-Infer]
+        { L : \tau_p \in \Gamma 
+        \\ \Gamma \vdash t \Rightarrow^{m_t} \tau_t }
+        { \Gamma \vdash L, t \Rightarrow^{\langle m_t, \tau_p \rangle} \tau_t }
+    
+    \inferrule[PWild-Infer]
+        { \Gamma \vdash t \Rightarrow^{m_t} \tau_t }
+        { \Gamma \vdash _, t \Rightarrow^{\langle m_t, \tau_p \rangle} \tau_t }
+\end{mathpar}
+
 \fbox{$ \Gamma \vdash p, t \Leftarrow^{\langle m_p, m_t \rangle} \tau_p, \tau_t $}
 
 \begin{mathpar}
     \inferrule[PCon-W]
         { C : \forall \bar{a}. \bar{\tau_1} \to P \bar{\tau_2} \in \Gamma
         \\ \Gamma, \overline{v :^w \tau_v} \vdash t \Leftarrow^m \tau_t }
-        { \Gamma \vdash C \bar{v}, t\Leftarrow^{\langle w, m \rangle} P \bar{\tau_v}, \tau_t }
+        { \Gamma \vdash C \bar{v}, t \Leftarrow^{\langle w, m \rangle} P \bar{\tau_v}, \tau_t }
 
     \inferrule[PCon-R]
         { C : \forall \bar{a}. \bar{\tau_1} \to P \bar{\tau_2} \in \Gamma
@@ -124,12 +142,12 @@ and $\forall x. \lfloor w, x \rfloor = w$, used in inference of the rigidity.
         \\ \Gamma, \overline{v :^r \theta(\tau_v)} \vdash \theta(t) \Leftarrow^m \theta(\tau_t) }
         { \Gamma \vdash C \bar{v}, t \Leftarrow^{\langle r, m \rangle} P \bar{\tau_v}, \tau_t }
 
-    \inferrule[PLit]
+    \inferrule[PLit-Check]
         { L : \tau_p \in \Gamma 
         \\ \Gamma \vdash t \Leftarrow^{m_t} \tau_t }
         { \Gamma \vdash L, t \Leftarrow^{\langle m_p, m_t \rangle} \tau_p, \tau_t }
     
-    \inferrule[PWild]
+    \inferrule[PWild-Check]
         { \Gamma \vdash t \Leftarrow^{m_t} \tau_t }
         { \Gamma \vdash \_, t \Leftarrow^{\langle m_p, m_t \rangle} \tau_p, \tau_t }
 

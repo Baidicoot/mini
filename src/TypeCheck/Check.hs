@@ -264,6 +264,34 @@ instance Inferable (Core SourcePos) (Core Type) where
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
         (t',t2) <- withEnv tenv (infer m t)
         pure (Node t2 (Fix fs' t'), t2)
+    -- MATCH-INFER
+    infer m (Node p (Match n cs)) = do
+        tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
+        tt <- freshTV
+        cs' <- mapM (\case
+            -- PCONS-INFER
+            (ConsPattern c v,s,t) -> do
+                p <- instantiate =<< lookupCons c s
+                let pargs = argTys p
+                let pres = resTy p
+                immedMatch s pargs v
+                unify s pres tp
+                let env = fmap (\(v,t)->(LocalIdentifier v,W,unqualified t)) $ zip v pargs
+                (t',tt') <- withEnv env (infer m t)
+                unify s tt tt'
+                pure (ConsPattern c v,tt',t')
+            -- PLIT-INFER
+            (LiteralPattern l,s,t) -> do
+                unify s (litTy l) tp
+                (t',tt') <- infer m t
+                unify s tt tt'
+                pure (LiteralPattern l,tt',t')
+            -- PWILD-INFER
+            (WildcardPattern,s,t) -> do
+                (t',tt') <- infer m t
+                unify s tt tt'
+                pure (WildcardPattern,tt',t')) cs
+        pure (Node tt (Match n cs'), tt)
 
     -- ABS-CHECK
     check m (Node p (Lam x t)) s1 = do
@@ -287,6 +315,13 @@ instance Inferable (Core SourcePos) (Core Type) where
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
         t' <- withEnv tenv (check m t s1)
         pure (Node t1 (Fix fs' t'))
+    -- MATCH-CHECK
+    check m (Node p (Match n cs)) s = do
+        m1 <- lookupRigidity (LocalIdentifier n)
+        tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
+        cs' <- mapM (pcon m1 m tp s) cs
+        ts <- instantiate s
+        pure (Node ts (Match n cs'))
     -- CHECK-INFER
     check m t t1 = do
         (t',t2) <- infer m t
@@ -311,7 +346,9 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- SCR-OTHER
     rigid t = pure W
 
-pcon :: Rigidity -> Rigidity -> Type -> Scheme -> (PatternBinding, SourcePos, Core SourcePos) -> Checker (Core Type)
+pcon :: Rigidity -> Rigidity -> Type -> Scheme
+    -> (PatternBinding, SourcePos, Core SourcePos)
+    -> Checker (PatternBinding, Type, Core Type)
 -- PCON-W
 pcon W m tp st (ConsPattern c v,s,t) = do
     p <- instantiate =<< lookupCons c s
@@ -320,7 +357,8 @@ pcon W m tp st (ConsPattern c v,s,t) = do
     immedMatch s pargs v
     matches s pres (unqualified tp)
     let env = fmap (\(v,t)->(LocalIdentifier v,W,unqualified t)) $ zip v pargs
-    withEnv env (check m t st)
+    t' <- withEnv env (check m t st)
+    pure (ConsPattern c v,pres,t')
 -- PCON-R
 pcon R m tp st (ConsPattern c v,s,t) = do
     p <- instantiate =<< lookupCons c s
@@ -331,10 +369,14 @@ pcon R m tp st (ConsPattern c v,s,t) = do
     let env = fmap (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) $ zip v pargs
     tt <- instantiate st
     st <- generalize (apply theta tt)
-    withEnv env (check m t st)
+    t' <- withEnv env (check m t st)
+    pure (ConsPattern c v,pres,t')
 -- PWILD
-pcon _ m tp st (WildcardPattern,s,t) = check m t st
+pcon _ m tp st (WildcardPattern,s,t) = do
+    t' <- check m t st
+    pure (WildcardPattern,tp,t')
 -- PLIT
 pcon _ m tp st (LiteralPattern l,s,t) = do
     matches s (litTy l) (unqualified tp)
-    check m t st
+    t' <- check m t st
+    pure (LiteralPattern l,litTy l,t')
