@@ -13,7 +13,7 @@ import Types.SExpr
 import Types.Ident
 import Types.Syntax
 import Types.Type
-import Types.Prim
+import Types.Prim hiding(Value(..))
 import Types.Pattern
 import Types.Graph
 
@@ -56,7 +56,7 @@ expr (SExpr _ (SNode p (Keyword "let"):xs)) = Node p . LetIn <$> letexp p xs
 expr (SExpr _ (SNode p (Keyword "fix"):xs)) = Node p . FixIn <$> fixexp p xs
 expr (SExpr _ (SNode p (Keyword "lam"):xs)) = Node p . Lambda <$> lamexp p xs
 expr (SExpr _ (SNode p (Keyword "match"):xs)) = Node p . Switch <$> matchexp p xs
-expr (SNode p (Lit l)) = Right (Node p $ Literal l)
+expr (SNode p (SynLit l)) = Right (Node p $ Literal l)
 expr (SNode p (Ident i)) = Right (Node p $ Var i)
 expr (SExpr p xs) = apps "expression" p expr xs
 expr s = Left [Expecting "expression" (display s) (getPos s)]
@@ -79,12 +79,14 @@ matchexp _ (x:xs) = uncurry Match <$> both expr (many caseexp) (x, xs)
 matchexp p x = Left [Expecting "expression" "nothing" p]
 
 apps :: String -> SourcePos -> Parser ExprS (SourceGraph a) -> Parser [ExprS] (SourceGraph a)
-apps _ _ p [s] = p s
-apps s o p (x:xs) = uncurry (App o) <$> both p (apps s (getPos x) p) (x, xs)
-apps s p _ x = Left [Expecting (s ++ " application") "nothing" p]
+apps s p _ [] = Left [Expecting (s ++ " application") "nothing" p]
+apps s o p (x:xs) = p x >>= internal xs
+    where
+        internal (x:xs) y = p x >>= internal xs . App o y
+        internal [] y = Right y
 
 typeexp :: ExprParser SourceType
-typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (fnTag p) <$> both typeexp typeexp (x, SExpr p xs)
+typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (\a b -> App p (App p (Node p FunctionType) a) b) <$> both typeexp typeexp (x, SExpr p xs)
 typeexp (SNode p (Ident (LocalIdentifier i@(c:_))))
     | isLower c = Right (Node p (TypeVar i))
 typeexp (SNode p (Ident i)) = Right (Node p (NamedType i))
@@ -94,12 +96,12 @@ typeexp (SExpr p xs) = apps "type" p typeexp xs
 typeexp x = Left [Expecting "type" (display x) (getPos x)]
 
 valdef :: ExprParser ValDef
-valdef (SExpr _ (d:xs)) = (\((mt,n),e) -> ValDef mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
+valdef (SExpr p (d:xs)) = (\((mt,n),e) -> ValDef p mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
 valdef x = Left [Expecting "value definition" (display x) (getPos x)]
 
 fundef :: ExprParser FunDef
-fundef (SExpr _ (f:a:xs))
-    =   (\(((mt,n),a),e) -> FunDef mt n a e)
+fundef (SExpr p (f:a:xs))
+    =   (\(((mt,n),a),e) -> FunDef p mt n a e)
     <$> both (both decl args) expr ((f, a), SExpr (getPos a) xs)
 fundef x = Left [Expecting "function definition" (display x) (getPos x)]
 
@@ -127,10 +129,9 @@ decl x = Left [Expecting "declaration" (display x) (getPos x)]
 
 patexp :: ExprParser SourcePattern
 patexp (SNode p (Ident (LocalIdentifier l@(c:_))))
-    | isLower c = Right (Node p $ PatternVar l)
-patexp (SNode p (Ident i)) = Right (Node p $ PatternCons i)
-patexp (SNode p Hole) = Right (Node p PatternWildcard)
-patexp (SExpr p xs) = apps "pattern" p patexp xs
+    | isLower c = Right (PatternVar p l)
+patexp (SNode p Hole) = Right (PatternWildcard p)
+patexp (SExpr p (SNode _ (Ident l):xs)) = PatternCons p l <$> many patexp xs
 patexp x = Left [Expecting "pattern" (display x) (getPos x)]
 
 indexp :: SourcePos -> Parser [ExprS] Data

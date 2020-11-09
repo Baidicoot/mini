@@ -7,9 +7,11 @@ import Types.Pattern
 import Types.Graph
 import Types.Prim
 
+import Text.Parsec.Pos
+
 data SyntaxNode
     = Ident Identifier
-    | Lit UnboxedLit
+    | SynLit UnboxedLit
     | LitTy LitType
     | Prim Primop
     | Arr
@@ -21,7 +23,7 @@ data SyntaxNode
 
 instance Show SyntaxNode where
     show (Ident id) = show id
-    show (Lit l) = show l
+    show (SynLit l) = show l
     show (Prim o) = show o
     show Arr = "->"
     show Ann = "::"
@@ -65,16 +67,17 @@ data ExprNode
     | Lambda Lam
     | Literal UnboxedLit
     | Switch Match
+    | Primop Primop
     deriving(Eq, Show)
 
 type Expr = SourceGraph ExprNode
 
 data FunDef
-    = FunDef (Maybe SourceType) Name [Name] Expr
+    = FunDef SourcePos (Maybe SourceType) Name [Name] Expr
     deriving(Eq, Show)
 
 data ValDef
-    = ValDef (Maybe SourceType) Name Expr
+    = ValDef SourcePos (Maybe SourceType) Name Expr
     deriving(Eq, Show)
 
 data TopLevel

@@ -4,8 +4,10 @@ import Types.CPS
 import Types.Ident
 import Types.Prim
 import Types.Env
+import Types.Type
 import Types.Graph (NoTag)
-import qualified Types.IR as IR
+import qualified Types.Graph as Graph
+import qualified Types.Core as Core
 import qualified Types.Graph as Graph
 
 import Control.Monad.State
@@ -19,7 +21,13 @@ import Data.List (partition)
 import qualified Data.Map as Map
 
 type CPSState = Int
-type CPSEnv = Map.Map Identifier (Int, Int)
+type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int)
+
+mkCPSEnv :: Env -> CPSEnv
+mkCPSEnv env =
+    let cons = fmap (\(i,_,_) -> i) $ consInfo env
+        gadts = fmap (\(GADT _ ls) -> length ls) $ indInfo env
+    in (cons, gadts)
 
 fresh :: CPSifier Name
 fresh = do
@@ -29,10 +37,17 @@ fresh = do
 
 index :: Identifier -> CPSifier Int
 index id = do
-    env <- ask
+    (env,_) <- ask
     case Map.lookup id env of
-        Just (x, _) -> pure x
-        Nothing -> error "catastrophic failure, leaking launch codes..."
+        Just x -> pure x
+        Nothing -> error $ "oh bees oh bees oh bees oh bees"
+
+cases :: Identifier -> CPSifier Int
+cases id = do
+    (_,env) <- ask
+    case Map.lookup id env of
+        Just x -> pure x
+        Nothing -> error $ "catastrophic failure, leaking launch codes..."
 
 cont :: CPSifier Name
 cont = do
@@ -51,44 +66,60 @@ type CPSifier = StateT CPSState (Reader CPSEnv)
 runCPSify :: Int -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify ns e a = runReader (runStateT a ns) e
 
-cpsify :: Dataspace -> IR.PolyIR typ NoTag -> Int -> (CExp, CPSState)
-cpsify (Dataspace env) exp i = runCPSify i (fmap (\(a, b, _) -> (a, b)) env) (convert exp (\z -> pure Halt))
+cpsify :: Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
+cpsify env exp i = runCPSify i (mkCPSEnv env) (convert exp (\z -> pure Halt))
 
-convertNode :: IR.PolyIRNode typ NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
-convertNode (IR.Var id) c = c (Var id)
-convertNode (IR.Unboxed u) c = c (Unboxed u)
-convertNode (IR.Lam v e) c = do
+convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
+convertNode (Core.Val v) c = c v
+convertNode (Core.Lam v e) c = do
     f <- fresh
     k <- cont
     bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier k)) [z])
     convC <- c (Var (LocalIdentifier f))
     pure $ Fix [Fun (LocalIdentifier f) [v, k] bigF] convC
-convertNode (IR.Fix defs e) c = do
+convertNode (Core.Fix defs e) c = do
     bigF <- convert e c
     bigG <- g defs
     pure $ Fix bigG bigF
     where
-        g ((n, Graph.Node _ (IR.Lam v e)):defs) = do
+        g ((n, Graph.Node _ (Core.Lam v e)):defs) = do
             w <- cont
             bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
             dx <- g defs
             pure $ (Fun n [v, w] bigF):dx
         g [] = pure []
-convertNode (IR.Let n def e) c = do
+convertNode (Core.Let n def e) c = do
     j <- fmap LocalIdentifier cont
     ce <- convert e c
     cd <- convert def (\z -> pure $ App (Var j) [z])
     pure $ Fix [Fun j [n] ce] cd
-convertNode (IR.Cons id args) c = do
+convertNode (Core.Cons id args) c = do
     i <- index id
-    let cont = fmap (flip (,) (OffPath 0) . Var . LocalIdentifier) args
+    let cont = fmap (flip (,) (OffPath 0)) args
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
-    pure $ Record ((Unboxed (Int i), OffPath 0):cont) x convC
-convertNode (IR.Select i exp) c = do
-    w <- fresh
-    cw <- c (Var $ LocalIdentifier w)
-    convert exp (\v -> pure $ Select i v w cw)
+    pure $ Record ((Lit (Int i), OffPath 0):cont) x convC
+convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
+    t <- fresh
+    ncases <- cases i
+    let (dflt, cs') = selectDefault cs
+    casemap <- mapM (\b@(Core.ConsPattern cons _,_,_) -> flip (,) b <$> index cons) cs'
+    fallback <- case dflt of
+        Just fallback -> convert fallback c
+        Nothing -> pure $ Error ("pattern match fail at: " ++ show p)
+    cs'' <- flip mapM [0..ncases-1] $ \i -> case lookup i casemap of
+            Nothing -> pure fallback
+            Just (Core.ConsPattern _ ns, _, cse) ->
+                let bindings = foldr (\(i,v) f -> Select i (Var $ LocalIdentifier n) v . f) id (zip [1..] ns)
+                in fmap bindings (convert cse c)
+    pure . Select 0 (Var $ LocalIdentifier n) t $ Switch (Var $ LocalIdentifier t) cs''
+
+selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])
+selectDefault (p@(Core.WildcardPattern, _, e):_) = (Just e, [])
+selectDefault (x:xs) = second (x:) (selectDefault xs)
+selectDefault _ = (Nothing, [])
+
+{-
 convertNode (IR.Match n exps) c = do
     j <- fmap LocalIdentifier cont
     x <- fresh
@@ -127,8 +158,8 @@ match x
   Nothing -> b NoTag k
 where k is the current continuation?
 -}
-
-convert :: IR.PolyIR typ NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
+-}
+convert :: Core.Core NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convert (Graph.App _ f e) c = do
     r <- cont
     x <- fresh

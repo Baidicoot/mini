@@ -10,19 +10,23 @@ import Types.Type
 import Types.Ident
 import Types.Graph
 import Types.Pretty
-import Types.IR
+--import Types.IR
+import Types.Core
 import Types.Env
 import Types.Abstract
 
 import Control.Monad
+import Control.Monad.Errors (ErrorsResult(..), toEither)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import Frontend.IRify
-import Frontend.GenEnv
-import Frontend.Constraint
-import Frontend.Solve
+--import Frontend.IRify
+--import Frontend.GenEnv
+--import Frontend.Constraint
+--import Frontend.Solve
 import CPS.CPSify
+import Elaborate.Elaborate
+import TypeCheck.Check
 import CPS.ClosureConv
 import CPS.Spill
 import CPS.Meta
@@ -49,30 +53,34 @@ main = forever $ do
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err
-            Right b ->
-                let ds = genDataspace ["Repl"] b
-                    ns = genNamespace ["Repl"] b
-                    in case irify ds ns b of
-                        Left err -> do
-                            print b
-                            print err
-                            print ds
-                            print ns
-                        Right ((datadefs, c), names) -> do
-                            --putStrLn "Untyped:"
-                            --prettyPrint c (0::Int)
-                            let ts = (genConsTypespace datadefs)
-                            case annotate ts c names of
-                                Left err -> print err
-                                Right (d, names) -> do
-                                    putStrLn "Typed:"
+            Right b -> case toEither $ elaborate 0 ["Repl"] mempty b of
+                        Left (e,w) -> do
+                            putStrLn "elaboration failed with:"
+                            print e
+                            putStrLn "warnings:"
+                            print w
+                        Right (c, g, s0, w) -> do
+                            putStrLn "elaboration succeded with warnings:"
+                            print w
+                            putStrLn "resulting in:"
+                            print c
+                            let consenv = importWithAction include (includeGADTs ["Repl"] g)
+                            case typecheck s0 consenv c of
+                                Fail e -> do
+                                    putStrLn "typecheck failed with:"
+                                    print e
+                                FailWithResult e (d,_) -> do
+                                    putStrLn "typecheck failed with result:"
+                                    print d
+                                    putStrLn "errors:"
+                                    print e
+                                Success (d,s1) -> do
+                                    putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
-                                    let (e, names') = cpsify ds c names
+                                    let (e, s2) = cpsify consenv (untagCore d) s1
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
-                                    let metadata = collect e
-                                    print (reduce metadata)
-                                    let f = closureConvert e names'
+                                    let f = closureConvert e s2
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)
                                     let g = spill (regs config) f

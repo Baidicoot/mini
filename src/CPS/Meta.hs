@@ -2,6 +2,7 @@ module CPS.Meta (collect, reduce, FunctionMeta(..), FunctionClosure(..), allKnow
 
 import Types.CPS
 import Types.Ident
+import Types.Prim
 
 import Control.Arrow
 

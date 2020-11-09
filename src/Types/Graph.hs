@@ -16,7 +16,7 @@ import Types.Pretty
 data TaggedAppGraph t a
     = App t (TaggedAppGraph t a) (TaggedAppGraph t a)
     | Node t a
-    deriving(Eq)
+    deriving(Eq, Ord)
 
 getTag :: TaggedAppGraph t a -> t
 getTag (App t _ _) = t
@@ -34,16 +34,32 @@ instance Monoid NoTag where
 type AppGraph = TaggedAppGraph NoTag
 type SourceGraph = TaggedAppGraph SourcePos
 
+isNode :: TaggedAppGraph t a -> Bool
+isNode (Node _ _) = True
+isNode _ = False
+
+showpar :: (Show a) => TaggedAppGraph t a -> String
+showpar a
+    | isNode a = show a
+    | otherwise = "(" ++ show a ++ ")"
+
+prettypar :: (Pretty a d, Show t) => TaggedAppGraph t a -> d -> String
+prettypar a d
+    | isNode a = pretty a d
+    | otherwise = "(" ++ pretty a d ++ ")"
+
 instance (Show a) => Show (TaggedAppGraph t a) where
-    show (App _ a b) = "(" ++ show a ++ ") (" ++ show b ++ ")"
+    show (App _ a b) = show a ++ " " ++ showpar b
     show (Node t a) = show a
 
 instance (Pretty a d, Show t) => Pretty (TaggedAppGraph t a) d where
-    pretty (App _ a n@(Node _ _)) d = pretty a d ++ " " ++ pretty n d
-    pretty (App _ a b) d = pretty a d ++ " (" ++ pretty b d ++ ")"
-    pretty (Node t a) d = pretty a d ++ (let t' = show t in case t' of
-        [] -> ""
-        _ -> " :: " ++ t')
+    showtag (Node _ a) d = showtag a d
+    showtag (App _ a b) d = showtag a d && showtag b d
+
+    pretty (App _ a b) d = pretty a d ++ " " ++ prettypar b d
+    pretty (Node t a) d
+        | showtag a d = pretty a d ++ " :: " ++ show t
+        | otherwise = pretty a d
 
 instance Functor (TaggedAppGraph t) where
     fmap f (App t a b) = App t (fmap f a) (fmap f b)

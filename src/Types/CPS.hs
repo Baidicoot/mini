@@ -12,15 +12,6 @@ import Data.Maybe (maybeToList, catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
-data Value
-    = Var Identifier
-    | Unboxed UnboxedLit
-    deriving(Eq)
-
-instance Show Value where
-    show (Var id) = show id
-    show (Unboxed u) = show u
-
 data CFun
     = Fun Identifier [Name] CExp
     deriving(Eq)
@@ -39,7 +30,7 @@ data CExp
     | Record [(Value, AccessPath)] Name CExp
     | Select Int Value Name CExp
     | Switch Value [CExp]
-    | MatchError
+    | Error String
     | Halt
     | Primop Primop [Value] Name [CExp]
     deriving(Eq)
@@ -98,7 +89,7 @@ instance Show CExp where
     show (Select i v id exp) = "let " ++ id ++ " = " ++ show v ++ "[" ++ show i ++ "]" ++ " in " ++ show exp
     show (Switch v exp) = "switch " ++ show v ++ concatMap (\cse -> "\n" ++ show cse) exp
     show Halt = "halt"
-    show MatchError = "fail"
+    show (Error s) = "error '" ++ s ++ "'"
 
 instance Show AccessPath where
     show (OffPath 0) = ""
@@ -106,9 +97,13 @@ instance Show AccessPath where
     show (SelPath x y) = show y ++ "[" ++ show x ++ "]"
 
 instance Pretty CFun Int where
+    showtag _ _ = False
+
     pretty (Fun v args exp) n = intercalate " " (show v:args) ++ " = " ++ pretty exp (n+4)
 
 instance Pretty CExp Int where
+    showtag _ _ = False
+
     pretty (App a args) _ = show a ++ concatMap (\arg -> ' ':show arg) args
     --"\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> v ++ " = " ++ pretty ir (n+4)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix defs exp) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\fn -> pretty fn (n+4)) defs) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
@@ -120,7 +115,7 @@ instance Pretty CExp Int where
         | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
     pretty (Switch v exp) n = "\n" ++ replicate n ' ' ++ "switch " ++ show v ++ concatMap (\(cse, i) -> "\n" ++ replicate (n+4) ' ' ++ show i ++ " -> " ++ pretty cse (n+8)) (zip exp [0..])
     pretty Halt _ = "halt"
-    pretty MatchError _ = "fail"
+    pretty (Error s) _ = "error '" ++ s ++ "'"
     pretty (Primop op vs id [exp]) n
         | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ pretty exp n
         | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
