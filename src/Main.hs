@@ -77,7 +77,7 @@ main = forever $ do
                                 Success (d,s1) -> do
                                     putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
-                                    let (e, s2) = cpsify mempty (untagCore d) s1
+                                    let (e, s2) = cpsify consenv (untagCore d) s1
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
                                     let f = closureConvert e s2

@@ -31,7 +31,7 @@ data ElabError
     deriving(Show)
 
 data ElabWarning
-    = MatchWarning SourcePos [MatchWarning SourcePos]
+    = MatchWarning SourcePos [MatchWarning]
     deriving(Show)
 
 type Call tag = (Name, [Name], tag)

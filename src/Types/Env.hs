@@ -25,17 +25,19 @@ data ModuleExports = ModuleExports
     , termTypes :: [(Name, Scheme)] -- term-level typing info
     , typeKinds :: [(Name, Kind)]   -- type-level kinding info
     , construct :: [(Name, GADT)]   -- constructor info
+    , indGroups :: [(Name, GADT)]   -- type-addressed constructor info
     }
 
 instance Monoid ModuleExports where
-    mempty = ModuleExports mempty mempty mempty mempty mempty mempty
-    mappend (ModuleExports a c e g i k) (ModuleExports _ d f h j l) = ModuleExports
+    mempty = ModuleExports mempty mempty mempty mempty mempty mempty mempty
+    mappend (ModuleExports a c e g i k m) (ModuleExports _ d f h j l n) = ModuleExports
         a
         (c <> d)
         (e <> f)
         (g <> h)
         (i <> j)
         (k <> l)
+        (m <> n)
 
 -- GADT type stores GADTs with their local name.
 -- (But global type names)
@@ -58,6 +60,7 @@ includeGADTs m gs = mempty
     , typeNames = fmap (\(GADT n _) -> n) gs
     , termTypes = concatMap (\(GADT _ ns) -> ns) gs
     , construct = concatMap (\g@(GADT _ ns) -> fmap (\(n,_) -> (n,g)) ns) gs
+    , indGroups = fmap (\g@(GADT n _) -> (n, g)) gs
     }
 
 data ImportAction
@@ -68,33 +71,42 @@ data Env = Env
     { termRenames :: Map.Map Identifier Identifier
     , typeRenames :: Map.Map Identifier Identifier
     , consInfo :: Map.Map Identifier (Int, Scheme, GADT)
+    , indInfo :: Map.Map Identifier GADT
     , types :: Map.Map Identifier Scheme
     , kinds :: Map.Map Identifier Kind }
     deriving(Show)
 
 instance Monoid Env where
-    mempty = Env mempty mempty mempty mempty mempty
-    mappend (Env a c e g i) (Env b d f h j) = Env (a <> b) (c <> d) (e <> f) (g <> h) (i <> j)
+    mempty = Env mempty mempty mempty mempty mempty mempty
+    mappend (Env a c e g i k) (Env b d f h j l) = Env
+        (a <> b)
+        (c <> d)
+        (e <> f)
+        (g <> h)
+        (i <> j)
+        (k <> l)
 
 ident :: Module -> Name -> Identifier
 ident [] n = LocalIdentifier n
 ident xs n = ExternalIdentifier xs n
 
 importAs :: Module -> ModuleExports -> Env
-importAs m' (ModuleExports m a b c d e) = Env
+importAs m' (ModuleExports m a b c d e f) = Env
     (Map.fromList $ fmap (ident m' &&& ident m) a)
     (Map.fromList $ fmap (ident m' &&& ident m) b)
     (Map.fromList $ fmap (\(n,g) -> (ident m n, infoGADT n g)) e)
+    (Map.fromList $ fmap (first (ident m)) f)
     (Map.fromList $ fmap (first (ident m)) c)
     (Map.fromList $ fmap (first (ident m)) d)
 
 hide :: [Name] -> [Name] -> ModuleExports -> ModuleExports
-hide terms types (ModuleExports m a b c d e) = ModuleExports m
+hide terms types (ModuleExports m a b c d e f) = ModuleExports m
     (filter (not . (`elem` terms)) a)
     (filter (not . (`elem` types)) b)
     (filter (not . (`elem` terms) . fst) c)
     (filter (not . (`elem` types) . fst) d)
     (filter (not . (`elem` terms) . fst) e)
+    (filter (not . (`elem` types) . fst) e)
 
 include :: ImportAction
 include = ImportAsHiding [] [] []

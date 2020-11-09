@@ -25,6 +25,10 @@ data Value
     | Lit UnboxedLit
     deriving(Eq, Ord)
 
+instance Show Value where
+    show (Var id) = show id
+    show (Lit u) = show u
+
 arityOp :: Primop -> Int
 arityOp AAdd = 2
 arityOp ASub = 2

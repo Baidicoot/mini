@@ -10,3 +10,4 @@ doc/typecheck/*
 !doc/typecheck/typing.tex
 Frontend-Old
 Types-Old
+MatchComp-New.hs

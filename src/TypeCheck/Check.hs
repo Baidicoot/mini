@@ -297,7 +297,7 @@ instance Inferable (Core SourcePos) (Core Type) where
                 (t',tt') <- infer m t
                 unify s tt tt'
                 pure (WildcardPattern,tt',t')) cs
-        pure (Node tt (Match (Just tp) n cs'), tt)
+        pure (Node tt (Match (Just tp,p) n cs'), tt)
 
     -- ABS-CHECK
     check m (Node p (Lam x t)) (Forall a s1) = do
@@ -321,7 +321,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         m1 <- lookupRigidity (LocalIdentifier n)
         tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
         cs' <- mapM (pcon m1 m tp (Forall a ts)) cs
-        pure (Node ts (Match (Just tp) n cs'))
+        pure (Node ts (Match (Just tp,p) n cs'))
     -- CHECK-INFER
     check m t t1 = do
         (t',t2) <- infer m t

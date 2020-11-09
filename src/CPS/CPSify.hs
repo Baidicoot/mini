@@ -4,7 +4,9 @@ import Types.CPS
 import Types.Ident
 import Types.Prim
 import Types.Env
+import Types.Type
 import Types.Graph (NoTag)
+import qualified Types.Graph as Graph
 import qualified Types.Core as Core
 import qualified Types.Graph as Graph
 
@@ -19,10 +21,13 @@ import Data.List (partition)
 import qualified Data.Map as Map
 
 type CPSState = Int
-type CPSEnv = Map.Map Identifier (Int, Int)
+type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int)
 
 mkCPSEnv :: Env -> CPSEnv
-mkCPSEnv = fmap (\(i,_,GADT _ ls) -> (i,length ls)) . consInfo
+mkCPSEnv env =
+    let cons = fmap (\(i,_,_) -> i) $ consInfo env
+        gadts = fmap (\(GADT _ ls) -> length ls) $ indInfo env
+    in (cons, gadts)
 
 fresh :: CPSifier Name
 fresh = do
@@ -32,10 +37,17 @@ fresh = do
 
 index :: Identifier -> CPSifier Int
 index id = do
-    env <- ask
+    (env,_) <- ask
     case Map.lookup id env of
-        Just (x, _) -> pure x
-        Nothing -> error "catastrophic failure, leaking launch codes..."
+        Just x -> pure x
+        Nothing -> error $ "oh bees oh bees oh bees oh bees"
+
+cases :: Identifier -> CPSifier Int
+cases id = do
+    (_,env) <- ask
+    case Map.lookup id env of
+        Just x -> pure x
+        Nothing -> error $ "catastrophic failure, leaking launch codes..."
 
 cont :: CPSifier Name
 cont = do
@@ -87,6 +99,26 @@ convertNode (Core.Cons id args) c = do
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
     pure $ Record ((Lit (Int i), OffPath 0):cont) x convC
+convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
+    t <- fresh
+    ncases <- cases i
+    let (dflt, cs') = selectDefault cs
+    casemap <- mapM (\b@(Core.ConsPattern cons _,_,_) -> flip (,) b <$> index cons) cs'
+    fallback <- case dflt of
+        Just fallback -> convert fallback c
+        Nothing -> pure $ Error ("pattern match fail at: " ++ show p)
+    cs'' <- flip mapM [0..ncases-1] $ \i -> case lookup i casemap of
+            Nothing -> pure fallback
+            Just (Core.ConsPattern _ ns, _, cse) ->
+                let bindings = foldr (\(i,v) f -> Select i (Var $ LocalIdentifier n) v . f) id (zip [1..] ns)
+                in fmap bindings (convert cse c)
+    pure . Select 0 (Var $ LocalIdentifier n) t $ Switch (Var $ LocalIdentifier t) cs''
+
+selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])
+selectDefault (p@(Core.WildcardPattern, _, e):_) = (Just e, [])
+selectDefault (x:xs) = second (x:) (selectDefault xs)
+selectDefault _ = (Nothing, [])
+
 {-
 convertNode (IR.Match n exps) c = do
     j <- fmap LocalIdentifier cont

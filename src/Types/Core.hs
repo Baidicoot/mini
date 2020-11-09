@@ -13,10 +13,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import Control.Arrow
-
-instance Show Value where
-    show (Var i) = show i
-    show (Lit l) = show l
+import Text.Parsec.Pos (SourcePos)
 
 data PatternBinding
     = LiteralPattern UnboxedLit
@@ -34,7 +31,7 @@ data CoreNode tag
     | Fix [(Identifier, Core tag)] (Core tag)
     | Lam Name (Core tag)
     | Val Value
-    | Match (Maybe Type) Name [(PatternBinding, tag, Core tag)]
+    | Match (Maybe Type, SourcePos) Name [(PatternBinding, tag, Core tag)]
     | Annot (Core tag) Type
     | Cons Identifier [Value]
     | Prim Primop [Value]
@@ -75,8 +72,8 @@ instance Show (CoreNode tag) where
     show (Annot ir ty) = "(" ++ show ir ++ " :: " ++ show ty ++ ")"
     show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
-    show (Match Nothing ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
-    show (Match (Just t) ir cases) = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Match (Nothing,_) ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Match (Just t,_) ir cases) = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
     show (Error s) = "error " ++ show s
 
 instance Show tag => Pretty (CoreNode tag) Int where
@@ -91,8 +88,8 @@ instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Lam v ir) n = "(\\" ++ v ++ ". " ++ pretty ir n ++ ")"
     pretty (Val i) _ = show i
     pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
-    pretty (Match Nothing ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
-    pretty (Match (Just t) ir cases) n = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
+    pretty (Match (Nothing,_) ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
+    pretty (Match (Just t,_) ir cases) n = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Error s) _ = "error " ++ show s
 
 instance (Substitutable tag) => Substitutable (CoreNode tag) where
@@ -100,7 +97,7 @@ instance (Substitutable tag) => Substitutable (CoreNode tag) where
     apply s (Let n ds ir) = Let n (apply s ds) (apply s ir)
     apply s (Annot ir ty) = Annot (apply s ir) (apply s ty)
     apply s (Lam n ir) = Lam n (apply s ir)
-    apply s (Match ty v cases) = Match (fmap (apply s) ty) v (fmap (\(a, t, b) -> (a, apply s t, apply s b)) cases)
+    apply s (Match (ty,p) v cases) = Match (fmap (apply s) ty,p) v (fmap (\(a, t, b) -> (a, apply s t, apply s b)) cases)
     apply _ x = x
 
     ftv (Fix ds ir) = mconcat (fmap (\(_, b) -> ftv b) ds) `mappend` ftv ir

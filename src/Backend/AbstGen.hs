@@ -362,5 +362,5 @@ generate (CPS.Fix fns _) = fix fns
 generate (CPS.Record paths name exp) = record paths name exp
 generate (CPS.Select i v n exp) = select i v n exp
 generate (CPS.Switch v exps) = switch v exps
-generate CPS.MatchError = emit (Error "MatchError")
+generate (CPS.Error s) = emit (Error s)
 generate CPS.Halt = emit Halt
