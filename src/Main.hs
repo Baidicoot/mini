@@ -53,7 +53,10 @@ main = forever $ do
         Left err -> print err
         Right a -> case toplevelexpr a of
             Left err -> print err
-            Right b -> case toEither $ elaborate 0 ["Repl"] mempty b of
+            Right b -> do
+                putStrLn "parsed:"
+                print b
+                case toEither $ elaborate 0 ["Repl"] mempty b of
                         Left (e,w) -> do
                             putStrLn "elaboration failed with:"
                             print e

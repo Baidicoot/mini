@@ -18,7 +18,7 @@ import qualified Data.Map as Map
 mkBind :: [Name] -> PatternConstructor -> PatternBinding
 mkBind ns (ConsCons id i) = ConsPattern id (take i ns)
 mkBind _ (ConsLit l) = LiteralPattern l
-mkBind _ ConsWild = WildcardPattern
+mkBind _ _ = WildcardPattern
 
 type Call = (Name, [Name], SourcePos)
 type UncompiledBranch = ([(Name, SourcePattern)], Call, Map.Map Name Name)
