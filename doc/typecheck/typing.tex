@@ -12,11 +12,7 @@
 \begin{document}
 \maketitle
 
-Judgements take the conventional bidirectional form of $\Gamma \vdash t \Rightarrow^m \tau$ and $\Gamma \vdash t \Leftarrow^m \tau$.
-Otherwise, rules operate in essentially the same manner as \cite{GADT:1}, i.e. we add a 'modifier' $m$, indicating whether the type $\tau$ is 'rigid'.
-Similarly to \cite{GADT:1}, we add a function $\Gamma \vdash t \upharpoonleft^m$, which infers the rigidity of the type of $t$.
-Note that this does not infer the type of $t$. We also add a commutative function $\lfloor m_1, m_2 \rfloor$, such that $\lfloor r, r \rfloor = r$,
-and $\forall x. \lfloor w, x \rfloor = w$, used in inference of the rigidity.
+Basically the same as \cite{GADT:1}, except bidirectional. The reason we still have rigidity on checking is that certain operations (like APP) check non-rigidly.
 
 \medskip
 
