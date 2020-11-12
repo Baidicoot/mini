@@ -10,6 +10,7 @@ import Types.Prim
 
 import qualified Types.Syntax as Syn
 
+import Elaborate.Elaborator
 import Elaborate.MatchComp
 
 import Control.Monad.Errors
@@ -24,22 +25,6 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-data ElabError
-    = UnboundTerm SourcePos Identifier
-    | UnboundType SourcePos Identifier
-    | Conflicting SourcePos Name
-    deriving(Show)
-
-data ElabWarning
-    = MatchWarning SourcePos [MatchWarning]
-    deriving(Show)
-
-type Call tag = (Name, [Name], tag)
-
-type ElabEnv = (Module, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme)
-type ElabState = Int
-type Elaborator = ErrorsT [ElabError] (RWS ElabEnv [ElabWarning] ElabState)
-
 elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, [GADT], Int, [ElabWarning])
 elaborate i m e tl =
     let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
@@ -51,16 +36,6 @@ elaborate i m e tl =
 
 runElab :: Elaborator a -> ElabEnv -> ElabState -> (ErrorsResult [ElabError] a, ElabState, [ElabWarning])
 runElab m r s = runRWS (runErrorsT m) r s
-
-matchComp :: SourcePos -> Name -> [(Pattern SourcePos, Call SourcePos)] -> Elaborator (Core SourcePos)
-matchComp t n ps = do
-    i <- get
-    let (c,n',w) = matchcomp i n t ps
-    case w of
-        (_:_)   -> tell [MatchWarning t w]
-        []      -> pure ()
-    put n'
-    pure c
 
 modul :: Elaborator Module
 modul = fmap (\(m,_,_,_) -> m) ask
@@ -144,6 +119,12 @@ elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
     n <- fresh
     e' <- elabExpr e
+    let rows = flip fmap ps $ \(p,e) m -> withTerms (fmap (LocalIdentifier *** LocalIdentifier) $ Map.toList m) ()
+{-
+elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
+elabMatch t (Syn.Match e ps) = do
+    n <- fresh
+    e' <- elabExpr e
     exprCalls <- mapM (\(p,e) -> do
         fvexp <- freshen . Set.toList $ pvars p
         e' <- withTerms fvexp (elabExpr e)
@@ -156,7 +137,7 @@ elabMatch t (Syn.Match e ps) = do
         pure ((p',(n,argns,getTag e)),lamexp)) ps
     m <- matchComp t n (fmap fst exprCalls)
     pure . Node t . Fix (fmap (\((_,(n,_,_)),e) -> (LocalIdentifier n,e)) exprCalls) . Node t $ Let n e' m
-
+-}
 elabLet :: SourcePos -> Syn.Let -> Elaborator (Core SourcePos)
 elabLet t (Syn.Let vs e) = do
     nvs <- mapM (\d@(Syn.ValDef _ _ n _) -> do

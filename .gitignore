@@ -11,3 +11,4 @@ doc/typecheck/*
 Frontend-Old
 Types-Old
 MatchComp-New.hs
+MatchComp-Old.hs
