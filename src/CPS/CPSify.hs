@@ -70,6 +70,7 @@ cpsify :: Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
 cpsify env exp i = runCPSify i (mkCPSEnv env) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
+convertNode (Core.Error s) c = pure (Error s)
 convertNode (Core.Val v) c = c v
 convertNode (Core.Lam v e) c = do
     f <- fresh

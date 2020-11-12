@@ -37,7 +37,13 @@ executable mini
     CPS.ClosureConv,
     CPS.Spill,
     CPS.Meta,
-    Backend.AbstGen
+    Backend.AbstGen,
+    Control.Monad.Errors,
+    Elaborate.Elaborator,
+    Types.CPS,
+    Types.Env,
+    Types.Injection,
+    Types.Pretty
   -- other-extensions:    
   build-depends:
     base >=4.9,

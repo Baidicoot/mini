@@ -49,6 +49,9 @@ fromList [] = mempty
 union :: (Eq b) => Injection a b -> Injection a b -> Injection a b
 union (Injection as) bs = foldr (\(a,b) inj -> insert a b inj) bs as
 
+instance (Eq a, Eq b) => Semigroup  (Injection a b) where
+    (<>) = union
+
 instance (Eq a, Eq b) => Monoid (Injection a b) where
     mempty = empty
-    mappend = union
+    mappend = (<>)

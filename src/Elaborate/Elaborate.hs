@@ -1,4 +1,4 @@
-module Elaborate.Elaborate (elaborate, ElabWarning(..), ElabError(..), MatchWarning(..)) where
+module Elaborate.Elaborate (elaborate) where
 
 import Types.Pattern
 import Types.Core
@@ -39,12 +39,6 @@ runElab m r s = runRWS (runErrorsT m) r s
 
 modul :: Elaborator Module
 modul = fmap (\(m,_,_,_) -> m) ask
-
-fresh :: Elaborator Name
-fresh = do
-    n <- get
-    put (n+1)
-    pure ('v':show n)
 
 freshen :: [Name] -> Elaborator [(Identifier, Identifier)]
 freshen = mapM (\n -> fmap ((,) (LocalIdentifier n) . LocalIdentifier) fresh)
@@ -107,19 +101,21 @@ elabLam t (Syn.Lam args exp) = do
     exp' <- withTerms argm (elabExpr exp)
     pure $ foldr (\(_,LocalIdentifier n) -> Node t . Lam n) exp' argm
 
-elabPat :: Map.Map Name Name -> SourcePattern -> Elaborator SourcePattern
-elabPat m (PatternCons t i ps) = do
+elabPat :: SourcePattern -> Elaborator SourcePattern
+elabPat (PatternCons t i ps) = do
     i' <- lookupTerm t i
-    ps' <- mapM (elabPat m) ps
+    ps' <- mapM elabPat ps
     pure (PatternCons t i' ps')
-elabPat m (PatternVar t n) = pure (PatternVar t (Map.findWithDefault n n m))
-elabPat _ x = pure x
+elabPat x = pure x
 
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
     n <- fresh
     e' <- elabExpr e
-    let rows = flip fmap ps $ \(p,e) m -> withTerms (fmap (LocalIdentifier *** LocalIdentifier) $ Map.toList m) ()
+    rows <- flip mapM ps $ \(p,e) -> do
+            p' <- elabPat p
+            pure ([p'], mempty, \m -> withTerms (fmap (LocalIdentifier *** LocalIdentifier) $ Map.toList m) (elabExpr e))
+    fmap (Node t . Let n e') $ matchcomp t (rows, [n]) []
 {-
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do

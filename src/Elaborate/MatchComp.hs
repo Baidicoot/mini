@@ -10,7 +10,7 @@ import Types.Prim
 import Types.Ident
 import Types.Graph
 
-import Control.Arrow (first)
+import Control.Arrow (first, (***))
 import Control.Monad
 import Control.Monad.RWS
 
@@ -25,9 +25,16 @@ finished :: ClauseMatrix -> Bool
 finished (([],_,_):_,_) = True
 finished _ = False
 
+finish :: ClauseMatrix -> Elaborator (Core SourcePos)
+finish ((_,m,a):_,_) = a m
+
+empty :: ClauseMatrix -> Bool
+empty ([],_) = True
+empty _ = False
+
 conspat :: ClauseMatrix -> Bool
 conspat ([],_) = True
-conspat ((PatternCons _ _ _:_,_,_):xs,_) = conspat (xs,a)
+conspat ((PatternCons _ _ _:_,_,_):xs,a) = conspat (xs,a)
 conspat _ = False
 
 varpat :: ClauseMatrix -> Bool
@@ -63,7 +70,7 @@ matchhead :: Identifier -> [Name] -> ClauseMatrix -> ClauseMatrix
 matchhead i ns' (xs,_:ns) = (internal xs, ns'++ns)
     where
         internal ((PatternCons _ j ss:ps,r,a):xs)
-            | j == i && length ss == n = (ss++ps,r,a):internal xs
+            | j == i && length ss == length ns' = (ss++ps,r,a):internal xs
         internal (_:xs) = internal xs
         internal [] = []
 
@@ -99,42 +106,35 @@ isVar (PatternWildcard _:_,_,_) = True
 isVar _ = False
 
 cut :: ClauseMatrix -> (ClauseMatrix, ClauseMatrix)
-cut (xs@((PatternCons _ _ _:_,_,_):_),ns) = fmap ((,ns) *** (,ns)) (span isCons xs)
-cut (xs@((PatternLit _ _:_,_,_):_),ns) = fmap ((,ns) *** (,ns)) (span isLit xs)
-cut (xs@((PatternVar _ _:_,_,_):_),ns) = fmap ((,ns) *** (,ns)) (span isVar xs)
-cut (xs@((PatternWildcard _:_,_,_):_),ns) = fmap ((,ns) *** (,ns)) (span isVar xs)
+cut (xs@((PatternCons _ _ _:_,_,_):_),ns) = ((,ns) *** (,ns)) (span isCons xs)
+cut (xs@((PatternLit _ _:_,_,_):_),ns) = ((,ns) *** (,ns)) (span isLit xs)
+cut (xs@((PatternVar _ _:_,_,_):_),ns) = ((,ns) *** (,ns)) (span isVar xs)
+cut (xs@((PatternWildcard _:_,_,_):_),ns) = ((,ns) *** (,ns)) (span isVar xs)
 
-compileToCases :: SourcePos -> ClauseMatrix -> Elaborator [(PatternBinding, SourcePos, Core SourcePos)]
-compileToCases p c =
-    if finished c then do
-        exp <- finish c
-        pure [(PatternWildcard, p, exp)]
-    else if conspat c then do
+compileDefaults :: SourcePos -> [ClauseMatrix] -> Elaborator (Core SourcePos)
+compileDefaults p [] = pure . Node p $ Error ("incomplete pattern at " ++ show p)
+compileDefaults p (x:xs) = matchcomp p x xs
+
+matchcomp :: SourcePos -> ClauseMatrix -> [ClauseMatrix] -> Elaborator (Core SourcePos)
+matchcomp p c ds
+    | empty c = pure . Node p $ Error ("empty pattern at " ++ show p)
+    | finished c = finish c
+    | conspat c = do
         let cons = constructors c
-        flip mapM cons $ \(i,n) -> do
+        cses <- flip mapM cons $ \(i,n) -> do
             ns' <- replicateM n fresh
             let c' = matchhead i ns' c
-            exp <- matchcomp p c'
+            exp <- matchcomp p c' ds
             pure (ConsPattern i ns', p, exp)
-    else if litpat c then do
+        dflt <- compileDefaults p ds
+        pure . Node p $ Match (Nothing,p) (getvar c) (cses ++ [(WildcardPattern, p, dflt)])
+    | litpat c = do
         let lits = literals c
-        flip mapM lits $ \l -> do
+        cses <- flip mapM lits $ \l -> do
             let c' = matchlit l c
-            exp <- matchcomp p c'
+            exp <- matchcomp p c' ds
             pure (LiteralPattern l, p, exp)
-    else if varpat c then
-        compileToCases p (matchvar c)
-    else do
-        let (c1, c2) = cut c
-        cses <- compileToCases p c
-        dflt <- matchcomp p c2
-        pure (cses ++ [(PatternWildcard, p, dflt)])
-
-matchcomp :: SourcePos -> ClauseMatrix -> Elaborator (Core SourcePos)
-matchcomp p c =
-    if finished c then
-        finish c
-    else do
-        let n = getvar c
-        cses <- compileToCases p c
-        pure (Node p $ Match n cses)
+        dflt <- compileDefaults p ds
+        pure . Node p $ Match (Nothing,p) (getvar c) (cses ++ [(WildcardPattern, p, dflt)])
+    | varpat c = matchcomp p (matchvar c) ds
+    | otherwise = let (c1, c2) = cut c in matchcomp p c1 (c2:ds)

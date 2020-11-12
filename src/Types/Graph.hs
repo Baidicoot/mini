@@ -27,9 +27,12 @@ data NoTag = NoTag deriving(Eq, Ord)
 instance Show NoTag where
     show _ = ""
 
+instance Semigroup NoTag where
+    _ <> _ = NoTag
+
 instance Monoid NoTag where
     mempty = NoTag
-    mappend _ _ = NoTag
+    mappend = (<>)
 
 type AppGraph = TaggedAppGraph NoTag
 type SourceGraph = TaggedAppGraph SourcePos

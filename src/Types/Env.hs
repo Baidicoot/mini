@@ -28,9 +28,8 @@ data ModuleExports = ModuleExports
     , indGroups :: [(Name, GADT)]   -- type-addressed constructor info
     }
 
-instance Monoid ModuleExports where
-    mempty = ModuleExports mempty mempty mempty mempty mempty mempty mempty
-    mappend (ModuleExports a c e g i k m) (ModuleExports _ d f h j l n) = ModuleExports
+instance Semigroup ModuleExports where
+    (ModuleExports a c e g i k m) <> (ModuleExports _ d f h j l n) = ModuleExports
         a
         (c <> d)
         (e <> f)
@@ -38,6 +37,10 @@ instance Monoid ModuleExports where
         (i <> j)
         (k <> l)
         (m <> n)
+
+instance Monoid ModuleExports where
+    mempty = ModuleExports mempty mempty mempty mempty mempty mempty mempty
+    mappend = (<>)
 
 -- GADT type stores GADTs with their local name.
 -- (But global type names)
@@ -76,15 +79,18 @@ data Env = Env
     , kinds :: Map.Map Identifier Kind }
     deriving(Show)
 
-instance Monoid Env where
-    mempty = Env mempty mempty mempty mempty mempty mempty
-    mappend (Env a c e g i k) (Env b d f h j l) = Env
+instance Semigroup Env where
+    (Env a c e g i k) <> (Env b d f h j l) = Env
         (a <> b)
         (c <> d)
         (e <> f)
         (g <> h)
         (i <> j)
         (k <> l)
+
+instance Monoid Env where
+    mempty = Env mempty mempty mempty mempty mempty mempty
+    mappend = (<>)
 
 ident :: Module -> Name -> Identifier
 ident [] n = LocalIdentifier n
