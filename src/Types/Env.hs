@@ -27,6 +27,7 @@ data ModuleExports = ModuleExports
     , construct :: [(Name, GADT)]   -- constructor info
     , indGroups :: [(Name, GADT)]   -- type-addressed constructor info
     }
+    deriving(Show)
 
 instance Semigroup ModuleExports where
     (ModuleExports a c e g i k m) <> (ModuleExports _ d f h j l n) = ModuleExports
@@ -112,7 +113,7 @@ hide terms types (ModuleExports m a b c d e f) = ModuleExports m
     (filter (not . (`elem` terms) . fst) c)
     (filter (not . (`elem` types) . fst) d)
     (filter (not . (`elem` terms) . fst) e)
-    (filter (not . (`elem` types) . fst) e)
+    (filter (not . (`elem` types) . fst) f)
 
 include :: ImportAction
 include = ImportAsHiding [] [] []

@@ -49,6 +49,9 @@ withTerms xs = local (\(m,a,b,c) -> (m,Map.fromList xs `mappend` a,b,c))
 withTypes :: [(Identifier, Identifier)] -> Elaborator a -> Elaborator a
 withTypes xs = local (\(m,a,b,c) -> (m,a,Map.fromList xs `mappend` b,c))
 
+withSchemes :: [(Identifier, Scheme)] -> Elaborator a -> Elaborator a
+withSchemes xs = local (\(m,a,b,c) -> (m,a,b,Map.fromList xs `mappend` c))
+
 lookupTerm :: SourcePos -> Identifier -> Elaborator Identifier
 lookupTerm t i = do
     (_,m,_,_) <- ask
@@ -220,12 +223,16 @@ genFns (Syn.Func d@(Syn.FunDef _ _ n _ _):xs) = do
 genFns (x:xs) = genFns xs
 genFns [] = pure []
 
+collectCons :: Module -> [GADT] -> [(Identifier, Scheme)]
+collectCons m gs = concatMap (\(GADT _ ss) -> fmap (first (ExternalIdentifier m)) ss) gs
+
+-- need to collect constructors as well
 elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT])
 elabTL xs = do
     m <- modul
     let t = initialPos (intercalate "." m)
     withTerms (collectTerms m xs) $ withTypes (collectTypes m xs) $ do
-        fns <- genFns xs
         gadts <- genGADTs xs
+        fns <- withSchemes (collectCons m gadts) $ genFns xs
         let exp = Node t $ Fix fns (Node t . Val $ Lit Unit)
         pure (exp, gadts)

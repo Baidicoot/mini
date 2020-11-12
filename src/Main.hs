@@ -86,9 +86,9 @@ main = forever $ do
                                     let f = closureConvert e s2
                                     putStrLn "\n\nClosure Converted:"
                                     prettyPrint f (0::Int)
-                                    let g = spill (regs config) f
-                                    putStrLn "\n\nSpilled:"
-                                    prettyPrint g (0::Int)
-                                    let h = generateAbstract g (regs config)
+                                    --let g = spill (regs config) f
+                                    --putStrLn "\n\nSpilled:"
+                                    --prettyPrint g (0::Int)
+                                    let h = generateAbstract f (regs config)
                                     putStrLn "\n\nAbstract:"
                                     print h
