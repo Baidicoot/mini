@@ -43,7 +43,8 @@ executable mini
     Types.CPS,
     Types.Env,
     Types.Injection,
-    Types.Pretty
+    Types.Pretty,
+    TypeCheck.Meta
   -- other-extensions:    
   build-depends:
     base >=4.9,

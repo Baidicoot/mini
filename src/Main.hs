@@ -49,6 +49,8 @@ config = Config {regs=10}
 
 main = forever $ do
     line <- prompt "> "
+    let modulePath = ["Repl"]
+    let exports = mempty {moduleMod = modulePath}
     case parse (many rpncc) "repl" line of
         Left err -> print err
         Right a -> case toplevelexpr a of
@@ -56,31 +58,32 @@ main = forever $ do
             Right b -> do
                 putStrLn "parsed:"
                 print b
-                case toEither $ elaborate 0 ["Repl"] mempty b of
+                case toEither $ elaborate 0 modulePath mempty b of
                         Left (e,w) -> do
                             putStrLn "elaboration failed with:"
                             print e
                             putStrLn "warnings:"
                             print w
-                        Right (c, g, s0, w) -> do
+                        Right (c, constructors, s0, w) -> do
                             putStrLn "elaboration succeded with warnings:"
                             print w
                             putStrLn "resulting in:"
                             print c
-                            let consenv = importWithAction include (includeGADTs ["Repl"] g)
-                            case typecheck s0 consenv c of
+                            let exports' = exports `mappend` constructors
+                            case typecheck s0 (importWithAction include exports') c of
                                 Fail e -> do
                                     putStrLn "typecheck failed with:"
                                     print e
-                                FailWithResult e (d,_) -> do
+                                FailWithResult e (d,_,_) -> do
                                     putStrLn "typecheck failed with result:"
                                     print d
                                     putStrLn "errors:"
                                     print e
-                                Success (d,s1) -> do
+                                Success (d,functions,s1) -> do
                                     putStrLn "typecheck resulted in:"
                                     prettyPrint d (0::Int)
-                                    let (e, s2) = cpsify consenv (untagCore d) s1
+                                    let exports'' = exports' `mappend` functions
+                                    let (e, s2) = cpsify (importWithAction include exports'') (untagCore d) s1
                                     putStrLn "\n\nCPS Converted:"
                                     prettyPrint e (0::Int)
                                     let f = closureConvert e s2

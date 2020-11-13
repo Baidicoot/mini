@@ -18,6 +18,7 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
+import TypeCheck.Meta
 import Text.Parsec.Pos
 
 data Rigidity
@@ -58,7 +59,7 @@ liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
 liftUE t a (Right x) = pure x
 liftUE t a (Left e) = throw [UnifyError t e a]
 
-typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, Int)
+typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, ModuleExports, Int)
 typecheck i e c =
     let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
         (r,i',s) = runChecker
@@ -66,8 +67,8 @@ typecheck i e c =
             (i,mempty)
             (infer W c)
     in case r of
-        Success (c,t) -> Success (apply s c, i')
-        FailWithResult e (c,t) -> FailWithResult e (apply s c, i')
+        Success (c,t) -> let c' = apply s c in Success (c', gatherExterns c', i')
+        FailWithResult e (c,t) -> let c' = apply s c in FailWithResult e (c', gatherExterns c', i')
         Fail e -> Fail e
 
 runChecker :: Gamma -> (Int, Subst) -> Checker a -> (ErrorsResult [TypeError] a, Int, Subst)

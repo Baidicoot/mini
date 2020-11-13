@@ -25,13 +25,13 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, [GADT], Int, [ElabWarning])
+elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
 elaborate i m e tl =
     let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
         (res, s, w) = runElab (elabTL tl) env i
     in case res of
-        Success (c, g) -> Success (c, g, s, w)
-        FailWithResult e (c, g) -> FailWithResult (e, w) (c, g, s, w)
+        Success (c, g) -> Success (c, includeGADTs g, s, w)
+        FailWithResult e (c, g) -> FailWithResult (e, w) (c, includeGADTs g, s, w)
         Fail e -> Fail (e, w)
 
 runElab :: Elaborator a -> ElabEnv -> ElabState -> (ErrorsResult [ElabError] a, ElabState, [ElabWarning])

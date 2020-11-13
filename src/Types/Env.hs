@@ -57,10 +57,9 @@ infoGADT n g@(GADT _ xs) = internal n xs 0
             | otherwise = internal n xs (i+1)
         internal n _ _ = error ("invalid GADT: " ++ n ++ " in " ++ show g)
 
-includeGADTs :: Module -> [GADT] -> ModuleExports
-includeGADTs m gs = mempty
-    { moduleMod = m
-    , termNames = concatMap (\(GADT _ ns) -> fmap fst ns) gs
+includeGADTs :: [GADT] -> ModuleExports
+includeGADTs gs = mempty
+    { termNames = concatMap (\(GADT _ ns) -> fmap fst ns) gs
     , typeNames = fmap (\(GADT n _) -> n) gs
     , termTypes = concatMap (\(GADT _ ns) -> ns) gs
     , construct = concatMap (\g@(GADT _ ns) -> fmap (\(n,_) -> (n,g)) ns) gs
