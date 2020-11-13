@@ -17,11 +17,18 @@ import Types.Prim hiding(Value(..))
 import Types.Pattern
 import Types.Graph
 
+import Error.Error
+
 import Data.Char (isLower)
 import Text.Parsec.Pos
 
 data SyntaxError
     = Expecting String String SourcePos
+
+instance RenderableError SyntaxError where
+    errPos (Expecting _ _ p) = p
+    errType _ = "syntax error"
+    errCont (Expecting a b _) = "expecting '" ++ show a ++ "' got '" ++ show b ++ "'"
 
 instance Show SyntaxError where
     show (Expecting a b p) = "'" ++ sourceName p ++ "': expecting " ++ a ++ ", got " ++ b ++ ", at line " ++ show (sourceLine p) ++ ", column " ++ show (sourceColumn p)
