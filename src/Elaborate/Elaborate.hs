@@ -23,7 +23,6 @@ import Text.Parsec.Pos
 import Data.List (intercalate)
 
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 
 elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
 elaborate i m e tl =
@@ -35,7 +34,7 @@ elaborate i m e tl =
         Fail e -> Fail (e, w)
 
 runElab :: Elaborator a -> ElabEnv -> ElabState -> (ErrorsResult [ElabError] a, ElabState, [ElabWarning])
-runElab m r s = runRWS (runErrorsT m) r s
+runElab m = runRWS (runErrorsT m)
 
 modul :: Elaborator Module
 modul = fmap (\(m,_,_,_) -> m) ask
@@ -115,10 +114,10 @@ elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
     n <- fresh
     e' <- elabExpr e
-    rows <- flip mapM ps $ \(p,e) -> do
+    rows <- forM ps $ \(p,e) -> do
             p' <- elabPat p
-            pure ([p'], mempty, \m -> withTerms (fmap (LocalIdentifier *** LocalIdentifier) $ Map.toList m) (elabExpr e))
-    fmap (Node t . Let n e') $ matchcomp t (rows, [n]) []
+            pure ([p'], mempty, \m -> withTerms ((LocalIdentifier *** LocalIdentifier) <$> Map.toList m) (elabExpr e))
+    Node t . Let n e' <$> matchcomp t (rows, [n]) []
 {-
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
@@ -224,7 +223,7 @@ genFns (x:xs) = genFns xs
 genFns [] = pure []
 
 collectCons :: Module -> [GADT] -> [(Identifier, Scheme)]
-collectCons m gs = concatMap (\(GADT _ ss) -> fmap (first (ExternalIdentifier m)) ss) gs
+collectCons m = concatMap (\(GADT _ ss) -> fmap (first (ExternalIdentifier m)) ss)
 
 -- need to collect constructors as well
 elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT])

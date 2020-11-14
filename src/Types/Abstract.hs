@@ -53,16 +53,19 @@ data Operator
     = EmitLit UnboxedLit
     | EmitPtr Label Int
     | Define Label
+    | Comment String
     -- end of pseudoops
     | CheckLim Int
     | Jmp Operand
     | Record [(Operand,AccessPath)] Register
+    | Free Register
+    | StRecord [(Operand,AccessPath)] Register
+    | StClear
     | Select Int Operand Register
     | Fetch Register Operand Operand
     | Move Register Operand
     | Halt
     | Error String
-    | Comment String
     deriving(Eq)
 
 instance Show Operator where
@@ -72,6 +75,9 @@ instance Show Operator where
     show (CheckLim i) = "check " ++ show i
     show (Jmp o) = "jmp " ++ show o
     show (Record p r) = "record " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
+    show (Free r) = "free " ++ show r
+    show (StRecord p r) = "strecord " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
+    show StClear = "stclear"
     show (Select i o r) = "select " ++ show i ++ ", " ++ show o ++ ", " ++ show r
     show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " ++ show o0 ++ ", " ++ show o1
     show (Move a b) = "move " ++ show a ++ ", " ++ show b
@@ -79,4 +85,4 @@ instance Show Operator where
     show (Error str) = "error \"" ++ str ++ "\""
     show (Comment str) = "(* " ++ str ++ " *)"
 
-    showList xs s = concatMap (\o -> show o ++ "\n") xs
+    showList xs s = concatMap (\o -> show o ++ "\n") xs ++ s

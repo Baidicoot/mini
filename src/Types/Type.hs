@@ -91,10 +91,10 @@ instance Substitutable Subst where
     ftv = foldr Set.union Set.empty . fmap ftv
 
 instance {-# OVERLAPPING #-} Substitutable Type where
-    apply s = join . fmap (applyN s)
+    apply s = (applyN s =<<)
         where
             applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
-            applyN _ t = (Node NoTag t)
+            applyN _ t = Node NoTag t
     ftv = foldr mappend mempty . fmap ftvN
         where
             ftvN (TypeVar n) = Set.singleton n
@@ -129,7 +129,7 @@ infixr 4 @@
 a @@ b = Map.fromList [(u, apply a t) | (u, t) <- Map.toList b] `mappend` a
 
 mapsTo :: Name -> Type -> Subst
-mapsTo n t = Map.singleton n t
+mapsTo = Map.singleton
 
 varBind :: Name -> Type -> Either UnifyError Subst
 varBind u t
@@ -183,7 +183,7 @@ argTys (App _ (App _ (Node _ FunctionType) a) b) = a:argTys b
 argTys _ = []
 
 instance Substitutable Scheme where
-    apply s (Forall ns t) = Forall ns (apply (foldr (\n s -> Map.delete n s) s ns) t)
+    apply s (Forall ns t) = Forall ns (apply (foldr Map.delete s ns) t)
     ftv (Forall ns t) = ftv t `Set.difference` ns
 
 instance Substitutable a => Substitutable [a] where

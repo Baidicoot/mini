@@ -205,7 +205,7 @@ class Inferable t w | t -> w where
 
 infFixDefs :: [(Identifier, Core SourcePos)] -> Checker [(Identifier,Rigidity,Scheme,Core Type)]
 infFixDefs fs = do
-    fenv <- flip mapM fs $ \case
+    fenv <- forM fs $ \case
         (i,Node p (Annot x t)) -> do
             sc <- generalize t
             pure (i,R,sc)
@@ -213,7 +213,7 @@ infFixDefs fs = do
             m <- rigid x
             t <- freshTV
             pure (i,m,Forall mempty t)
-    withEnv fenv . flip mapM fs $ \case
+    withEnv fenv . forM fs $ \case
         (i,Node p (Annot x t)) -> do
             sc <- generalize t
             x' <- check R x sc
@@ -266,7 +266,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         let t2 = resTy  (opTy op)
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: (Core SourcePos) -> Scheme -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Prim op vs), t2)
     -- CONS
     infer m (Node p (Cons i vs)) = do
@@ -276,7 +276,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         let t2 = resTy  ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: (Core SourcePos) -> Scheme -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Cons i vs), t2)
     -- LET-INFER
     infer m (Node p (Let x u t)) = do
@@ -302,7 +302,7 @@ instance Inferable (Core SourcePos) (Core Type) where
                 let pres = resTy p
                 immedMatch s pargs v
                 unify s pres tp
-                let env = fmap (\(v,t)->(LocalIdentifier v,W,unqualified t)) $ zip v pargs
+                let env = (\(v,t)->(LocalIdentifier v,W,unqualified t)) <$> zip v pargs
                 (t',tt') <- withEnv env (infer m t)
                 unify s tt tt'
                 pure (ConsPattern c v,tt',t')

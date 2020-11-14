@@ -8,18 +8,15 @@ import CPS.CPSify
 import Elaborate.Elaborate
 import TypeCheck.Check
 import CPS.ClosureConv
-import CPS.Spill
-import CPS.Meta
 import Backend.AbstGen
 
 import Types.Env
 import Types.Pretty
-import Types.Core (untagCore)
-
-import Control.Monad.Errors (ErrorsResult(..), toEither)
+import Types.Core ( untagCore )
+import Control.Monad.Errors ( toEither )
 import Control.Monad.Except
 
-import Error.Error
+import Error.Error ( render )
 
 import System.IO
 
@@ -30,7 +27,7 @@ prompt text = do
     getLine
 
 type Repl = ExceptT [String] IO
-data Config = Config {regs :: Int}
+newtype Config = Config {regs :: Int}
 
 handleEither :: Either a b -> (a -> Repl b) -> Repl b
 handleEither (Right b) f = pure b
@@ -61,6 +58,6 @@ compileStr config s = do
     liftIO $ prettyPrint e (0::Int)
     let f = closureConvert e s2
     let h = generateAbstract f (regs config)
-    --liftIO $ putStrLn "\n\nAbstract:"
-    --liftIO $ print h
+    liftIO $ putStrLn "\n\nAbstract:"
+    liftIO $ print h
     pure exports''

@@ -26,4 +26,4 @@ render t e =
         ++ " in module '" ++ file ++ "', row " ++ show row ++ " column " ++ show col ++ ":\n"
         ++ line ++ "\n"
         ++ replicate col ' '
-        ++ "^-- " ++ intercalate ("\n" ++ replicate col ' ') (errCont e)
+        ++ "^-- " ++ intercalate ("\n" ++ replicate col ' ') cont

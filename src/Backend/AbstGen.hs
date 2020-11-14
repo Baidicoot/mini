@@ -165,7 +165,7 @@ getMovable xs = internal xs
     where
         occupied = fmap fst xs
         internal ((a,b):xs)
-            | not (b `elem` occupied) = Just ((a,b), xs)
+            | b `notElem` occupied = Just ((a,b), xs)
             | otherwise = fmap (second ((a,b):)) (internal xs)
         internal [] = Nothing
 
@@ -179,7 +179,7 @@ simpleMoves xs = let xs' = filterDone xs in
         Nothing -> pure xs'
 
 filterDone :: [(GPR,GPR)] -> [(GPR,GPR)]
-filterDone = filter (\(a,b) -> a/=b)
+filterDone = filter (uncurry (/=))
 
 displace :: [(GPR,GPR)] -> Maybe ((GPR,GPR), [(GPR, GPR)])
 displace = uncons . filterDone
@@ -201,7 +201,7 @@ permute rs = do
         Nothing -> pure ()
 
 duplicate :: [(GPR, GPR)] -> AbstGen ()
-duplicate = mapM_ (\(a,b) -> copy a b)
+duplicate = mapM_ (uncurry copy)
 
 getOp :: Value -> AbstGen Operand
 getOp (Lit l) = pure (ImmLit l)
@@ -334,7 +334,7 @@ partAssigned [] = pure ([], [])
 genNonEsc :: [CFun] -> AbstGen ()
 genNonEsc fns = do
     (assignedfns, otherfns) <- partAssigned fns
-    if length assignedfns == 0 then
+    if null assignedfns then
         -- here functions in otherfns are never called, so it is fine to halt generation
         pure ()
     else do
