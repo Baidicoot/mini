@@ -9,6 +9,8 @@ import Control.Monad.Errors
 import Control.Monad
 import Control.Monad.RWS
 
+import Error.Error
+
 import Text.Parsec.Pos
 
 import qualified Data.Map as Map
@@ -19,13 +21,29 @@ data ElabError
     | Conflicting SourcePos Name
     deriving(Show)
 
+instance RenderableError ElabError where
+    errPos (UnboundTerm p _) = p
+    errPos (UnboundType p _) = p
+    errPos (Conflicting p _) = p
+
+    errType _ = "source"
+
+    errCont (UnboundTerm _ i) = ["unbound identifier '" ++ show i ++ "'"]
+    errCont (UnboundType _ i) = ["unbound named type '" ++ show i ++ "'"]
+    errCont (Conflicting _ n) = ["conflicting definitions for '" ++ n ++ "'"]
+
 data ElabWarning
     = Unreachable SourcePos [ClauseRow]
-    | Incomplete SourcePos
+
+instance RenderableError ElabWarning where
+    errPos (Unreachable p _) = p
+
+    errType _ = "source"
+
+    errCont (Unreachable _ rows) = ["some rows are unreachable"]
 
 instance Show ElabWarning where
     show (Unreachable p rows) = "Unreachable " ++ show p ++ show (fmap (\(a,_,_) -> a) rows)
-    show (Incomplete p) = "Incomplete " ++ show p
 
 type Action = Map.Map Name Name -> Elaborator (Core SourcePos)
 type ClauseRow = ([SourcePattern], Map.Map Name Name, Action)

@@ -45,7 +45,8 @@ executable mini
     Types.Injection,
     Types.Pretty,
     TypeCheck.Meta,
-    Glue
+    Glue,
+    Error.Error
   -- other-extensions:    
   build-depends:
     base >=4.9,

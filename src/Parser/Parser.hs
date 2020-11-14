@@ -28,7 +28,7 @@ data SyntaxError
 instance RenderableError SyntaxError where
     errPos (Expecting _ _ p) = p
     errType _ = "syntax error"
-    errCont (Expecting a b _) = "expecting '" ++ show a ++ "' got '" ++ show b ++ "'"
+    errCont (Expecting a b _) = ["expecting '" ++ a ++ "' got '" ++ b ++ "'"]
 
 instance Show SyntaxError where
     show (Expecting a b p) = "'" ++ sourceName p ++ "': expecting " ++ a ++ ", got " ++ b ++ ", at line " ++ show (sourceLine p) ++ ", column " ++ show (sourceColumn p)

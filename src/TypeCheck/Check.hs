@@ -19,6 +19,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import TypeCheck.Meta
+import Error.Error
 import Text.Parsec.Pos
 
 data Rigidity
@@ -42,10 +43,24 @@ instance Show UnifyAction where
 data TypeError
     = UnifyError SourcePos UnifyError UnifyAction
     | NotInScope SourcePos Identifier
-    | ArityErr SourcePos Type
     | ImmedErr SourcePos Int Int
-    | Debug String
+    | Debug SourcePos String
     deriving(Eq, Show)
+
+instance RenderableError TypeError where
+    errType _ = "type error"
+
+    errPos (UnifyError p _ _) = p
+    errPos (NotInScope p _) = p
+    errPos (ImmedErr p _ _) = p
+    errPos (Debug p _) = p
+
+    errCont (UnifyError _ e a) =
+        [ show e
+        , "while " ++ show a ]
+    errCont (NotInScope _ i) = ["the variable '" ++ show i ++ "' is unbound"]
+    errCont (ImmedErr _ i j) = ["expected " ++ show i ++ " arguments, but got " ++ show j]
+    errCont (Debug _ s) = [s]
 
 newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, Map.Map Identifier Scheme, Set.Set Name)
 
@@ -173,15 +188,14 @@ withRigidity rs = local (\(Gamma (a,b,c,d)) -> Gamma (a,Map.fromList rs `mappend
 withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker a -> Checker a
 withEnv rts = withRigidity (fmap (\(a,b,c)->(a,b)) rts) . withTypes (fmap (\(a,b,c)->(a,c)) rts)
 
-splitArr :: SourcePos -> Type -> Checker (Type, Type)
+splitArr :: SourcePos -> Scheme -> Checker (Type, Type)
 splitArr p t = do
     t1 <- freshTV
     t2 <- freshTV
-    matches p t (Forall mempty (t1 --> t2))
-    t' <- newest t
-    case t' of
-        App _ (App _ (Node _ FunctionType) a) b -> pure (a,b)
-        _ {- match has failed -}                -> pure (t1,t2)
+    matches p (t1 --> t2) t
+    t1' <- newest t1
+    t2' <- newest t2
+    pure (t1',t2')
 
 class Inferable t w | t -> w where
     -- bidirectional typechecking augmented with inferred substitutions
@@ -191,19 +205,24 @@ class Inferable t w | t -> w where
 
 infFixDefs :: [(Identifier, Core SourcePos)] -> Checker [(Identifier,Rigidity,Scheme,Core Type)]
 infFixDefs fs = do
-    fenv <- mapM (\case
+    fenv <- flip mapM fs $ \case
         (i,Node p (Annot x t)) -> do
             sc <- generalize t
             pure (i,R,sc)
         (i,x) -> do
             m <- rigid x
             t <- freshTV
-            pure (i,m,Forall mempty t)) fs
-    withEnv fenv . flip mapM fs $ \(i,x) -> do
-        (x',t) <- infer W x
-        sc'    <- generalize t
-        m      <- rigid x
-        pure (i,m,sc',x')
+            pure (i,m,Forall mempty t)
+    withEnv fenv . flip mapM fs $ \case
+        (i,Node p (Annot x t)) -> do
+            sc <- generalize t
+            x' <- check R x sc
+            pure (i,R,sc,x')
+        (i,x) -> do
+            (x',t) <- infer W x
+            sc    <- generalize t
+            m      <- rigid x
+            pure (i,m,sc,x')
 
 infLetDef :: Name -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)
 infLetDef x u = do
@@ -227,7 +246,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- APP
     infer m (App p f x) = do
         (f',ft) <- infer W f
-        (t1,t2) <- splitArr p ft
+        (t1,t2) <- splitArr p (Forall mempty ft)
         x'      <- check W x (unqualified t1)
         pure (App t2 f' x', t2)
     -- ABS-INFER
@@ -301,8 +320,8 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node tt (Match (Just tp,p) n cs'), tt)
 
     -- ABS-CHECK
-    check m (Node p (Lam x t)) (Forall a s1) = do
-        (t1,t2) <- splitArr p s1
+    check m (Node p (Lam x t)) s@(Forall a _) = do
+        (t1,t2) <- splitArr p s
         t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t (Forall a t2))
         pure (Node (t1 --> t2) (Lam x t'))
     -- LET-CHECK
