@@ -1,45 +1,137 @@
-module CPS.Spill where
-
-import Types.CPS
-import Types.Ident
-import Types.Prim
-
-import Control.Arrow
-import Control.Monad
-import Control.Monad.State
-import Control.Monad.Reader
-import Control.Monad.Identity
-
-import Data.Maybe
-import Data.List (sortBy)
+module CPS.Spill (spill) where
 
 import qualified Data.Set as Set
-import qualified Data.Map as Map
 
--- Frontend.Spill - conversion of the CPS to limit free variables to be under N.
--- comprised of 2 individual passes
--- the first pass creates closures for functions with arguments > N.
--- the second pass does the actual work eliminating free variables > N in expressions.
+import Types.Ident
+import Types.Prim
+import Types.CPS
 
-type Spill = ReaderT Int (State [Name])
+import Control.Arrow
+import Control.Monad.State
+import Control.Monad.Reader
 
-spillNames :: [Name]
-spillNames = fmap (("s"++) . show) [0..]
+type Spill = StateT Int (Reader Int)
 
-runSpill :: Int -> (Spill a) -> a
-runSpill i p = fst . flip runState spillNames $ runReaderT p i
+runSpill :: Int -> Int -> Spill a -> (a, Int)
+runSpill n s p = flip runReader n $ runStateT p s
 
-spill :: Int -> CExp -> CExp
-spill i exp = runSpill i (do
-    exp' <- overflowArgs exp
-    spillFix exp' (Nothing, mempty, mempty))
+spill :: Int -> Int -> CExp -> (CExp, Int)
+spill n s e = runSpill n s $ do
+    e' <- overflowArgs e
+    spillFix e'
+
+indexOf :: (Eq a) => a -> [a] -> Int
+indexOf a (a':as)
+    | a == a' = 0
+    | otherwise = indexOf a as + 1
+
+maybeToSet :: Maybe a -> Set.Set a
+maybeToSet (Just a) = Set.singleton a
+maybeToSet _ = Set.empty
 
 fresh :: Spill Name
 fresh = do
-    names <- get
-    let (n:ns) = names
-    put ns
-    pure n
+    n <- get
+    put (n+1)
+    pure ('s':show n)
+
+renameVal :: Name -> Name -> Value -> Value
+renameVal v v' (Var (LocalIdentifier n))
+    | n == v = Var $ LocalIdentifier v'
+renameVal _ _ x = x
+
+rename :: Name -> Name -> CExp -> CExp
+rename n n' (App v vs) = App (renameVal n n' v) (fmap (renameVal n n') vs)
+rename n n' (Record ps r e) = Record (fmap (first $ renameVal n n') ps) r (rename n n' e)
+rename n n' (Select i v s e) = Select i (renameVal n n' v) s (rename n n' e)
+rename n n' (Switch v es) = Switch (renameVal n n' v) (fmap (rename n n') es)
+rename n n' (Primop o vs p es) = Primop o (fmap (renameVal n n') vs) p (fmap (rename n n') es)
+rename _ _ x = x
+
+namesFromVals :: [Value] -> Set.Set Name
+namesFromVals = Set.fromList . extractNames
+
+argsRoot :: CExp -> Set.Set Name
+argsRoot (App v vs) = namesFromVals (v:vs)
+argsRoot (Record ps _ _) = namesFromVals (fmap fst ps)
+argsRoot (Select _ v _ _) = namesFromVals [v]
+argsRoot (Switch v _) = namesFromVals [v]
+argsRoot (Primop _ vs _ _) = namesFromVals vs
+argsRoot _ = mempty
+
+boundRoot :: CExp -> Set.Set Name
+boundRoot (Select _ _ n _) = Set.singleton n
+boundRoot (Primop _ _ n _) = Set.singleton n
+boundRoot (Record _ n _) = Set.singleton n
+boundRoot _ = mempty
+
+contRoot :: CExp -> [CExp]
+contRoot (Select _ _ _ c) = [c]
+contRoot (Record _ _ c) = [c]
+contRoot (Switch _ cs) = cs
+contRoot (Primop _ _ _ cs) = cs
+contRoot _ = []
+
+root :: CExp -> [CExp] -> CExp
+root (Select a b c _) [d] = Select a b c d
+root (Record a b _) [c] = Record a b c
+root (Switch a _) cs = Switch a cs
+root (Primop a b c _) cs = Primop a b c cs
+root x _ = x
+
+cull :: Set.Set Name -> Int -> Set.Set Name
+cull s i
+    | i <= 0 = mempty
+    | Set.size s > i = cull (Set.deleteMax s) (i-1)
+    | otherwise = s
+
+spillExp :: Set.Set Name -> Set.Set Name -> Set.Set Name -> [Name] -> Maybe Name -> CExp -> Spill CExp
+spillExp r u d sc sv e = do
+    n <- ask
+    let a = argsRoot e
+    let w = boundRoot e
+    let c = contRoot e
+    let vbefore = fv e
+    let vafter = mconcat (fmap fv c)
+    let sbefore = maybeToSet sv
+    let safterv = if null c then mempty else sv
+    let safterc = if null c then mempty else sc
+    let ndup = n - Set.size sbefore - Set.size ((u `Set.intersection` vbefore) `Set.union` r)
+    let d' = cull (d `Set.intersection` vbefore) ndup
+    let argsSpill = Set.size (a `Set.union` (u `Set.intersection` vafter)) > n - length safterv
+    let boundSpill = Set.size (w `Set.union` (u `Set.intersection` vafter)) > n - length safterv
+    if argsSpill || boundSpill then do
+        sv' <- fresh
+        let d'' = (u `Set.union` d') `Set.intersection` vbefore
+        let sc' = Set.toList vbefore
+        let ps = fmap (\n -> (Var $ LocalIdentifier n,OffPath $ indexOf n sc)) sc'
+        e' <- spillExp mempty mempty d'' sc' (Just sv') e
+        pure $ Record ps sv' e'
+    else do
+        let f = a `Set.difference` (u `Set.intersection` d')
+        case (Set.size f, sv) of
+            (1,Just sv) -> do
+                let v = Set.findMin f
+                let i = indexOf v sc
+                v' <- fresh
+                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert v' d') safterc safterv (rename v v' e)
+                pure $ Select i (Var $ LocalIdentifier sv) v' e'
+            (_,Just sv) -> do
+                let v = Set.findMin f
+                let i = indexOf v sc
+                v' <- fresh
+                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert v' d') sc (Just sv) (rename v v' e)
+                pure $ Select i (Var $ LocalIdentifier sv) v' e'
+            (_,_) -> do
+                c' <- mapM (spillExp w (u `Set.intersection` vafter) d' safterc safterv) c
+                pure $ root e c'
+
+spillFix :: CExp -> Spill CExp
+spillFix (Fix defs e)  = do
+    defs' <- mapM (\(Fun i args e) -> do
+        e' <- spillExp mempty (Set.fromList args) mempty [] Nothing e
+        pure $ Fun i args e') defs
+    Fix defs' <$> spillExp mempty mempty mempty [] Nothing e
 
 overflowArgsFn :: CFun -> Spill CFun
 overflowArgsFn (Fun id args exp) = do
@@ -78,153 +170,3 @@ overflowArgs (Primop a b c exps) = do
     exps' <- mapM overflowArgs exps
     pure $ Primop a b c exps'
 overflowArgs x = pure x
-
-type SpillCtx = (Maybe Name, Map.Map Name Int, Map.Map Name Name)
--- spill record name, vars only in spill, vars in regs -> fresh names
-
-{-
-Spilling algo:
-if for any expression the variable bound by that expression,
-in addition to the variables currently bound in the expression's
-scope exceed the number of available registers on that machine
-then a record is made of the variables currently in scope
-or in the previous spilling record that are also in the free variables
-of the continuation expressions
--}
-
-sortWith :: Ord a => (b -> a) -> [b] -> [b]
-sortWith f = sortBy (\a b -> f a `compare` f b)
-
-maybeToSet (Just a) = Set.singleton a
-maybeToSet _ = mempty
-
-filterFree (free, _) (rn, rc, scope) = (rn, Set.filter (`Set.member` free) rc, Map.filterWithKey (\k _ -> k `Set.member` free) scope)
-
-unique :: SpillCtx -> Set.Set Name
-unique (_, rc, scope) = Map.keysSet $ Map.filterWithKey (\k _ -> k `Map.notMember` rc) scope
-
-duplicated :: SpillCtx -> Set.Set Name
-duplicated (_, rc, scope) = Map.keysSet $ Map.filterWithKey (\k _ -> k `Map.member` scope) rc
-
--- drop variables based off their distance from use
-dropN :: Int -> SpillCtx -> VarInfo -> SpillCtx
-dropN n ctx@(rn, rc, scope) (fv, depth) =
-    let duped = duplicated ctx
-        fduped = Set.filter (`Set.member` fv) duped
-        ordered = sortWith (\n -> case Map.lookup n depth of
-            Just x -> -x
-            Nothing -> 0) . Set.toList $ fduped
-        dropping = take n ordered in
-        (rn, Map.filterWithKey (\k _ -> k `elem` dropping) rc, scope)
-
-keepN :: Int -> Set.Set Name -> Set.Set Name -> VarInfo -> (Set.Set Name, Set.Set Name)
-keepN n uniq duped (fv, depth) =
-    let ordered = order uniq
-    in (Set.fromList $ take n ordered, Set.fromList $ drop n ordered)
-    where
-        order = reverse . sortWith (\n -> case Map.lookup n depth of
-            Just x -> -x
-            Nothing -> 0) . Set.toList
-
--- selectVars takes a spilling context, var order, bound variables, required variables
--- it returns a selector function for those variables and a new spilling context
-
--- variable renaming is captured in the returned spilling context
--- the new context needs to have all the 'arg' variables in scope
-selectVars :: SpillCtx -> VarInfo -> Set.Set Name -> Set.Set Name -> Spill (SpillCtx, CExp -> CExp)
-selectVars ctx@(rn, rc, scope) info bound args = do
-    n <- ask
-    let new = bound `Set.union` args
-    let ndup = n - Set.size new - 1
-    let (keeping, dropping) = keepN ndup (unique ctx) (duplicated ctx) info
-    (argSelects, argNames) <- foldM (\(fn, map) arg -> case Map.lookup arg rc of
-        Just i -> do
-            f <- fresh
-            let binding = Select i (Var $ LocalIdentifier arg) f
-            pure (binding . fn, (arg, f):map)
-        Nothing -> pure (fn, (arg, arg):map)) (id, []) $ Set.toList args
-    (rn', rc', rfn) <- do
-            let vars = dropping `Set.union` Map.keysSet rc
-            if Set.size vars > 0 then do
-                let (accesses, locations) = case rn of
-                        Just rn -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v rc, Map.lookup v scope) of
-                            (Just oi, _) ->
-                                let acs' = (Var $ LocalIdentifier rn, SelPath oi (OffPath 0)):acs
-                                in (acs', (v, ni):locs)
-                            (_, Just ov) ->
-                                let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
-                                in (acs', (v, ni):locs)
-                            _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
-                        Nothing -> foldr (\(v, ni) (acs, locs) -> case (Map.lookup v scope) of
-                            Just ov ->
-                                let acs' = acs ++ [(Var $ LocalIdentifier ov, OffPath 0)]
-                                in (acs', (v, ni):locs)
-                            _ -> error "unreachable") ([], []) (zip (Set.toList vars) [0..])
-                rn' <- fresh
-                let binding = Record accesses rn'
-                pure (Just rn', Map.fromList locations, binding)
-            else
-                pure (rn, rc, id)
-    let scope' = Map.fromList argNames `Map.union` Map.filterWithKey (\k _ -> k `Set.member` keeping) scope `Map.union` (Map.fromList . Set.toList $ Set.map (\x -> (x, x)) bound)
-    pure ((rn', rc', scope'), argSelects . rfn)
-
-getBoundAndArgs :: CExp -> (Set.Set Name, Set.Set Name)
-getBoundAndArgs exp@(App _ _) = (mempty, fv exp)
-getBoundAndArgs (Record _ n _) = (Set.singleton n, mempty)
-getBoundAndArgs (Select _ v n _) = (Set.singleton n, Set.fromList $ extractNames [v])
-getBoundAndArgs (Switch v _) = (mempty, Set.fromList $ extractNames [v])
-getBoundAndArgs (Primop _ vs n _) = (Set.singleton n, Set.fromList $ extractNames vs)
-getBoundAndArgs _ = (mempty, mempty)
-
-makeSpillStep :: CExp -> SpillCtx -> Spill (SpillCtx, CExp -> CExp)
-makeSpillStep exp ctx = let (bound, args) = getBoundAndArgs exp in selectVars ctx (getVarInfo exp) bound args
-
-lookupValCtx :: Value -> SpillCtx -> Value
-lookupValCtx v@(Var (LocalIdentifier n)) (_, _, scope) = case Map.lookup n scope of
-    Just x -> Var $ LocalIdentifier x
-    Nothing -> v
-lookupValCtx v _ = v
-
-lookupValsCtx :: [Value] -> SpillCtx -> [Value]
-lookupValsCtx vs ctx = fmap (flip lookupValCtx ctx) vs
-
-lookupValsRecord :: [(Value, AccessPath)] -> SpillCtx -> [(Value, AccessPath)]
-lookupValsRecord accs (Just rn, rc, scope) = fmap (\(v, p) ->
-        case v of
-            Var (LocalIdentifier n) ->
-                case (Map.lookup n scope, Map.lookup n rc) of
-                    (Just o, _) -> (Var $ LocalIdentifier o, p)
-                    (_, Just i) -> (Var $ LocalIdentifier rn, SelPath i p)
-                    _ -> (Var $ LocalIdentifier n, p)
-            _ -> (v, p)) accs
-lookupValsRecord accs ctx = fmap (first (flip lookupValCtx ctx)) accs
-
-spillExp :: CExp -> SpillCtx -> Spill CExp
-spillExp exp@(App v vs) ctx = do
-    (ctx', sfn) <- makeSpillStep exp ctx
-    pure . sfn $ App (lookupValCtx v ctx') (lookupValsCtx vs ctx')
-spillExp exp@(Record vs n sexp) ctx = do
-    (ctx', sfn) <- makeSpillStep exp ctx
-    sexp' <- spillExp sexp ctx'
-    pure . sfn $ Record (lookupValsRecord vs ctx') n sexp'
-spillExp exp@(Select i v n sexp) ctx = do
-    (ctx', sfn) <- makeSpillStep exp ctx
-    sexp' <- spillExp sexp ctx'
-    pure . sfn $ Select i (lookupValCtx v ctx') n sexp'
-spillExp exp@(Switch v sexps) ctx = do
-    (ctx', sfn) <- makeSpillStep exp ctx
-    sexps' <- mapM (flip spillExp ctx') sexps
-    pure . sfn $ Switch (lookupValCtx v ctx') sexps'
-spillExp exp@(Primop op vs n sexps) ctx = do
-    (ctx', sfn) <- makeSpillStep exp ctx
-    sexps' <- mapM (flip spillExp ctx') sexps
-    pure . sfn $ Primop op (lookupValsCtx vs ctx') n sexps'
-spillExp exp _ = pure exp
-
-spillFix (Fix defs exp) ctx = do
-    exp' <- spillExp exp ctx
-    defs' <- mapM (\(Fun id args exp) -> do
-        let scope = Map.fromList (fmap (\a -> (a, a)) args)
-        exp' <- spillExp exp (Nothing, mempty, scope)
-        pure $ Fun id args exp') defs
-    pure $ Fix defs' exp'

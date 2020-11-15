@@ -51,10 +51,9 @@ type ClosureState =
 
 type ClosureConv = ReaderT ClosureEnv (State ClosureState)
 
-closureConvert :: CExp -> Int -> CExp
+closureConvert :: CExp -> Int -> (CExp,Int)
 closureConvert exp i
-    = uncurry Fix
-    . smash . fst
+    = (uncurry Fix . smash *** fst)
     . flip runState (i, mempty)
     . runReaderT (convertExp exp)
     $ let fnMeta = collect exp in
@@ -214,14 +213,14 @@ convertExp (App v@(Var (LocalIdentifier f)) args) = do
         argCls (args ++ fmap (Var . LocalIdentifier) extra) $ do
             extra'  <- mapM (arg . Var . LocalIdentifier) extra
             args'   <- mapM arg args
-            pure (App v (args' ++ extra'))
+            pure (App (Label (LocalIdentifier f)) (args' ++ extra'))
     else argCls args $ do
         vp <- fnPtr v
         vc <- value v
         args' <- mapM arg args
         pure (App vp (args' ++ [vc]))
 -- top-level call
-convertExp (App v@(Var id) args) = argCls args $ do
+convertExp (App v@(Var _) args) = argCls args $ do
     args' <- mapM arg args
     pure (App v args')
 convertExp (Fix fns exp) = do

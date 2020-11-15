@@ -8,6 +8,7 @@ import CPS.CPSify
 import Elaborate.Elaborate
 import TypeCheck.Check
 import CPS.ClosureConv
+import CPS.Spill
 import Backend.AbstGen
 
 import Types.Env
@@ -56,8 +57,9 @@ compileStr config s = do
     let (e, s2) = cpsify (importWithAction include exports'') (untagCore d) s1
     liftIO $ putStrLn "\n\nCPS Converted:"
     liftIO $ prettyPrint e (0::Int)
-    let f = closureConvert e s2
-    let h = generateAbstract f (regs config)
+    let (f,s3) = closureConvert e s2
+    let (g,s4) = spill (regs config) s3 f
+    let h = generateAbstract g (regs config)
     liftIO $ putStrLn "\n\nAbstract:"
     liftIO $ print h
     pure exports''
