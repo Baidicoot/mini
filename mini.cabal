@@ -46,7 +46,9 @@ executable mini
     Types.Pretty,
     TypeCheck.Meta,
     Glue,
-    Error.Error
+    Error.Error,
+    Backend.X86_64_linux.Textual,
+    Backend.Backend
   -- other-extensions:    
   build-depends:
     base >=4.9,

@@ -21,6 +21,9 @@ import Error.Error ( render )
 
 import System.IO
 
+import Backend.X86_64_linux.Textual
+import Backend.Backend
+
 prompt :: String -> IO String
 prompt text = do
     putStr text
@@ -64,4 +67,6 @@ compileStr config s = do
     let h = generateAbstract g (regs config)
     liftIO $ putStrLn "\n\nAbstract:"
     liftIO $ print h
+    let i = emit (codegen h :: X86 ())
+    liftIO $ putStrLn i
     pure exports''
