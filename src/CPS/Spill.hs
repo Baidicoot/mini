@@ -10,15 +10,20 @@ import Control.Arrow
 import Control.Monad.State
 import Control.Monad.Reader
 
-type Spill = StateT Int (Reader Int)
+type Spill = StateT Int (Reader (Int,Set.Set Name))
 
-runSpill :: Int -> Int -> Spill a -> (a, Int)
+runSpill :: (Int,Set.Set Name) -> Int -> Spill a -> (a, Int)
 runSpill n s p = flip runReader n $ runStateT p s
 
+knownFns :: CExp -> Set.Set Name
+knownFns (Fix fs _) = Set.fromList . extractLocals $ fmap (\(Fun i _ _) -> i) fs
+
 spill :: Int -> Int -> CExp -> (CExp, Int)
-spill n s e = runSpill n s $ do
-    e' <- overflowArgs e
-    spillFix e'
+spill n s e =
+    let env = (n,knownFns e)
+    in runSpill env s $ do
+        e' <- overflowArgs e
+        spillFix e'
 
 indexOf :: (Eq a) => a -> [a] -> Int
 indexOf a (a':as)
@@ -48,16 +53,17 @@ rename n n' (Switch v es) = Switch (renameVal n n' v) (fmap (rename n n') es)
 rename n n' (Primop o vs p es) = Primop o (fmap (renameVal n n') vs) p (fmap (rename n n') es)
 rename _ _ x = x
 
-namesFromVals :: [Value] -> Set.Set Name
-namesFromVals = Set.fromList . extractNames
+namesFromVals :: Set.Set Name -> [Value] -> Set.Set Name
+namesFromVals s = (`Set.difference` s) . Set.fromList . extractNames
 
-argsRoot :: CExp -> Set.Set Name
-argsRoot (App v vs) = namesFromVals (v:vs)
-argsRoot (Record ps _ _) = namesFromVals (fmap fst ps)
-argsRoot (Select _ v _ _) = namesFromVals [v]
-argsRoot (Switch v _) = namesFromVals [v]
-argsRoot (Primop _ vs _ _) = namesFromVals vs
-argsRoot _ = mempty
+-- need to distinguish between labels and arguments
+argsRoot :: CExp -> Set.Set Name -> Set.Set Name
+argsRoot (App v vs) s = namesFromVals s (v:vs)
+argsRoot (Record ps _ _) s = namesFromVals s (fmap fst ps)
+argsRoot (Select _ v _ _) s = namesFromVals s [v]
+argsRoot (Switch v _) s = namesFromVals s [v]
+argsRoot (Primop _ vs _ _) s = namesFromVals s vs
+argsRoot _ _ = mempty
 
 boundRoot :: CExp -> Set.Set Name
 boundRoot (Select _ _ n _) = Set.singleton n
@@ -87,8 +93,8 @@ cull s i
 
 spillExp :: Set.Set Name -> Set.Set Name -> Set.Set Name -> [Name] -> Maybe Name -> CExp -> Spill CExp
 spillExp r u d sc sv e = do
-    n <- ask
-    let a = argsRoot e
+    (n,k) <- ask
+    let a = argsRoot e k
     let w = boundRoot e
     let c = contRoot e
     let vbefore = fv e
@@ -136,7 +142,7 @@ spillFix (Fix defs e)  = do
 overflowArgsFn :: CFun -> Spill CFun
 overflowArgsFn (Fun id args exp) = do
     exp' <- overflowArgs exp
-    n <- ask
+    (n,_) <- ask
     if n >= length args then
         pure $ Fun id args exp'
     else do
@@ -152,7 +158,7 @@ overflowArgs (Fix defs exp) = do
     exp' <- overflowArgs exp
     pure $ Fix defs' exp'
 overflowArgs (App f args) = do
-    n <- ask
+    (n,_) <- ask
     if n <= length args then
         pure $  App f args
     else do

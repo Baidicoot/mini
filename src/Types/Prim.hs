@@ -22,13 +22,11 @@ data Primop
 
 data Value
     = Var Identifier
-    | Label Identifier
     | Lit UnboxedLit
     deriving(Eq, Ord)
 
 instance Show Value where
     show (Var id) = show id
-    show (Label id) = show id
     show (Lit u) = show u
 
 arityOp :: Primop -> Int

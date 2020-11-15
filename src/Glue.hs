@@ -59,6 +59,8 @@ compileStr config s = do
     liftIO $ prettyPrint e (0::Int)
     let (f,s3) = closureConvert e s2
     let (g,s4) = spill (regs config) s3 f
+    liftIO $ putStrLn "\n\nSpilled & Closure Converted:"
+    liftIO $ prettyPrint g (0::Int)
     let h = generateAbstract g (regs config)
     liftIO $ putStrLn "\n\nAbstract:"
     liftIO $ print h

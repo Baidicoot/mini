@@ -213,7 +213,7 @@ convertExp (App v@(Var (LocalIdentifier f)) args) = do
         argCls (args ++ fmap (Var . LocalIdentifier) extra) $ do
             extra'  <- mapM (arg . Var . LocalIdentifier) extra
             args'   <- mapM arg args
-            pure (App (Label (LocalIdentifier f)) (args' ++ extra'))
+            pure (App (Var (LocalIdentifier f)) (args' ++ extra'))
     else argCls args $ do
         vp <- fnPtr v
         vc <- value v
