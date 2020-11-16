@@ -5,11 +5,9 @@ module Backend.X86_64_linux.Textual where
 import Backend.Backend
 import Backend.X86_64_linux.Types
 import Backend.X86_64_linux.Translate
-import Control.Monad
 import Control.Applicative hiding(Const(..))
 
 import Types.Abstract
-import Types.CPS (AccessPath(..))
 
 newtype X86_64_linux a = X86 (a, String)
 
@@ -33,9 +31,7 @@ endl :: X86 ()
 endl = emitStr "\n"
 
 getReg :: Register -> String
-getReg (GPR i) = "%r" ++ show i
-getReg Arith = "%rcx"
-getReg _ = "%rcx"
+getReg = ('%':) . regName
 
 emitConst :: X86ConstOp -> X86 ()
 emitConst (Label l i) = emitStr ("(" ++ show l ++ " + " ++ show i ++ ")")
@@ -59,7 +55,8 @@ emitX86 (DB c) = emitStr ".db " >> emitConst c >> endl
 emitX86 (Jmpq o) = emitStr "jmp " >> emitOp o >> endl
 emitX86 Syscall = emitStr "syscall" >> endl
 emitX86 (Ccall s) = emitStr "call " >> emitStr s >> endl
-emitX86 _ = pure ()
+emitX86 (Addq a b) = emitStr "addq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
+emitX86 (Subq a b) = emitStr "subq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
 
 instance Backend (X86 ()) where
     codegen = mapM_ emitX86 . concatMap translate

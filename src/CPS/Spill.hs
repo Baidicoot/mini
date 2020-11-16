@@ -159,8 +159,8 @@ overflowArgs (Fix defs exp) = do
     pure $ Fix defs' exp'
 overflowArgs (App f args) = do
     (n,_) <- ask
-    if n <= length args then
-        pure $  App f args
+    if n >= length args then
+        pure $ App f args
     else do
         c <- fresh
         let args' = take (n-1) args ++ [Var $ LocalIdentifier c]

@@ -14,6 +14,7 @@ import Types.Prim
 import Control.Monad.Reader
 import Control.Monad.Errors
 import Control.Monad.State
+import Control.Arrow
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -66,12 +67,12 @@ newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, M
 
 instance Substitutable Gamma where
     apply s (Gamma (a, b, c, d)) = Gamma (apply s a, b, c, d)
-    ftv (Gamma (a, b, c, d)) = ftv a `mappend` d
+    ftv (Gamma (a, _, _, d)) = ftv a `mappend` d
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
 liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
-liftUE t a (Right x) = pure x
+liftUE _ _ (Right x) = pure x
 liftUE t a (Left e) = throw [UnifyError t e a]
 
 typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, ModuleExports, Int)
@@ -95,7 +96,7 @@ getSubst :: Checker Subst
 getSubst = fmap snd get
 
 extSubst :: Subst -> Checker ()
-extSubst s' = modify (\(n,s) -> (n,s' @@ s))
+extSubst s' = modify (second (s' @@))
 
 matches :: SourcePos -> Type -> Scheme -> Checker ()
 matches t a b = do
@@ -134,9 +135,7 @@ fresh = do
     pure ('t':show n)
 
 freshTV :: Checker Type
-freshTV = do
-    f <- fresh
-    pure (Node NoTag (TypeVar f))
+freshTV = Node NoTag . TypeVar <$> fresh
 
 generalize :: Type -> Checker Scheme
 generalize t = do
@@ -206,22 +205,20 @@ class Inferable t w | t -> w where
 infFixDefs :: [(Identifier, Core SourcePos)] -> Checker [(Identifier,Rigidity,Scheme,Core Type)]
 infFixDefs fs = do
     fenv <- forM fs $ \case
-        (i,Node p (Annot x t)) -> do
+        (i,Node _ (Annot x t)) -> do
             sc <- generalize t
-            pure (i,R,sc)
+            pure (i,R,sc,x,True)
         (i,x) -> do
             m <- rigid x
             t <- freshTV
-            pure (i,m,Forall mempty t)
-    withEnv fenv . forM fs $ \case
-        (i,Node p (Annot x t)) -> do
-            sc <- generalize t
+            pure (i,m,unqualified t,x,False)
+    withEnv (fmap (\(a,b,c,_,_)->(a,b,c)) fenv) . forM fenv $ \case
+        (i,_,sc,x,True) -> do
             x' <- check R x sc
             pure (i,R,sc,x')
-        (i,x) -> do
-            (x',t) <- infer W x
-            sc    <- generalize t
-            m      <- rigid x
+        (i,m,Forall _ t,x,False) -> do
+            x' <- check m x (unqualified t)
+            sc <- generalize t
             pure (i,m,sc,x')
 
 infLetDef :: Name -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)
@@ -246,7 +243,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- APP
     infer m (App p f x) = do
         (f',ft) <- infer W f
-        (t1,t2) <- splitArr p (Forall mempty ft)
+        (t1,t2) <- splitArr p (unqualified ft)
         x'      <- check W x (unqualified t1)
         pure (App t2 f' x', t2)
     -- ABS-INFER

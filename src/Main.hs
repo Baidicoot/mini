@@ -8,7 +8,7 @@ config :: Config
 config = Config {regs=10}
 
 main :: IO ()
-main = (fmap (const ()))
+main = void
     . runExceptT
     . forever $ do
         line <- liftIO $ prompt "> "

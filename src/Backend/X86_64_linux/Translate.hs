@@ -32,6 +32,16 @@ translateAccess o (SelPath d p) dst =
     translateAccess o p (Register (Direct arith))
     ++ [ Movq (Register (IndirectD arith (d*4))) dst ]
 
+saveExcept :: [Register] -> [X86Instruction]
+saveExcept rs =
+    Subq (Register (Direct rsp)) (Const (Int callerFrame))
+    : [ Movq (Register (Direct r)) (Register (IndirectD rsp (i*4))) | (r,i) <- zip (filter (`notElem` rs) callerSaved) [0..] ]
+
+restoreExcept :: [Register] -> [X86Instruction]
+restoreExcept rs =
+    [ Movq (Register (IndirectD rsp (i*4))) (Register (Direct r)) | (r,i) <- zip (filter (`notElem` rs) callerSaved) [0..] ]
+    ++ [ Addq (Register (Direct rsp)) (Const (Int callerFrame)) ]
+
 translate :: Operator -> [X86Instruction]
 translate (EmitLit (Prim.Int i)) = [Long (Int i)]
 translate (EmitLit (Prim.Char c)) = [DB (Char c)]
@@ -41,10 +51,10 @@ translate (Define l) = [DefLabel l]
 translate (Comment s) = [PPC s]
 translate (Jmp o) = [Jmpq (translateOpDirect o)]
 translate (Record ps r) =
-    SaveRegs [r]
-    : Ccall "alloc"
-    : concatMap (\((o,p),i) -> translateAccess o p (Register (IndirectD r (i*4)))) (zip ps [0..])
-    ++ [ RestoreRegs [r] ]
+    saveExcept [r]
+    ++ [ Ccall "alloc", Movq (Register (Direct rax)) (Register (Direct r)) ]
+    ++ restoreExcept [r]
+    ++ concatMap (\((o,p),i) -> translateAccess o p (Register (IndirectD r (i*4)))) (zip ps [0..])
 translate (Select i o r) = translateAccess o (SelPath i NoPath) (Register (Direct r))
 translate (Fetch r o1 o2) = []
 translate Halt = [ Movq (Const (Int 60)) (Register (Direct rax)), Syscall ]

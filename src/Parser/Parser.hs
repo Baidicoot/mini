@@ -155,7 +155,8 @@ annotation s _ x = Left [Expecting ("annotated " ++ s) (display x) (getPos x)]
 
 toplevel :: Parser ExprS TopLevel
 toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data <$> indexp p xs
-toplevel x = Func <$> fundef x
+toplevel (SExpr _ (SNode p (Keyword "fix"):xs)) = Group <$> mapM fundef xs
+toplevel x = Group . (:[]) <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]
 toplevelexpr = many toplevel

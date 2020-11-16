@@ -81,6 +81,6 @@ data ValDef
     deriving(Eq, Show)
 
 data TopLevel
-    = Func FunDef
+    = Group [FunDef]
     | Data Data
     deriving(Eq, Show)

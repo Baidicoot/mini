@@ -54,12 +54,12 @@ unused = do
     let (Just a) = find (not . flip Inj.memberInv env) [0..]
     pure a
 
-cull :: CExp -> AbstGen ()
-cull exp = let free = CPS.fv exp in modify (\(a,b,c) -> (Inj.filterFst (`Set.member` free) a, b, c))
+cull :: Set.Set Name -> AbstGen ()
+cull free = modify (\(a,b,c) -> (Inj.filterFst (`Set.member` free) a, b, c))
 
-getReg :: CExp -> AbstGen GPR
-getReg exp = do
-    cull exp
+getReg :: Set.Set Name -> AbstGen GPR
+getReg free = do
+    cull free
     unused
 
 caseLabel :: AbstGen Int
@@ -92,7 +92,7 @@ keep rs = modify (\(a,b,c) -> (Inj.filterSnd (`elem` rs) a, b, c))
 record :: [(Value, AccessPath)] -> Name -> CExp -> AbstGen ()
 record ps n exp = do
     ps' <- mapM (\(a,b) -> fmap (flip (,) b) (getOp a)) ps
-    a <- getReg exp
+    a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractNames $ fmap fst ps))
     assoc n a
     emit (Comment $ "let " ++ n ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) ps) ++ "}")
     emit (Record ps' (r a))
@@ -101,7 +101,7 @@ record ps n exp = do
 select :: Int -> Value -> Name -> CExp -> AbstGen ()
 select i v n exp = do
     o <- getOp v
-    a <- getReg exp
+    a <- getReg (CPS.fv exp)
     assoc n a
     emit (Comment $ "let " ++ n ++ " = " ++ show v ++ "[" ++ show i ++ "]")
     emit (Select i o (r a))

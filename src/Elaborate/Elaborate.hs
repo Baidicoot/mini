@@ -194,8 +194,8 @@ collectTypes m (_:xs) = collectTypes m xs
 collectTypes _ [] = []
 
 collectTerms :: Module -> [Syn.TopLevel] -> [(Identifier,Identifier)]
-collectTerms m (Syn.Func (Syn.FunDef _ _ n _ _):xs) =
-    (LocalIdentifier n,ExternalIdentifier m n):collectTerms m xs
+collectTerms m (Syn.Group fs:xs) =
+    fmap (\(Syn.FunDef _ _ i _ _) -> (LocalIdentifier i,ExternalIdentifier m i)) fs ++ collectTerms m xs
 collectTerms m (Syn.Data (Syn.Ind _ _ ns):xs) =
     fmap (\(Syn.Expl a _) -> (LocalIdentifier a,ExternalIdentifier m a)) ns ++ collectTerms m xs
 collectTerms _ [] = []
@@ -212,14 +212,16 @@ genGADTs (Syn.Data (Syn.Ind n _ ns):xs) = do
 genGADTs (_:xs) = genGADTs xs
 genGADTs [] = pure []
 
-genFns :: [Syn.TopLevel] -> Elaborator [(Identifier,Core SourcePos)]
-genFns (Syn.Func d@(Syn.FunDef _ _ n _ _):xs) = do
+genFns :: [Syn.TopLevel] -> Elaborator [[(Identifier,Core SourcePos)]]
+genFns (Syn.Group ds:xs) = do
     m <- modul
-    let n' = ExternalIdentifier m n
-    e' <- elabFun d
+    grp <- forM ds $ \d@(Syn.FunDef _ _ n _ _) -> do
+        let n' = ExternalIdentifier m n
+        e' <- elabFun d
+        pure (n',e')
     xs' <- genFns xs
-    pure ((n',e'):xs')
-genFns (x:xs) = genFns xs
+    pure (grp:xs')
+genFns (_:xs) = genFns xs
 genFns [] = pure []
 
 collectCons :: Module -> [GADT] -> [(Identifier, Scheme)]
@@ -233,5 +235,5 @@ elabTL xs = do
     withTerms (collectTerms m xs) $ withTypes (collectTypes m xs) $ do
         gadts <- genGADTs xs
         fns <- withSchemes (collectCons m gadts) $ genFns xs
-        let exp = Node t $ Fix fns (Node t . Val $ Lit Unit)
+        let exp = foldr (\g -> Node t . Fix g) (Node t . Val $ Lit Unit) fns
         pure (exp, gadts)
