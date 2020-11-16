@@ -1,14 +1,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE LambdaCase #-}
 module Types.CPS where
 
 import Types.Ident
-import Types.Type
 import Types.Prim
 import Types.Pretty
 
 import Data.List (intercalate)
-import Data.Maybe (maybeToList, catMaybes)
+import Data.Maybe (maybeToList, mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
@@ -17,10 +15,10 @@ data CFun
     deriving(Eq)
 
 instance Show CFun where
-    show (Fun n args exp) = show n ++ concatMap (\arg -> ' ':arg) args ++ " = " ++ show exp
+    show (Fun n args exp) = show n ++ concatMap (' ':) args ++ " = " ++ show exp
 
 data AccessPath
-    = OffPath Int
+    = NoPath
     | SelPath Int AccessPath
     deriving(Eq)
 
@@ -36,9 +34,8 @@ data CExp
     deriving(Eq)
 
 valueToName :: Value -> Maybe Name
-valueToName = (\case
-    Var (LocalIdentifier id) -> Just id
-    _ -> Nothing)
+valueToName (Var (LocalIdentifier id)) = Just id
+valueToName _ = Nothing
 
 extractNames :: [Value] -> [Name]
 extractNames (Var (LocalIdentifier n):ns) = n:extractNames ns
@@ -51,17 +48,18 @@ extractIdents (_:xs) = extractIdents xs
 extractIdents [] = []
 
 fv :: CExp -> Set.Set Name
-fv (App n vs) = Set.fromList . catMaybes . fmap valueToName $ (n:vs)
+fv (App n vs) = Set.fromList . mapMaybe valueToName $ (n:vs)
 fv (Fix fns exp) = flip Set.difference (Set.fromList . extractLocals . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
-fv (Record vs n exp) = Set.delete n $ (fv exp) `Set.union` (Set.fromList . catMaybes . fmap (valueToName . fst) $ vs)
+fv (Record vs n exp) = Set.delete n $ fv exp `Set.union` (Set.fromList . mapMaybe (valueToName . fst) $ vs)
 fv (Select _ v n exp) = Set.delete n $ Set.fromList (maybeToList (valueToName v)) `Set.union` fv exp
 fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` (Set.fromList . maybeToList . valueToName $ v)
-fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . catMaybes . fmap valueToName $ args)
+fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . mapMaybe valueToName $ args)
 fv _ = mempty
 
 type VarDepth = Map.Map Name Int
 
-valuesToDepth = Map.fromList . fmap (\x -> (x, 0)) . catMaybes . fmap valueToName
+valuesToDepth :: [Value] -> Map.Map Name Int
+valuesToDepth = Map.fromList . fmap (\x -> (x, 0)) . mapMaybe valueToName
 
 getVarDepth :: CExp -> VarDepth
 getVarDepth (App n vs) = valuesToDepth (n:vs)
@@ -92,8 +90,7 @@ instance Show CExp where
     show (Error s) = "error '" ++ s ++ "'"
 
 instance Show AccessPath where
-    show (OffPath 0) = ""
-    show (OffPath x) = "[" ++ show x ++ "]"
+    show NoPath = ""
     show (SelPath x y) = show y ++ "[" ++ show x ++ "]"
 
 instance Pretty CFun Int where

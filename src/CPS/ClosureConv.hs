@@ -168,7 +168,7 @@ withCls f c = do
         fc <- fresh
         ffv <- mapM name =<< extraVars f
         exp <- local (\(a,b,c,d,e) -> (a,b,c,Map.insert f fc d,e)) c
-        pure $ Record (fmap (\f -> (Var $ LocalIdentifier f, OffPath 0)) (fs:ffv)) fc exp
+        pure $ Record (fmap (\f -> (Var $ LocalIdentifier f, NoPath)) (fs:ffv)) fc exp
     else
         c
 

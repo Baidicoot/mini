@@ -96,10 +96,10 @@ convertNode (Core.Let n def e) c = do
     pure $ Fix [Fun j [n] ce] cd
 convertNode (Core.Cons id args) c = do
     i <- index id
-    let cont = fmap (flip (,) (OffPath 0)) args
+    let cont = fmap (flip (,) NoPath) args
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
-    pure $ Record ((Lit (Int i), OffPath 0):cont) x convC
+    pure $ Record ((Lit (Int i), NoPath):cont) x convC
 convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
     t <- fresh
     ncases <- cases i

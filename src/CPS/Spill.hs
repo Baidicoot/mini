@@ -110,7 +110,7 @@ spillExp r u d sc sv e = do
         sv' <- fresh
         let d'' = (u `Set.union` d') `Set.intersection` vbefore
         let sc' = Set.toList vbefore
-        let ps = fmap (\n -> (Var $ LocalIdentifier n,OffPath $ indexOf n sc)) sc'
+        let ps = fmap (\n -> (Var $ LocalIdentifier n,SelPath (indexOf n sc) NoPath)) sc'
         e' <- spillExp mempty mempty d'' sc' (Just sv') e
         pure $ Record ps sv' e'
     else do
@@ -165,7 +165,7 @@ overflowArgs (App f args) = do
         c <- fresh
         let args' = take (n-1) args ++ [Var $ LocalIdentifier c]
         let incls = drop (n-1) args
-        pure $ Record (fmap (second OffPath) (zip incls [0..])) c (App f args')
+        pure $ Record (fmap (second (`SelPath` NoPath)) (zip incls [0..])) c (App f args')
 overflowArgs (Record a b exp) = do
     exp' <- overflowArgs exp
     pure $ Record a b exp'
