@@ -214,6 +214,8 @@ getOp (Var (LocalIdentifier v)) = do
         case reg of
             Just a -> pure (Reg (r a))
             Nothing -> error ("variable " ++ v ++ " unknown")
+getOp (Var i) = pure (ImmLabel i)
+getOp (Label i) = pure (ImmLabel i)
 
 fill :: [(Operand, GPR)] -> AbstGen ()
 fill = mapM_ (\(a,b) -> emit (Move (r b) a))
@@ -296,6 +298,10 @@ call val@(Var (LocalIdentifier v)) args = do
     emit (Comment (v ++ concatMap (\v -> ' ':show v) args))
     emit (Jmp callOp)
 call (Var v) args = do
+    let rmap = zip args [1..]
+    doMoves rmap
+    emit (Jmp (ImmLabel v))
+call (Label v) args = do
     let rmap = zip args [1..]
     doMoves rmap
     emit (Jmp (ImmLabel v))

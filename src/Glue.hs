@@ -37,8 +37,8 @@ handleEither :: Either a b -> (a -> Repl b) -> Repl b
 handleEither (Right b) f = pure b
 handleEither (Left a) f = f a
 
-compileStr :: Config -> String -> Repl ModuleExports
-compileStr config s = do
+compileStr :: Config -> Env -> String -> Repl ModuleExports
+compileStr config env s = do
     let modulePath = ["Repl"]
     let exports = mempty {moduleMod = modulePath}
     a <- case parse (many rpncc) "Repl" s of
@@ -47,17 +47,17 @@ compileStr config s = do
     b <- toplevelexpr a
         `handleEither`
         (throwError . fmap (render s))
-    (c,constructors,s0,w) <- toEither (elaborate 0 modulePath mempty b)
+    (c,constructors,s0,w) <- toEither (elaborate 0 modulePath env b)
         `handleEither`
         (\(as,bs) -> throwError $ fmap (render s) as ++ fmap (render s) bs)
     let exports' = exports `mappend` constructors
-    (d,functions,s1) <- toEither (typecheck s0 (importWithAction include exports') c)
+    (d,functions,s1) <- toEither (typecheck s0 (importWithAction include exports' `mappend` env) c)
         `handleEither`
         (throwError . fmap (render s))
     liftIO $ prettyPrint c (0::Int)
     liftIO $ prettyPrint d (0::Int)
     let exports'' = exports' `mappend` functions
-    let (e, s2) = cpsify (importWithAction include exports'') (untagCore d) s1
+    let (e, (s2,_)) = cpsify (importWithAction include exports'') (untagCore d) s1
     liftIO $ putStrLn "\n\nCPS Converted:"
     liftIO $ prettyPrint e (0::Int)
     let (f,s3) = closureConvert e s2

@@ -20,20 +20,41 @@ import Data.List (partition)
 
 import qualified Data.Map as Map
 
-type CPSState = Int
+type CPSState = (Int, [Identifier])
 type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int)
 
 mkCPSEnv :: Env -> CPSEnv
 mkCPSEnv env =
-    let cons = fmap (\(i,_,_) -> i) $ consInfo env
-        gadts = fmap (\(GADT _ ls) -> length ls) $ indInfo env
+    let cons = (\(i,_,_) -> i) <$> consInfo env
+        gadts = (\(GADT _ ls) -> length ls) <$> indInfo env
     in (cons, gadts)
 
 fresh :: CPSifier Name
 fresh = do
-    n <- get
-    put (n+1)
+    (n,known) <- get
+    put (n+1,known)
     pure ('v':show n)
+
+func :: CPSifier Name
+func = do
+    (n,known) <- get
+    put (n+1,LocalIdentifier ('f':show n):known)
+    pure ('f':show n)
+
+fixdefs :: [Identifier] -> CPSifier ()
+fixdefs ids = modify (second (ids++))
+
+cont :: CPSifier Name
+cont = do
+    (n,known) <- get
+    put (n+1,LocalIdentifier ('k':show n):known)
+    pure ('k':show n)
+
+convCallVal :: Value -> CPSifier Value
+convCallVal (Var i) = do
+    (_,known) <- get
+    pure (if i `elem` known then Label i else Var i)
+convCallVal x = pure x
 
 index :: Identifier -> CPSifier Int
 index id = do
@@ -49,12 +70,6 @@ cases id = do
         Just x -> pure x
         Nothing -> error $ "catastrophic failure, leaking launch codes..."
 
-cont :: CPSifier Name
-cont = do
-    n <- get
-    put (n+1)
-    pure ('k':show n)
-
 contNames :: [Name]
 contNames = fmap (("k"++) . show) [0..]
 
@@ -64,21 +79,22 @@ cpsNames = fmap (("c"++) . show) [0..]
 type CPSifier = StateT CPSState (Reader CPSEnv)
 
 runCPSify :: Int -> CPSEnv -> CPSifier a -> (a, CPSState)
-runCPSify ns e a = runReader (runStateT a ns) e
+runCPSify ns e a = runReader (runStateT a (ns,[])) e
 
 cpsify :: Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
 cpsify env exp i = runCPSify i (mkCPSEnv env) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (Core.Error s) c = pure (Error s)
-convertNode (Core.Val v) c = c v
+convertNode (Core.Val v) c = convCallVal v >>= c
 convertNode (Core.Lam v e) c = do
-    f <- fresh
+    f <- func
     k <- cont
     bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier k)) [z])
-    convC <- c (Var (LocalIdentifier f))
+    convC <- c (Label (LocalIdentifier f))
     pure $ Fix [Fun (LocalIdentifier f) [v, k] bigF] convC
 convertNode (Core.Fix defs e) c = do
+    fixdefs (fmap fst defs) -- unique binding means that this can be a *permanent* change
     bigF <- convert e c
     bigG <- g defs
     pure $ Fix bigG bigF
@@ -92,7 +108,7 @@ convertNode (Core.Fix defs e) c = do
 convertNode (Core.Let n def e) c = do
     j <- fmap LocalIdentifier cont
     ce <- convert e c
-    cd <- convert def (\z -> pure $ App (Var j) [z])
+    cd <- convert def (\z -> pure $ App (Label j) [z])
     pure $ Fix [Fun j [n] ce] cd
 convertNode (Core.Cons id args) c = do
     i <- index id
@@ -164,7 +180,7 @@ convert :: Core.Core NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convert (Graph.App _ f e) c = do
     r <- cont
     x <- fresh
-    bigF <- convert f (\f -> convert e (\e -> pure $ App f [e, Var (LocalIdentifier r)]))
+    bigF <- convert f (\f -> convert e (\e -> (\f -> App f [e, Label (LocalIdentifier r)]) <$> convCallVal f))
     convC <- c (Var (LocalIdentifier x))
     pure $ Fix [Fun (LocalIdentifier r) [x] convC] bigF
 convert (Graph.Node _ n) c = convertNode n c

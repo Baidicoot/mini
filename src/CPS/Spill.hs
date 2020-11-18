@@ -58,7 +58,7 @@ namesFromVals s = (`Set.difference` s) . Set.fromList . extractNames
 
 -- need to distinguish between labels and arguments
 argsRoot :: CExp -> Set.Set Name -> Set.Set Name
-argsRoot (App v vs) s = namesFromVals s (v:vs)
+argsRoot (App (Var i) vs) s = namesFromVals s (Var i:vs)
 argsRoot (Record ps _ _) s = namesFromVals s (fmap fst ps)
 argsRoot (Select _ v _ _) s = namesFromVals s [v]
 argsRoot (Switch v _) s = namesFromVals s [v]

@@ -200,29 +200,23 @@ splitFn f args extra = do
     c <- fresh
     args' <- mapM (const fresh) args
     extra' <- mapM (const fresh) extra
-    let call = App (Var $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args' ++ extra')
+    let call = App (Label $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args' ++ extra')
     let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) n) call (zip [1..] extra')
     pure (Fun (LocalIdentifier fs) (args' ++ [c]) body)
 
 convertExp :: CExp -> ClosureConv CExp
 -- local call
-convertExp (App v@(Var (LocalIdentifier f)) args) = do
-    fknown <- known f
-    if fknown then do
-        extra <- extraVars f
-        argCls (args ++ fmap (Var . LocalIdentifier) extra) $ do
-            extra'  <- mapM (arg . Var . LocalIdentifier) extra
-            args'   <- mapM arg args
-            pure (App (Var (LocalIdentifier f)) (args' ++ extra'))
-    else argCls args $ do
+convertExp (App (Label (LocalIdentifier i)) args) = do
+    extra <- extraVars i
+    argCls (args ++ fmap (Var . LocalIdentifier) extra) $ do
+        extra'  <- mapM (arg . Var . LocalIdentifier) extra
+        args'   <- mapM arg args
+        pure (App (Label $ LocalIdentifier i) (args' ++ extra'))
+convertExp (App v args) = argCls args $ do
         vp <- fnPtr v
         vc <- value v
         args' <- mapM arg args
         pure (App vp (args' ++ [vc]))
--- top-level call
-convertExp (App v@(Var _) args) = argCls args $ do
-    args' <- mapM arg args
-    pure (App v args')
 convertExp (Fix fns exp) = do
     fns' <- mapM (\case
         Fun i@(LocalIdentifier f) args exp -> enterFunction i $ do

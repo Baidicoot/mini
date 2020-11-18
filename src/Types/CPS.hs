@@ -42,37 +42,24 @@ extractNames (Var (LocalIdentifier n):ns) = n:extractNames ns
 extractNames (_:xs) = extractNames xs
 extractNames [] = []
 
+extractExterns :: [Value] -> [Identifier]
+extractExterns (Var (LocalIdentifier _):ns) = extractExterns ns
+extractExterns (Var i:ns) = i:extractExterns ns
+extractExterns [] = []
+
 extractIdents :: [Value] -> [Identifier]
 extractIdents (Var id:ns) = id:extractIdents ns
 extractIdents (_:xs) = extractIdents xs
 extractIdents [] = []
 
 fv :: CExp -> Set.Set Name
-fv (App n vs) = Set.fromList . mapMaybe valueToName $ (n:vs)
+fv (App i vs) = Set.fromList (extractNames $ i:vs)
 fv (Fix fns exp) = flip Set.difference (Set.fromList . extractLocals . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
 fv (Record vs n exp) = Set.delete n $ fv exp `Set.union` (Set.fromList . mapMaybe (valueToName . fst) $ vs)
 fv (Select _ v n exp) = Set.delete n $ Set.fromList (maybeToList (valueToName v)) `Set.union` fv exp
 fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` (Set.fromList . maybeToList . valueToName $ v)
 fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . mapMaybe valueToName $ args)
 fv _ = mempty
-
-type VarDepth = Map.Map Name Int
-
-valuesToDepth :: [Value] -> Map.Map Name Int
-valuesToDepth = Map.fromList . fmap (\x -> (x, 0)) . mapMaybe valueToName
-
-getVarDepth :: CExp -> VarDepth
-getVarDepth (App n vs) = valuesToDepth (n:vs)
-getVarDepth (Record vs n exp) = fmap (+1) . Map.delete n $ getVarDepth exp
-getVarDepth (Select _ v n exp) = Map.union (valuesToDepth [v]) . fmap (+1) $ getVarDepth exp
-getVarDepth (Switch v exps) = Map.union (valuesToDepth [v]) . fmap (+1) . mconcat $ fmap getVarDepth exps
-getVarDepth (Primop _ args n exps) = Map.union (valuesToDepth args) . fmap (+1) . Map.delete n . mconcat $ fmap getVarDepth exps
-getVarDepth _ = Map.empty
-
-type VarInfo = (Set.Set Name, VarDepth)
-
-getVarInfo :: CExp -> VarInfo
-getVarInfo exp = (fv exp, getVarDepth exp)
 
 isLet :: CExp -> Bool
 isLet (Select _ _ _ _) = True

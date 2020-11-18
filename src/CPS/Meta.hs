@@ -34,13 +34,13 @@ mergeFunctionMeta (FunctionMeta a c e g i k) (FunctionMeta b d f h j l) =
 
 binds :: [Name] -> FunctionMeta -> FunctionMeta
 binds vars f = f
-    { free = free f `Set.difference` (Set.fromList vars)
+    { free = free f `Set.difference` Set.fromList vars
     , knownCalls = Set.filter (not . (`elem` vars)) (knownCalls f)
-    , bound = bound f `Set.union` (Set.fromList vars)
+    , bound = bound f `Set.union` Set.fromList vars
     }
 
 uses :: [Name] -> FunctionMeta -> FunctionMeta
-uses vars f = f {free = free f `Set.union` (Set.fromList vars)}
+uses vars f = f {free = free f `Set.union` Set.fromList vars}
 
 escapes :: [Identifier] -> FunctionMeta -> FunctionMeta
 escapes vars f = f {escaping = escaping f `Set.union` (Set.fromList vars)}
