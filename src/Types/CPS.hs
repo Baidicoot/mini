@@ -33,32 +33,35 @@ data CExp
     | Primop Primop [Value] Name [CExp]
     deriving(Eq)
 
-valueToName :: Value -> Maybe Name
-valueToName (Var (LocalIdentifier id)) = Just id
-valueToName _ = Nothing
-
+{-
 extractNames :: [Value] -> [Name]
 extractNames (Var (LocalIdentifier n):ns) = n:extractNames ns
 extractNames (_:xs) = extractNames xs
 extractNames [] = []
-
+-}
+{-
 extractExterns :: [Value] -> [Identifier]
 extractExterns (Var (LocalIdentifier _):ns) = extractExterns ns
 extractExterns (Var i:ns) = i:extractExterns ns
 extractExterns [] = []
-
+-}
 extractIdents :: [Value] -> [Identifier]
 extractIdents (Var id:ns) = id:extractIdents ns
 extractIdents (_:xs) = extractIdents xs
 extractIdents [] = []
 
-fv :: CExp -> Set.Set Name
-fv (App i vs) = Set.fromList (extractNames $ i:vs)
-fv (Fix fns exp) = flip Set.difference (Set.fromList . extractLocals . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
-fv (Record vs n exp) = Set.delete n $ fv exp `Set.union` (Set.fromList . mapMaybe (valueToName . fst) $ vs)
-fv (Select _ v n exp) = Set.delete n $ Set.fromList (maybeToList (valueToName v)) `Set.union` fv exp
-fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` (Set.fromList . maybeToList . valueToName $ v)
-fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` (Set.fromList . mapMaybe valueToName $ args)
+extractLabels :: [Value] -> [Identifier]
+extractLabels (Label id:ns) = id:extractIdents ns
+extractLabels (_:xs) = extractIdents xs
+extractLabels [] = []
+
+fv :: CExp -> Set.Set Identifier
+fv (App i vs) = Set.fromList (extractIdents $ i:vs)
+fv (Fix fns exp) = flip Set.difference (Set.fromList . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList (fmap LocalIdentifier args)) fns
+fv (Record vs n exp) = Set.delete (LocalIdentifier n) $ fv exp `Set.union` (Set.fromList . extractIdents $ fmap fst vs)
+fv (Select _ v n exp) = Set.delete (LocalIdentifier n) $ Set.fromList (extractIdents [v]) `Set.union` fv exp
+fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents [v])
+fv (Primop _ args n exps) = Set.delete (LocalIdentifier n) $ mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents args)
 fv _ = mempty
 
 isLet :: CExp -> Bool
@@ -110,7 +113,7 @@ getArg n (App _ vs) = Set.fromList . fmap fst . filter (\(i,v) -> v == Var (Loca
 getArg n (Record _ _ e) = getArg n e
 getArg n (Select _ _ _ e) = getArg n e
 getArg n (Switch _ es) = mconcat $ fmap (getArg n) es
-getArg n (Primop _ vs _ es) = (Set.fromList . fmap fst . filter (\(i,v) -> v == Var (LocalIdentifier n)) $ zip [0..] vs) `Set.union` (mconcat $ fmap (getArg n) es)
+getArg n (Primop _ vs _ es) = (Set.fromList . fmap fst . filter (\(i,v) -> v == Var (LocalIdentifier n))) (zip [0..] vs) `Set.union` mconcat (fmap (getArg n) es)
 getArg _ _ = mempty
 
 -- get whether the variable is called

@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module CPS.ClosureConv (closureConvert) where
+module CPS.ClosureConv where
 
 import Types.CPS
 import Types.Ident
@@ -23,41 +23,30 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 type ClosureEnv =
---  current function
-    ( Maybe Identifier
 --  function pointers
-    , Map.Map Name Name
+    ( Map.Map Identifier Value
 --  free variable renames
-    , Map.Map Name Name
+    , Map.Map Identifier Identifier
 --  current closures
-    , Map.Map Name Name
---      known functions
-    ,   ( Set.Set Identifier
+    , Map.Map Identifier Value
 --      escaping functions
-        , Set.Set Identifier
---      per-function data
-        , Map.Map Identifier FunctionMeta
---      closure data
-        , Map.Map Identifier FunctionClosure
+    ,   ( Set.Set Identifier
+--      captured variables
+        , Map.Map Identifier (Set.Set Identifier)
         )
     )
 
 type ClosureState =
---  fresh variable name
+--  fresh variable names
     ( Int
 --  split function names
-    , Map.Map Name Name
+    , Map.Map Identifier Identifier
     )
 
 type ClosureConv = ReaderT ClosureEnv (State ClosureState)
 
-closureConvert :: CExp -> Int -> (CExp,Int)
-closureConvert exp i
-    = (uncurry Fix . smash *** fst)
-    . flip runState (i, mempty)
-    . runReaderT (convertExp exp)
-    $ let fnMeta = collect exp in
-        (Nothing, mempty, mempty, mempty, (allKnown fnMeta, allEscaping fnMeta, fnMeta, reduce fnMeta))
+enterfn :: ClosureConv a -> ClosureConv a
+enterfn = local (\(a,b,c,d)->(mempty,mempty,mempty,d))
 
 fresh :: ClosureConv Name
 fresh = do
@@ -65,144 +54,101 @@ fresh = do
     put (n+1, s)
     pure ('c':show n)
 
-split :: Name -> ClosureConv Name
-split id = do
+split :: Identifier -> ClosureConv Identifier
+split i = do
     (_, splits) <- get
-    case Map.lookup id splits of
+    case Map.lookup i splits of
         Just n  -> pure n
         Nothing -> do
             f <- fresh
-            modify (\(a,b) -> (a,Map.insert id f b))
-            pure f
+            modify (second (Map.insert i (LocalIdentifier f)))
+            pure (LocalIdentifier f)
 
-currentData :: ClosureConv (Maybe FunctionMeta)
-currentData = do
-    (n, _, _, _, (_, _, d, _)) <- ask
-    pure (n >>= flip Map.lookup d)
+freeVars :: Identifier -> ClosureConv [Identifier]
+freeVars i = do
+    (_, _, _, (_, c)) <- ask
+    pure . Set.toList $ Map.findWithDefault mempty i c
 
-extraVars :: Name -> ClosureConv [Name]
-extraVars id = do
-    (_, _, _, _, (_, _, _, c)) <- ask
-    pure . (\(FunctionClosure s) -> Set.toList s) $ Map.findWithDefault (FunctionClosure mempty) (LocalIdentifier id) c
-
-known :: Name -> ClosureConv Bool
-known n = do
-    (_, _, _, _, (k, _, _, _)) <- ask
-    pure $ (LocalIdentifier n) `Set.member` k
-
-escapes :: Name -> ClosureConv Bool
-escapes f = do
-    (n, _, _, _, (_, _, d, _)) <- ask
-    case n of
-        Just n  -> case Map.lookup n d of
-            Just d  -> pure ((LocalIdentifier f) `Set.member` escaping d)
-            Nothing -> pure False
-        Nothing -> pure False
-
-isEscaping :: Identifier -> ClosureConv Bool
-isEscaping i = do
-    (_, _, _, _, (_, e, _, _)) <- ask
+escapingFn :: Identifier -> ClosureConv Bool
+escapingFn i = do
+    (_, _, _, (e, _)) <- ask
     pure (i `Set.member` e)
 
-called :: Name -> ClosureConv Bool
-called f = do
-    (n, _, _, _, (_, _, d, _)) <- ask
-    case n of
-        Just n  -> case Map.lookup n d of
-            Just d  -> pure (f `Set.member` unknownCalls d)
-            Nothing -> pure False
-        Nothing -> pure False
-
-name :: Name -> ClosureConv Name
-name n = do
-    (_, _, r, _, _) <- ask
-    case Map.lookup n r of
+renaming :: Identifier -> ClosureConv Identifier
+renaming i = do
+    (_, r, _, _) <- ask
+    case Map.lookup i r of
         Just x  -> pure x
-        Nothing -> pure n
+        Nothing -> pure i
 
 value :: Value -> ClosureConv Value
-value v@(Var (LocalIdentifier n)) = do
-    (_, _, r, _, _) <- ask
-    case Map.lookup n r of
-        Just x  -> pure . Var $ LocalIdentifier x
-        Nothing -> pure v
+value (Var i) = do
+    i' <- renaming i
+    pure (Var i')
 value v = pure v
 
-fnPtr :: Value -> ClosureConv Value
-fnPtr v@(Var (LocalIdentifier n)) = do
-    (_, f, _, _, _) <- ask
-    case Map.lookup n f of
-        Just x  -> pure . Var $ LocalIdentifier x
-        Nothing -> pure v
-fnPtr v = pure v
+fnPtr :: Identifier -> ClosureConv (Maybe Value)
+fnPtr i = do
+    (f, _, _, _) <- ask
+    pure (Map.lookup i f)
 
-hasCls :: Name -> ClosureConv Bool
-hasCls n = do
-    (_, _, _, c, _) <- ask
-    pure (n `Map.member` c)
-
-closure :: Value -> ClosureConv Value
-closure v@(Var (LocalIdentifier n)) = do
-    (_, _, _, c, _) <- ask
-    case Map.lookup n c of
-        Just x  -> pure . Var $ LocalIdentifier x
+fnCls :: Value -> ClosureConv Value
+fnCls v@(Label i) = do
+    (_, _, c, _) <- ask
+    case Map.lookup i c of
+        Just v' -> pure v'
         Nothing -> pure v
-closure v = pure v
+fnCls v = pure v
 
 arg :: Value -> ClosureConv Value
-arg = closure >=> value
+arg = fnCls >=> value
 
-withPtr :: Name -> ClosureConv CExp -> ClosureConv CExp
-withPtr f c = do
+extractPtr :: Identifier -> ClosureConv CExp -> ClosureConv CExp
+extractPtr i c = do
     fp <- fresh
-    f' <- name f
-    exp <- local (\(a,b,c,d,e) -> (a,Map.insert f fp b,c,d,e)) c
-    pure $ Select 0 (Var $ LocalIdentifier f') fp exp
+    i' <- renaming i
+    Select 0 (Var i') fp <$> local (\(a,b,c,d) -> (Map.insert i' (Var $ LocalIdentifier fp) a,b,c,d)) c
 
-withCls :: Name -> ClosureConv CExp -> ClosureConv CExp
-withCls f c = do
-    fknown <- known f
-    fcls <- hasCls f
-    if fknown && not fcls then do
-        fs <- split f
-        fc <- fresh
-        ffv <- mapM name =<< extraVars f
-        exp <- local (\(a,b,c,d,e) -> (a,b,c,Map.insert f fc d,e)) c
-        pure $ Record (fmap (\f -> (Var $ LocalIdentifier f, NoPath)) (fs:ffv)) fc exp
-    else
-        c
+makeCls :: Identifier -> ClosureConv CExp -> ClosureConv CExp
+makeCls i c = do
+    is <- split i
+    icls <- fresh
+    ffv <- mapM renaming =<< extraVars i
+    Record (fmap (\f -> (Var f, NoPath)) (is:ffv)) icls <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
 
-argCls :: [Value] -> ClosureConv CExp -> ClosureConv CExp
-argCls vs c = do
-    ns <- filterM escapes (extractNames vs)
-    foldr (\a -> (. withCls a)) id ns c
-
-rename :: Name -> Name -> ClosureConv CExp -> ClosureConv CExp
-rename x y = local (\(a,b,c,d,e) -> (a,b,Map.insert x y c,d,e))
-
-freshen :: Name -> ClosureConv CExp -> ClosureConv CExp
-freshen n c = do
-    n' <- fresh
-    rename n n' c
-
-extractPtrs :: [Name] -> ClosureConv CExp -> ClosureConv CExp
-extractPtrs ns c = do
-    ns <- filterM called ns
-    foldr (\a -> (. withPtr a)) id ns c
-
-enterFunction :: Identifier -> ClosureConv a -> ClosureConv a
-enterFunction id = local (\(_,_,_,_,meta) -> (Just id,mempty,mempty,mempty,meta))
+rename :: Identifier -> Identifier -> ClosureConv CExp -> ClosureConv CExp
+rename x y = local (\(a,b,c,d) -> (a,Map.insert x y b,c,d))
 
 -- split an escaping (known) function f with directly passed arguments args and closure-passed arguments extra
-splitFn :: Name -> [Name] -> [Name] -> ClosureConv CFun
-splitFn f args extra = do
+splitFn :: Identifier -> Int -> Int -> ClosureConv CFun
+splitFn f nargs nextra = do
     fs <- split f
     c <- fresh
-    args' <- mapM (const fresh) args
-    extra' <- mapM (const fresh) extra
-    let call = App (Label $ LocalIdentifier f) (fmap (Var . LocalIdentifier) $ args' ++ extra')
-    let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) n) call (zip [1..] extra')
-    pure (Fun (LocalIdentifier fs) (args' ++ [c]) body)
+    args <- replicateM nargs fresh
+    extra <- replicateM nextra fresh
+    let call = App (Label f) (fmap (Var . LocalIdentifier) $ args ++ extra)
+    let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) n) call (zip [1..] extra)
+    pure (Fun fs (args ++ [c]) body)
+
+convertExp :: CExp -> ClosureConv CExp
+convertExp (App (Label k) args) = do
+    extra <- freeVars i -- none of the extra variables are labels, so none need closures
+    flip (foldr makeCls args) $ do
+        extra <- fmap (Var . LocalIdentifier) . mapM renaming =<< freeVars i
+        args' <- mapM arg args
+        pure (App (Label k) (args' ++ extra))
+convertExp (App (Var u) args) = flip (foldr makeCls args) $ do
+    vp <- fnPtr u
+    vc <- value (Var u)
+    args' <- mapM arg args
+    pure (App vp (args' ++ [vc]))
+convertExp (Fix fns e) = do
+    fns' <- mapM (\(Fun i args e) -> enterfn $ do
+        extra <- mapM (\n -> do
+                n' <- fresh
+                pure (n, n')) =<< freeVars f
+        let renamings = foldr (\(n,n') -> (. rename (LocalIdentifier n) (LocalIdentifier n'))) id extra
+        let extracts = foldr -- forall ptrs, extract)
 
 convertExp :: CExp -> ClosureConv CExp
 -- local call
