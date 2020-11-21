@@ -10,18 +10,16 @@ import Control.Arrow
 import Control.Monad.State
 import Control.Monad.Reader
 
-type Spill = StateT Int (Reader (Int,Set.Set Name))
+type Spill = StateT Int (Reader Int)
 
-runSpill :: (Int,Set.Set Name) -> Int -> Spill a -> (a, Int)
+runSpill :: Int -> Int -> Spill a -> (a, Int)
 runSpill n s p = flip runReader n $ runStateT p s
 
 knownFns :: CExp -> Set.Set Name
 knownFns (Fix fs _) = Set.fromList . extractLocals $ fmap (\(Fun i _ _) -> i) fs
 
 spill :: Int -> Int -> CExp -> (CExp, Int)
-spill n s e =
-    let env = (n,knownFns e)
-    in runSpill env s $ do
+spill n s e = runSpill n s $ do
         e' <- overflowArgs e
         spillFix e'
 
@@ -30,22 +28,22 @@ indexOf a (a':as)
     | a == a' = 0
     | otherwise = indexOf a as + 1
 
-maybeToSet :: Maybe a -> Set.Set a
-maybeToSet (Just a) = Set.singleton a
-maybeToSet _ = Set.empty
-
 fresh :: Spill Name
 fresh = do
     n <- get
     put (n+1)
     pure ('s':show n)
 
-renameVal :: Name -> Name -> Value -> Value
-renameVal v v' (Var (LocalIdentifier n))
-    | n == v = Var $ LocalIdentifier v'
+maybeToSet :: Maybe a -> Set.Set a
+maybeToSet (Just a) = Set.singleton a
+maybeToSet Nothing = Set.empty
+
+renameVal :: Identifier -> Identifier -> Value -> Value
+renameVal v v' (Var n)
+    | n == v = Var v'
 renameVal _ _ x = x
 
-rename :: Name -> Name -> CExp -> CExp
+rename :: Identifier -> Identifier -> CExp -> CExp
 rename n n' (App v vs) = App (renameVal n n' v) (fmap (renameVal n n') vs)
 rename n n' (Record ps r e) = Record (fmap (first $ renameVal n n') ps) r (rename n n' e)
 rename n n' (Select i v s e) = Select i (renameVal n n' v) s (rename n n' e)
@@ -53,22 +51,18 @@ rename n n' (Switch v es) = Switch (renameVal n n' v) (fmap (rename n n') es)
 rename n n' (Primop o vs p es) = Primop o (fmap (renameVal n n') vs) p (fmap (rename n n') es)
 rename _ _ x = x
 
-namesFromVals :: Set.Set Name -> [Value] -> Set.Set Name
-namesFromVals s = (`Set.difference` s) . Set.fromList . extractNames
+argsRoot :: CExp -> Set.Set Identifier
+argsRoot (App v vs) = Set.fromList $ extractIdents (v:vs)
+argsRoot (Record ps _ _) = Set.fromList $ extractIdents (fmap fst ps)
+argsRoot (Select _ v _ _) = Set.fromList $ extractIdents [v]
+argsRoot (Switch v _) = Set.fromList $ extractIdents [v]
+argsRoot (Primop _ vs _ _) = Set.fromList $ extractIdents vs
+argsRoot _ = mempty
 
--- need to distinguish between labels and arguments
-argsRoot :: CExp -> Set.Set Name -> Set.Set Name
-argsRoot (App (Var i) vs) s = namesFromVals s (Var i:vs)
-argsRoot (Record ps _ _) s = namesFromVals s (fmap fst ps)
-argsRoot (Select _ v _ _) s = namesFromVals s [v]
-argsRoot (Switch v _) s = namesFromVals s [v]
-argsRoot (Primop _ vs _ _) s = namesFromVals s vs
-argsRoot _ _ = mempty
-
-boundRoot :: CExp -> Set.Set Name
-boundRoot (Select _ _ n _) = Set.singleton n
-boundRoot (Primop _ _ n _) = Set.singleton n
-boundRoot (Record _ n _) = Set.singleton n
+boundRoot :: CExp -> Set.Set Identifier
+boundRoot (Select _ _ n _) = Set.singleton (LocalIdentifier n)
+boundRoot (Primop _ _ n _) = Set.singleton (LocalIdentifier n)
+boundRoot (Record _ n _) = Set.singleton (LocalIdentifier n)
 boundRoot _ = mempty
 
 contRoot :: CExp -> [CExp]
@@ -85,22 +79,22 @@ root (Switch a _) cs = Switch a cs
 root (Primop a b c _) cs = Primop a b c cs
 root x _ = x
 
-cull :: Set.Set Name -> Int -> Set.Set Name
+cull :: Set.Set Identifier -> Int -> Set.Set Identifier
 cull s i
     | i <= 0 = mempty
     | Set.size s > i = cull (Set.deleteMax s) (i-1)
     | otherwise = s
 
-spillExp :: Set.Set Name -> Set.Set Name -> Set.Set Name -> [Name] -> Maybe Name -> CExp -> Spill CExp
+spillExp :: Set.Set Identifier -> Set.Set Identifier -> Set.Set Identifier -> [Identifier] -> Maybe Identifier -> CExp -> Spill CExp
 spillExp r u d sc sv e = do
-    (n,k) <- ask
-    let a = argsRoot e k
+    n <- ask
+    let a = argsRoot e
     let w = boundRoot e
     let c = contRoot e
     let vbefore = fv e
     let vafter = mconcat (fmap fv c)
     let sbefore = maybeToSet sv
-    let safterv = if null c then mempty else sv
+    let safterv = if null c then Nothing else sv
     let safterc = if null c then mempty else sc
     let ndup = n - Set.size sbefore - Set.size ((u `Set.intersection` vbefore) `Set.union` r)
     let d' = cull (d `Set.intersection` vbefore) ndup
@@ -110,8 +104,8 @@ spillExp r u d sc sv e = do
         sv' <- fresh
         let d'' = (u `Set.union` d') `Set.intersection` vbefore
         let sc' = Set.toList vbefore
-        let ps = fmap (\n -> (Var $ LocalIdentifier n,SelPath (indexOf n sc) NoPath)) sc'
-        e' <- spillExp mempty mempty d'' sc' (Just sv') e
+        let ps = fmap (\i -> (Var i,SelPath (indexOf i sc) NoPath)) sc'
+        e' <- spillExp mempty mempty d'' sc' (Just $ LocalIdentifier sv') e
         pure $ Record ps sv' e'
     else do
         let f = a `Set.difference` (u `Set.intersection` d')
@@ -120,14 +114,14 @@ spillExp r u d sc sv e = do
                 let v = Set.findMin f
                 let i = indexOf v sc
                 v' <- fresh
-                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert v' d') safterc safterv (rename v v' e)
-                pure $ Select i (Var $ LocalIdentifier sv) v' e'
+                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert (LocalIdentifier v') d') safterc safterv (rename v (LocalIdentifier v') e)
+                pure $ Select i (Var sv) v' e'
             (_,Just sv) -> do
                 let v = Set.findMin f
                 let i = indexOf v sc
                 v' <- fresh
-                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert v' d') sc (Just sv) (rename v v' e)
-                pure $ Select i (Var $ LocalIdentifier sv) v' e'
+                e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert (LocalIdentifier v') d') sc (Just sv) (rename v (LocalIdentifier v') e)
+                pure $ Select i (Var sv) v' e'
             (_,_) -> do
                 c' <- mapM (spillExp w (u `Set.intersection` vafter) d' safterc safterv) c
                 pure $ root e c'
@@ -135,14 +129,14 @@ spillExp r u d sc sv e = do
 spillFix :: CExp -> Spill CExp
 spillFix (Fix defs e)  = do
     defs' <- mapM (\(Fun i args e) -> do
-        e' <- spillExp mempty (Set.fromList args) mempty [] Nothing e
+        e' <- spillExp mempty (Set.fromList (fmap LocalIdentifier args)) mempty [] Nothing e
         pure $ Fun i args e') defs
     Fix defs' <$> spillExp mempty mempty mempty [] Nothing e
 
 overflowArgsFn :: CFun -> Spill CFun
 overflowArgsFn (Fun id args exp) = do
     exp' <- overflowArgs exp
-    (n,_) <- ask
+    n <- ask
     if n >= length args then
         pure $ Fun id args exp'
     else do
@@ -158,7 +152,7 @@ overflowArgs (Fix defs exp) = do
     exp' <- overflowArgs exp
     pure $ Fix defs' exp'
 overflowArgs (App f args) = do
-    (n,_) <- ask
+    n <- ask
     if n >= length args then
         pure $ App f args
     else do

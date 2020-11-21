@@ -113,7 +113,7 @@ makeCls :: Identifier -> ClosureConv CExp -> ClosureConv CExp
 makeCls i c = do
     is <- split i
     icls <- fresh
-    ffv <- mapM renaming =<< extraVars i
+    ffv <- mapM renaming =<< freeVars i
     Record (fmap (\f -> (Var f, NoPath)) (is:ffv)) icls <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
 
 rename :: Identifier -> Identifier -> ClosureConv CExp -> ClosureConv CExp
@@ -131,25 +131,56 @@ splitFn f nargs nextra = do
     pure (Fun fs (args ++ [c]) body)
 
 convertExp :: CExp -> ClosureConv CExp
-convertExp (App (Label k) args) = do
-    extra <- freeVars i -- none of the extra variables are labels, so none need closures
-    flip (foldr makeCls args) $ do
-        extra <- fmap (Var . LocalIdentifier) . mapM renaming =<< freeVars i
+convertExp (App (Label k) args) = flip (foldr makeCls) (extractIdents args) $ do
+        extra <- fmap (fmap Var) . mapM renaming =<< freeVars k
         args' <- mapM arg args
         pure (App (Label k) (args' ++ extra))
-convertExp (App (Var u) args) = flip (foldr makeCls args) $ do
-    vp <- fnPtr u
-    vc <- value (Var u)
+convertExp (App (Var u) args) = flip (foldr makeCls) (extractIdents args) $ do
     args' <- mapM arg args
-    pure (App vp (args' ++ [vc]))
+    vp <- fnPtr u
+    case vp of
+        Just vp -> do
+            vc <- value (Var u)
+            pure (App vp (args' ++ [vc]))
+        Nothing -> do
+            u' <- arg (Var u)
+            pure (App u' args')
 convertExp (Fix fns e) = do
     fns' <- mapM (\(Fun i args e) -> enterfn $ do
         extra <- mapM (\n -> do
-                n' <- fresh
-                pure (n, n')) =<< freeVars f
-        let renamings = foldr (\(n,n') -> (. rename (LocalIdentifier n) (LocalIdentifier n'))) id extra
-        let extracts = foldr -- forall ptrs, extract)
-
+            n' <- fresh
+            pure (n, n')) =<< freeVars i
+        newargs <- mapM (\n -> do
+            n' <- fresh
+            pure (LocalIdentifier n, n')) args
+        let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id (extra ++ newargs)
+        let extracts = foldr ((.) . extractPtr) id $ filter (calledIn e) (fmap fst extra ++ fmap LocalIdentifier args)
+        e' <- renamings . extracts $ convertExp e
+        pure (Fun i (fmap snd newargs ++ fmap snd extra) e')) fns
+    splits <- mapM (\(Fun i args _) -> splitFn i (length args) . length =<< freeVars i)
+        =<< filterM (\(Fun i _ _) -> escapingFn i) fns
+    e' <- convertExp e
+    pure (Fix (fns' ++ splits) e')
+convertExp (Record vs n e) = flip (foldr makeCls) (extractIdents $ fmap fst vs) $ do
+    vs' <- mapM (\(v,p) -> do
+        v' <- arg v
+        pure (v',p)) vs
+    e' <- convertExp e
+    pure (Record vs' n e')
+convertExp (Select i v n e) = do
+    v' <- value v
+    e' <- convertExp e
+    pure (Select i v' n e')
+convertExp (Switch v es) = do
+    v' <- value v
+    es' <- mapM convertExp es
+    pure (Switch v' es')
+convertExp (Primop op vs n es) = flip (foldr makeCls) (extractIdents vs) $ do
+    vs' <- mapM arg vs
+    es' <- mapM convertExp es
+    pure (Primop op vs' n es')
+convertExp x = pure x
+{-
 convertExp :: CExp -> ClosureConv CExp
 -- local call
 convertExp (App (Label (LocalIdentifier i)) args) = do
@@ -201,7 +232,7 @@ convertExp (Primop op vs n exps) = argCls vs $ do
     exps' <- mapM convertExp exps
     pure (Primop op vs' n exps')
 convertExp x = pure x
-
+-}
 smash :: CExp -> ([CFun], CExp)
 smash (Fix defs exp) =
     let defs' = concatMap (\(Fun id args exp) ->
