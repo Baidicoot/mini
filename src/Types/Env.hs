@@ -6,6 +6,7 @@ module Types.Env
     , Env(..)
     , importWithAction
     , include
+    , doImports
     ) where
 
 import Types.Ident
@@ -115,5 +116,8 @@ hide terms types (ModuleExports m a b c d e f) = ModuleExports m
 include :: ImportAction
 include = ImportAsHiding [] [] []
 
-importWithAction :: ImportAction -> ModuleExports -> Env
-importWithAction (ImportAsHiding m ns ts) me = importAs [] (hide ns ts me)
+importWithAction :: ModuleExports -> ImportAction -> Env
+importWithAction me (ImportAsHiding m ns ts) = importAs [] (hide ns ts me)
+
+doImports :: [(ModuleExports,ImportAction)] -> Env
+doImports = mconcat . fmap (uncurry importWithAction)

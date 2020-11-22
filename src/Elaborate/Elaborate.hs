@@ -26,9 +26,10 @@ import Data.List (intercalate)
 
 import qualified Data.Map as Map
 
-elaborate :: [(ModuleExports,ImportAction)] -> Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
-elaborate imports i m e tl =
-    let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
+elaborate :: [(ModuleExports,ImportAction)] -> Int -> Module -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
+elaborate imports i m tl =
+    let e = doImports imports
+        env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
         (res, s, w) = runElab (elabTL imports tl) env i
     in case res of
         Success (c, g) -> Success (c, g, s, w)
@@ -236,6 +237,18 @@ translateTL m ns [] = (Node (initialPos (intercalate "." m)) $ Syn.Tuple (fmap (
 collectCons :: Module -> [GADT] -> ([(Identifier,Identifier)],[(Identifier, Scheme)])
 collectCons m = mconcat . fmap (\(GADT _ ss) -> (fmap (\(i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,fmap (first (ExternalIdentifier m)) ss))
 
+elabImports :: Module -> [(ModuleExports,ImportAction)] -> Core SourcePos -> Elaborator (Core SourcePos)
+elabImports m xs e = do
+    let name = intercalate "." m
+    let pos = initialPos name
+    f <- fresh
+    imprts <- foldM (\a ((m,_),i) -> do
+            e <- fresh
+            let mod = Node pos . Let (LocalIdentifier f) (Node pos $ Select i (Var $ LocalIdentifier f))
+            let exprts = foldr (\(n,i) a -> a . Node pos . Let (ExternalIdentifier (moduleMod m) n) (Node pos $ Select i (Var $ LocalIdentifier e))) id (zip (termNames m) [0..])
+            pure (a . mod . exprts)) id (zip xs [0..])
+    pure . Node pos $ Fix [(ExternalIdentifier m "mod",Node pos $ Lam (LocalIdentifier f) (imprts e))] (Node pos . Val $ Lit Unit)
+
 elabTL :: [(ModuleExports,ImportAction)] -> [Syn.TopLevel] -> Elaborator (Core SourcePos, ModuleExports)
 elabTL imports tl = do
     m <- modul
@@ -245,7 +258,7 @@ elabTL imports tl = do
     withTypes indtys $ do
         gadts <- mapM genGADT inds
         let (terms, cons) = collectCons m gadts
-        expr' <- withTerms terms $ withCons cons (elabExpr expr)
+        expr' <- elabImports m imports =<< withTerms terms (withCons cons (elabExpr expr))
         pure (expr', mempty {moduleMod = m, termNames = exports} `mappend` includeGADTs gadts)
 
 {-

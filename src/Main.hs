@@ -19,7 +19,7 @@ main = void
             do {
                 env <- liftIO $ readIORef envref;
                 liftIO $ print env;
-                mod <- compileStr config env line;
+                mod <- compileStr config line;
                 forM_ (termTypes mod) $ \(n,s) -> liftIO . putStrLn $ "Defined " ++ n ++ " : " ++ show s;
-                liftIO $ modifyIORef' envref (`mappend` importWithAction include mod);
+                liftIO $ modifyIORef' envref (`mappend` importWithAction mod include);
             } `catchError` mapM_ (liftIO . putStrLn)

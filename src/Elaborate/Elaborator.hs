@@ -59,7 +59,7 @@ fresh :: Elaborator Name
 fresh = do
     n <- get
     put (n+1)
-    pure ('t':show n)
+    pure ('v':show n)
 
 fork :: Name -> Elaborator Name
 fork i = do
