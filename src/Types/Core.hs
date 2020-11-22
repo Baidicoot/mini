@@ -27,9 +27,9 @@ instance Show PatternBinding where
     show WildcardPattern = "_"
 
 data CoreNode tag
-    = Let Name (Core tag) (Core tag)
+    = Let Identifier (Core tag) (Core tag)
     | Fix [(Identifier, Core tag)] (Core tag)
-    | Lam Name (Core tag)
+    | Lam Identifier (Core tag)
     | Val Value
     | Match (Maybe Type, SourcePos) Name [(PatternBinding, tag, Core tag)]
     | Annot (Core tag) Type
@@ -69,13 +69,13 @@ aconv _ x = x
 -}
 
 instance Show (CoreNode tag) where
-    show (Let n ds ir) = "let " ++ n ++ " = " ++ show ds ++ " in\n" ++ show ir
+    show (Let n ds ir) = "let " ++ show n ++ " = " ++ show ds ++ " in\n" ++ show ir
     show (Fix ds ir) = "fix " ++ intercalate "\n    " (fmap (\(n, ir) -> show n ++ " = " ++ show ir) ds) ++ " in\n" ++ show ir
     show (Cons id args) = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
     show (Tuple exprs) = "{" ++ intercalate "," (fmap show exprs) ++ "}"
     show (Select i v) = '#':show i ++ "(" ++ show v ++ ")"
     show (Annot ir ty) = "(" ++ show ir ++ " :: " ++ show ty ++ ")"
-    show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
+    show (Lam n ir) = "(\\" ++ show n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
     show (Match (Nothing,_) ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
     show (Match (Just t,_) ir cases) = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
@@ -87,10 +87,10 @@ instance Show tag => Pretty (CoreNode tag) Int where
     showtag (Lam _ _) _ = True
     showtag _ _ = False
 
-    pretty (Let v ds ir) n = "\n" ++ replicate n ' ' ++ "let " ++ v ++ " = " ++ pretty ds (n+4) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
+    pretty (Let v ds ir) n = "\n" ++ replicate n ' ' ++ "let " ++ show v ++ " = " ++ pretty ds (n+4) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix ds ir) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> show v ++ " = " ++ pretty ir (n+8)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Annot ir ty) n = "(" ++ pretty ir n ++ " :: " ++ show ty ++ ")"
-    pretty (Lam v ir) n = "(\\" ++ v ++ ". " ++ pretty ir n ++ ")"
+    pretty (Lam v ir) n = "(\\" ++ show v ++ ". " ++ pretty ir n ++ ")"
     pretty (Val i) _ = show i
     pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
     pretty (Select i v) n = '#':show i ++ "(" ++ show v ++ ")"

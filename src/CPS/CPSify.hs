@@ -92,7 +92,7 @@ convertNode (Core.Lam v e) c = do
     k <- cont
     bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier k)) [z])
     convC <- c (Label (LocalIdentifier f))
-    pure $ Fix [Fun (LocalIdentifier f) [v, k] bigF] convC
+    pure $ Fix [Fun (LocalIdentifier f) [v, LocalIdentifier k] bigF] convC
 convertNode (Core.Fix defs e) c = do
     fixdefs (fmap fst defs) -- unique binding means that this can be a *permanent* change
     bigF <- convert e c
@@ -103,7 +103,7 @@ convertNode (Core.Fix defs e) c = do
             w <- cont
             bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
             dx <- g defs
-            pure $ (Fun n [v, w] bigF):dx
+            pure $ (Fun n [v, LocalIdentifier w] bigF):dx
         g [] = pure []
 convertNode (Core.Let n def e) c = do
     j <- fmap LocalIdentifier cont
@@ -115,17 +115,17 @@ convertNode (Core.Cons id args) c = do
     cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal args
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
-    pure $ Record ((Lit (Int i), NoPath):cont) x convC
+    pure $ Record ((Lit (Int i), NoPath):cont) (LocalIdentifier x) convC
 convertNode (Core.Tuple xs) c = do
     cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal xs
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
-    pure $ Record cont x convC
+    pure $ Record cont (LocalIdentifier x) convC
 convertNode (Core.Select i v) c = do
     x <- fresh
     v' <- convVal v
     ce <- c (Var $ LocalIdentifier x)
-    pure $ Select i v' x ce
+    pure $ Select i v' (LocalIdentifier x) ce
 
 convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
     t <- fresh
@@ -138,9 +138,9 @@ convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n
     cs'' <- flip mapM [0..ncases-1] $ \i -> case lookup i casemap of
             Nothing -> pure fallback
             Just (Core.ConsPattern _ ns, _, cse) ->
-                let bindings = foldr (\(i,v) f -> Select i (Var $ LocalIdentifier n) v . f) id (zip [1..] ns)
+                let bindings = foldr (\(i,v) f -> Select i (Var $ LocalIdentifier n) (LocalIdentifier v) . f) id (zip [1..] ns)
                 in fmap bindings (convert cse c)
-    pure . Select 0 (Var $ LocalIdentifier n) t $ Switch (Var $ LocalIdentifier t) cs''
+    pure . Select 0 (Var $ LocalIdentifier n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
 
 selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])
 selectDefault (p@(Core.WildcardPattern, _, e):_) = (Just e, [])
@@ -193,5 +193,5 @@ convert (Graph.App _ f e) c = do
     x <- fresh
     bigF <- convert f (\f -> convert e (\e -> (\f -> App f [e, Label (LocalIdentifier r)]) <$> convVal f))
     convC <- c (Var (LocalIdentifier x))
-    pure $ Fix [Fun (LocalIdentifier r) [x] convC] bigF
+    pure $ Fix [Fun (LocalIdentifier r) [LocalIdentifier x] convC] bigF
 convert (Graph.Node _ n) c = convertNode n c

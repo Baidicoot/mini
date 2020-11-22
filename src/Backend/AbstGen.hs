@@ -321,9 +321,9 @@ genNonEsc fns = do
     else do
         mapM_ (\(CPS.Fun n args exp) -> do
             layout <- irrefutableGetLayout n
-            emit (Comment (show n ++ concatMap (\(a,i) -> ' ':a++":r"++show i) (zip args layout)))
+            emit (Comment (show n ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args layout)))
             emit (Define n)
-            loadRegs (zip (fmap LocalIdentifier args) layout)
+            loadRegs (zip args layout)
             generate exp) assignedfns
         genNonEsc otherfns
 
@@ -331,17 +331,17 @@ fix :: [CFun] -> AbstGen ()
 fix fns = do
     (nonesc, esc) <- partEsc fns
     mapM_ (\(CPS.Fun id args exp) -> do
-        emit (Comment (show id ++ concatMap (\(a,i) -> ' ':a++":r"++show i) (zip args [1..])))
+        emit (Comment (show id ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args [1..])))
         emit (Define id)
-        loadRegs (zip (fmap LocalIdentifier args) [1..])
+        loadRegs (zip args [1..])
         generate exp) esc
     genNonEsc nonesc
 
 generate :: CExp -> AbstGen ()
 generate (CPS.App val args) = call val args
 generate (CPS.Fix fns _) = fix fns
-generate (CPS.Record paths name exp) = record paths (LocalIdentifier name) exp
-generate (CPS.Select i v n exp) = select i v (LocalIdentifier n) exp
+generate (CPS.Record paths name exp) = record paths name exp
+generate (CPS.Select i v n exp) = select i v n exp
 generate (CPS.Switch v exps) = switch v exps
 generate (CPS.Error s) = emit (Error s)
 generate CPS.Halt = emit Halt

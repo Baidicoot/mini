@@ -118,14 +118,14 @@ extractPtr :: Identifier -> ClosureConv CExp -> ClosureConv CExp
 extractPtr i c = do
     fp <- fresh
     i' <- renaming i
-    Select 0 (Var i') fp <$> local (\(a,b,c,d) -> (Map.insert i' (Var $ LocalIdentifier fp) a,b,c,d)) c
+    Select 0 (Var i') (LocalIdentifier fp) <$> local (\(a,b,c,d) -> (Map.insert i' (Var $ LocalIdentifier fp) a,b,c,d)) c
 
 makeCls :: Value -> ClosureConv CExp -> ClosureConv CExp
 makeCls (Label i) c = do
     is <- split i
     icls <- fresh
     ffv <- mapM renaming =<< freeVars i
-    Record ((Label is, NoPath):fmap (\f -> (Var f, NoPath)) ffv) icls <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
+    Record ((Label is, NoPath):fmap (\f -> (Var f, NoPath)) ffv) (LocalIdentifier icls) <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
 makeCls _ c = c
 
 rename :: Identifier -> Identifier -> ClosureConv CExp -> ClosureConv CExp
@@ -139,8 +139,8 @@ splitFn f nargs nextra = do
     args <- replicateM nargs fresh
     extra <- replicateM nextra fresh
     let call = App (Label f) (fmap (Var . LocalIdentifier) $ args ++ extra)
-    let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) n) call (zip [1..] extra)
-    pure (Fun fs (args ++ [c]) body)
+    let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) (LocalIdentifier n)) call (zip [1..] extra)
+    pure (Fun fs (fmap LocalIdentifier args ++ [LocalIdentifier c]) body)
 
 convertExp :: CExp -> ClosureConv CExp
 convertExp (App (Label k) args) = flip (foldr makeCls) args $ do
@@ -163,9 +163,9 @@ convertExp (Fix fns e) = do
             n' <- fresh
             pure (n, n')) =<< freeVars i
         let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id extra
-        let extracts = foldr ((.) . extractPtr) id $ filter (calledIn e) (fmap fst extra ++ fmap LocalIdentifier args)
+        let extracts = foldr ((.) . extractPtr) id $ filter (calledIn e) (fmap fst extra ++ args)
         e' <- renamings . extracts $ convertExp e
-        pure (Fun i (args ++ fmap snd extra) e')) fns
+        pure (Fun i (args ++ fmap (LocalIdentifier . snd) extra) e')) fns
     splits <- mapM (\(Fun i args _) -> splitFn i (length args) . length =<< freeVars i)
         =<< filterM (\(Fun i _ _) -> escapingFn i) fns
     e' <- convertExp e

@@ -60,9 +60,9 @@ argsRoot (Primop _ vs _ _) = Set.fromList $ extractIdents vs
 argsRoot _ = mempty
 
 boundRoot :: CExp -> Set.Set Identifier
-boundRoot (Select _ _ n _) = Set.singleton (LocalIdentifier n)
-boundRoot (Primop _ _ n _) = Set.singleton (LocalIdentifier n)
-boundRoot (Record _ n _) = Set.singleton (LocalIdentifier n)
+boundRoot (Select _ _ n _) = Set.singleton n
+boundRoot (Primop _ _ n _) = Set.singleton n
+boundRoot (Record _ n _) = Set.singleton n
 boundRoot _ = mempty
 
 contRoot :: CExp -> [CExp]
@@ -106,7 +106,7 @@ spillExp r u d sc sv e = do
         let sc' = Set.toList vbefore
         let ps = fmap (\i -> (Var i,SelPath (indexOf i sc) NoPath)) sc'
         e' <- spillExp mempty mempty d'' sc' (Just $ LocalIdentifier sv') e
-        pure $ Record ps sv' e'
+        pure $ Record ps (LocalIdentifier sv') e'
     else do
         let f = a `Set.difference` (u `Set.intersection` d')
         case (Set.size f, sv) of
@@ -115,13 +115,13 @@ spillExp r u d sc sv e = do
                 let i = indexOf v sc
                 v' <- fresh
                 e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert (LocalIdentifier v') d') safterc safterv (rename v (LocalIdentifier v') e)
-                pure $ Select i (Var sv) v' e'
+                pure $ Select i (Var sv) (LocalIdentifier v') e'
             (_,Just sv) -> do
                 let v = Set.findMin f
                 let i = indexOf v sc
                 v' <- fresh
                 e' <- spillExp mempty (u `Set.intersection` vbefore) (Set.insert (LocalIdentifier v') d') sc (Just sv) (rename v (LocalIdentifier v') e)
-                pure $ Select i (Var sv) v' e'
+                pure $ Select i (Var sv) (LocalIdentifier v') e'
             (_,_) -> do
                 c' <- mapM (spillExp w (u `Set.intersection` vafter) d' safterc safterv) c
                 pure $ root e c'
@@ -129,7 +129,7 @@ spillExp r u d sc sv e = do
 spillFix :: CExp -> Spill CExp
 spillFix (Fix defs e)  = do
     defs' <- mapM (\(Fun i args e) -> do
-        e' <- spillExp mempty (Set.fromList (fmap LocalIdentifier args)) mempty [] Nothing e
+        e' <- spillExp mempty (Set.fromList args) mempty [] Nothing e
         pure $ Fun i args e') defs
     Fix defs' <$> spillExp mempty mempty mempty [] Nothing e
 
@@ -141,7 +141,7 @@ overflowArgsFn (Fun id args exp) = do
         pure $ Fun id args exp'
     else do
         c <- fresh
-        let args' = take (n-1) args ++ [c]
+        let args' = take (n-1) args ++ [LocalIdentifier c]
         let incls = drop (n-1) args
         let bound = foldr (\(arg, i) exp -> Select i (Var $ LocalIdentifier c) arg exp) exp' (zip incls [0..])
         pure $ Fun id args' bound 
@@ -159,7 +159,7 @@ overflowArgs (App f args) = do
         c <- fresh
         let args' = take (n-1) args ++ [Var $ LocalIdentifier c]
         let incls = drop (n-1) args
-        pure $ Record (fmap (second (`SelPath` NoPath)) (zip incls [0..])) c (App f args')
+        pure $ Record (fmap (second (`SelPath` NoPath)) (zip incls [0..])) (LocalIdentifier c) (App f args')
 overflowArgs (Record a b exp) = do
     exp' <- overflowArgs exp
     pure $ Record a b exp'

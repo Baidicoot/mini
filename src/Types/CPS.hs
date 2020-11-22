@@ -11,11 +11,11 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 data CFun
-    = Fun Identifier [Name] CExp
+    = Fun Identifier [Identifier] CExp
     deriving(Eq)
 
 instance Show CFun where
-    show (Fun n args exp) = show n ++ concatMap (' ':) args ++ " = " ++ show exp
+    show (Fun n args exp) = show n ++ concatMap ((' ':) . show) args ++ " = " ++ show exp
 
 data AccessPath
     = NoPath
@@ -25,12 +25,12 @@ data AccessPath
 data CExp
     = App Value [Value]
     | Fix [CFun] CExp
-    | Record [(Value, AccessPath)] Name CExp
-    | Select Int Value Name CExp
+    | Record [(Value, AccessPath)] Identifier CExp
+    | Select Int Value Identifier CExp
     | Switch Value [CExp]
     | Error String
     | Halt
-    | Primop Primop [Value] Name [CExp]
+    | Primop Primop [Value] Identifier [CExp]
     deriving(Eq)
 
 {-
@@ -66,11 +66,11 @@ extractLabels [] = []
 
 fv :: CExp -> Set.Set Identifier
 fv (App i vs) = Set.fromList (extractIdents $ i:vs)
-fv (Fix fns exp) = flip Set.difference (Set.fromList . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList (fmap LocalIdentifier args)) fns
-fv (Record vs n exp) = Set.delete (LocalIdentifier n) $ fv exp `Set.union` (Set.fromList . extractIdents $ fmap fst vs)
-fv (Select _ v n exp) = Set.delete (LocalIdentifier n) $ Set.fromList (extractIdents [v]) `Set.union` fv exp
+fv (Fix fns exp) = flip Set.difference (Set.fromList . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
+fv (Record vs n exp) = Set.delete n $ fv exp `Set.union` (Set.fromList . extractIdents $ fmap fst vs)
+fv (Select _ v n exp) = Set.delete n $ Set.fromList (extractIdents [v]) `Set.union` fv exp
 fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents [v])
-fv (Primop _ args n exps) = Set.delete (LocalIdentifier n) $ mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents args)
+fv (Primop _ args n exps) = Set.delete n $ mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents args)
 fv _ = mempty
 
 isLet :: CExp -> Bool
@@ -82,8 +82,8 @@ isLet _ = False
 instance Show CExp where
     show (App a args) = show a ++ concatMap (\arg -> ' ':show arg) args
     show (Fix defs exp) = "fix " ++ concatMap (\fn -> show fn ++ "\n") defs ++ "in " ++ show exp
-    show (Record va id exp) = "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "} in " ++ show exp
-    show (Select i v id exp) = "let " ++ id ++ " = " ++ show v ++ "[" ++ show i ++ "]" ++ " in " ++ show exp
+    show (Record va id exp) = "let " ++ show id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "} in " ++ show exp
+    show (Select i v id exp) = "let " ++ show id ++ " = " ++ show v ++ "[" ++ show i ++ "]" ++ " in " ++ show exp
     show (Switch v exp) = "switch " ++ show v ++ concatMap (\cse -> "\n" ++ show cse) exp
     show Halt = "halt"
     show (Error s) = "error '" ++ s ++ "'"
@@ -95,7 +95,7 @@ instance Show AccessPath where
 instance Pretty CFun Int where
     showtag _ _ = False
 
-    pretty (Fun v args exp) n = intercalate " " (show v:args) ++ " = " ++ pretty exp (n+4)
+    pretty (Fun v args exp) n = intercalate " " (show v:fmap show args) ++ " = " ++ pretty exp (n+4)
 
 instance Pretty CExp Int where
     showtag _ _ = False
@@ -104,17 +104,17 @@ instance Pretty CExp Int where
     --"\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\(v, ir) -> v ++ " = " ++ pretty ir (n+4)) ds) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty ir (n+4)
     pretty (Fix defs exp) n = "\n" ++ replicate n ' ' ++ "fix " ++ intercalate ("\n" ++ replicate (n+4) ' ') (fmap (\fn -> pretty fn (n+4)) defs) ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
     pretty (Record va id exp) n
-        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}" ++ pretty exp n
-        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}" ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "}\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
     pretty (Select i v id exp) n
-        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")" ++ pretty exp n
-        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")" ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ "#" ++ show i ++ "(" ++ show v ++ ")\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
     pretty (Switch v exp) n = "\n" ++ replicate n ' ' ++ "switch " ++ show v ++ concatMap (\(cse, i) -> "\n" ++ replicate (n+4) ' ' ++ show i ++ " -> " ++ pretty cse (n+8)) (zip exp [0..])
     pretty Halt _ = "halt"
     pretty (Error s) _ = "error '" ++ s ++ "'"
     pretty (Primop op vs id [exp]) n
-        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ pretty exp n
-        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
+        | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ pretty exp n
+        | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
 
 -- get whether the variable is called
 calledIn :: CExp -> Identifier -> Bool

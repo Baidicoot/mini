@@ -79,13 +79,13 @@ elabIdent t i = do
     case sc of
         Just sc -> do
             ns <- replicateM (aritySc sc) fresh
-            pure $ foldr (\n -> Node t . Lam n) (Node t . Cons i' $ fmap (Var . LocalIdentifier) ns) ns
+            pure $ foldr (\n -> Node t . Lam (LocalIdentifier n)) (Node t . Cons i' $ fmap (Var . LocalIdentifier) ns) ns
         Nothing -> pure . Node t . Val $ Var i'
 
 elabPrim :: SourcePos -> Primop -> Elaborator (Core SourcePos)
 elabPrim t p = do
     ns <- replicateM (arityOp p) fresh
-    pure $ foldr (\n -> Node t . Lam n) (Node t . Prim p $ fmap (Var . LocalIdentifier) ns) ns
+    pure $ foldr (\n -> Node t . Lam (LocalIdentifier n)) (Node t . Prim p $ fmap (Var . LocalIdentifier) ns) ns
 
 elabFun :: Syn.FunDef -> Elaborator (Core SourcePos)
 elabFun (Syn.FunDef t mt _ args exp) =
@@ -103,7 +103,7 @@ elabLam :: SourcePos -> Syn.Lam -> Elaborator (Core SourcePos)
 elabLam t (Syn.Lam args exp) = do
     argm <- freshen args
     exp' <- withTerms argm (elabExpr exp)
-    pure $ foldr (\(_,LocalIdentifier n) -> Node t . Lam n) exp' argm
+    pure $ foldr (\(_,LocalIdentifier n) -> Node t . Lam (LocalIdentifier n)) exp' argm
 
 elabPat :: SourcePattern -> Elaborator SourcePattern
 elabPat (PatternCons t i ps) = do
@@ -119,7 +119,7 @@ elabMatch t (Syn.Match e ps) = do
     rows <- forM ps $ \(p,e) -> do
             p' <- elabPat p
             pure ([p'], mempty, \m -> withTerms ((LocalIdentifier *** LocalIdentifier) <$> Map.toList m) (elabExpr e))
-    Node t . Let n e' <$> matchcomp t (rows, [n]) []
+    Node t . Let (LocalIdentifier n) e' <$> matchcomp t (rows, [n]) []
 {-
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
@@ -145,7 +145,7 @@ elabLet t (Syn.Let vs e) = do
         f <- fork n
         pure ((LocalIdentifier n,LocalIdentifier f),e)) vs
     e' <- withTerms (fmap fst nvs) (elabExpr e)
-    pure $ foldr (\((_,LocalIdentifier n),e) -> Node t . Let n e) e' nvs
+    pure $ foldr (\((_,LocalIdentifier n),e) -> Node t . Let (LocalIdentifier n) e) e' nvs
 
 elabFix :: SourcePos -> Syn.Fix -> Elaborator (Core SourcePos)
 elabFix t (Syn.Fix fs e) = do
@@ -163,7 +163,7 @@ elabTuple p es = internal [] p =<< mapM elabExpr es
         internal vs tp (Node p (Val v):xs) = internal (vs ++ [v]) tp xs
         internal vs tp (x:xs) = do
             f <- fresh
-            Node tp . Let f x <$> internal (vs ++ [Var (LocalIdentifier f)]) tp xs
+            Node tp . Let (LocalIdentifier f) x <$> internal (vs ++ [Var (LocalIdentifier f)]) tp xs
         internal vs tp [] = pure . Node tp $ Tuple vs
 
 elabType :: SourceType -> Elaborator Type
@@ -186,7 +186,7 @@ elabSelect :: SourcePos -> Int -> Syn.Expr -> Elaborator (Core SourcePos)
 elabSelect p i e = do
     e' <- elabExpr e
     x <- fresh
-    pure . Node p $ Let x e' (Node p $ Select i (Var $ LocalIdentifier x))
+    pure . Node p $ Let (LocalIdentifier x) e' (Node p $ Select i (Var $ LocalIdentifier x))
 
 elabExprNode :: SourcePos -> Syn.ExprNode -> Elaborator (Core SourcePos)
 elabExprNode t (Syn.Var i) = elabIdent t i

@@ -224,12 +224,12 @@ infFixDefs fs = do
             sc <- generalize t
             pure (i,m,sc,x')
 
-infLetDef :: Name -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)
+infLetDef :: Identifier -> Core SourcePos -> Checker (Identifier,Rigidity,Scheme,Core Type)
 infLetDef x u = do
     m1 <- rigid u
     (u',t1) <- infer W u
     s1 <- generalize t1
-    pure (LocalIdentifier x,m1,s1,u')
+    pure (x,m1,s1,u')
 
 instance Inferable (Core SourcePos) (Core Type) where
     -- VAR
@@ -252,7 +252,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- ABS-INFER
     infer m (Node p (Lam x t)) = do
         t1 <- freshTV
-        (t',t2) <- withTypes [(LocalIdentifier x, Forall mempty t1)] (infer m t)
+        (t',t2) <- withTypes [(x, Forall mempty t1)] (infer m t)
         pure (Node (t1 --> t2) (Lam x t'), t1 --> t2)
     -- ANN
     infer m (Node p (Annot x t)) = do
@@ -335,7 +335,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- ABS-CHECK
     check m (Node p (Lam x t)) s@(Forall a _) = do
         (t1,t2) <- splitArr p s
-        t' <- withEnv [(LocalIdentifier x,m,Forall mempty t1)] (check m t (Forall a t2))
+        t' <- withEnv [(x,m,Forall mempty t1)] (check m t (Forall a t2))
         pure (Node (t1 --> t2) (Lam x t'))
     -- LET-CHECK
     check m (Node p (Let x u t)) (Forall a t2) = do
@@ -371,7 +371,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- SCR-LET
     rigid (Node p (Let x u t)) = do
         m1 <- rigid u
-        withRigidity [(LocalIdentifier x, m1)] (rigid t)
+        withRigidity [(x, m1)] (rigid t)
     -- SCR-ABS
     rigid (Node p (Lam x t)) = rigid t
     -- SCR-ANN

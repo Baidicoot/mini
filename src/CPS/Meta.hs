@@ -14,11 +14,11 @@ getCaptured = reduce . fst . collectPerFunctionMeta
 
 data PerFunction = PerFunctionData
     { free :: Set.Set Identifier
-    , bound :: Set.Set Name -- local variables are not top-level
+    , bound :: Set.Set Identifier -- local variables are not top-level
     , knownCalls :: Set.Set Identifier -- known vs unknown calls determined at CPSification
     , unknownCalls :: Set.Set Identifier
     , knownEsc :: Set.Set Identifier -- known escaping functions
-    , nested :: Set.Set Name -- nested functions are not top-level and so have a Name
+    , nested :: Set.Set Identifier
     }
     deriving(Show)
 
@@ -41,13 +41,13 @@ uses ids = mappend (mempty {free = Set.fromList ids})
 passes :: [Identifier] -> PerFunction -> PerFunction
 passes ids = mappend (mempty {knownEsc = Set.fromList ids})
 
-binds :: [Name] -> PerFunction -> PerFunction
+binds :: [Identifier] -> PerFunction -> PerFunction
 binds ids f = f
-    { free = free f `Set.difference` Set.fromList (fmap LocalIdentifier ids)
+    { free = free f `Set.difference` Set.fromList ids
     , bound = Set.fromList ids }
 
 nests :: Map.Map Identifier PerFunction -> PerFunction -> PerFunction
-nests m = mappend mempty {free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, nested = Set.fromList . extractLocals $ Map.keys m}
+nests m = mappend mempty {free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, nested = Set.fromList $ Map.keys m}
     where
         fns = Map.elems m
 
@@ -85,7 +85,7 @@ reduce :: Map.Map Identifier PerFunction -> Map.Map Identifier FV
 reduce
     = fmap (\(_,_,f) -> f)
     . internal
-    . fmap (\(PerFunctionData f b k _ e _) -> (k `Set.union` e, Set.map LocalIdentifier b, f))
+    . fmap (\(PerFunctionData f b k _ e _) -> (k `Set.union` e, b, f))
     where
         internalStep ::
             Map.Map Identifier (Set.Set Identifier, Set.Set Identifier, Set.Set Identifier)
