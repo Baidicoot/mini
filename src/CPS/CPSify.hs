@@ -50,11 +50,11 @@ cont = do
     put (n+1,LocalIdentifier ('k':show n):known)
     pure ('k':show n)
 
-convCallVal :: Value -> CPSifier Value
-convCallVal (Var i) = do
+convVal :: Value -> CPSifier Value
+convVal (Var i) = do
     (_,known) <- get
     pure (if i `elem` known then Label i else Var i)
-convCallVal x = pure x
+convVal x = pure x
 
 index :: Identifier -> CPSifier Int
 index id = do
@@ -86,7 +86,7 @@ cpsify env exp i = runCPSify i (mkCPSEnv env) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (Core.Error s) c = pure (Error s)
-convertNode (Core.Val v) c = convCallVal v >>= c
+convertNode (Core.Val v) c = convVal v >>= c
 convertNode (Core.Lam v e) c = do
     f <- func
     k <- cont
@@ -112,10 +112,21 @@ convertNode (Core.Let n def e) c = do
     pure $ Fix [Fun j [n] ce] cd
 convertNode (Core.Cons id args) c = do
     i <- index id
-    let cont = fmap (flip (,) NoPath) args
+    cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal args
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
     pure $ Record ((Lit (Int i), NoPath):cont) x convC
+convertNode (Core.Tuple xs) c = do
+    cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal xs
+    x <- fresh
+    convC <- c (Var $ LocalIdentifier x)
+    pure $ Record cont x convC
+convertNode (Core.Select i v) c = do
+    x <- fresh
+    v' <- convVal v
+    ce <- c (Var $ LocalIdentifier x)
+    pure $ Select i v' x ce
+
 convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
     t <- fresh
     ncases <- cases i
@@ -180,7 +191,7 @@ convert :: Core.Core NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convert (Graph.App _ f e) c = do
     r <- cont
     x <- fresh
-    bigF <- convert f (\f -> convert e (\e -> (\f -> App f [e, Label (LocalIdentifier r)]) <$> convCallVal f))
+    bigF <- convert f (\f -> convert e (\e -> (\f -> App f [e, Label (LocalIdentifier r)]) <$> convVal f))
     convC <- c (Var (LocalIdentifier x))
     pure $ Fix [Fun (LocalIdentifier r) [x] convC] bigF
 convert (Graph.Node _ n) c = convertNode n c

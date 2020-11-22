@@ -34,6 +34,8 @@ data CoreNode tag
     | Match (Maybe Type, SourcePos) Name [(PatternBinding, tag, Core tag)]
     | Annot (Core tag) Type
     | Cons Identifier [Value]
+    | Tuple [Value]
+    | Select Int Value
     | Prim Primop [Value]
     | Error String
     deriving(Eq, Ord)
@@ -46,6 +48,7 @@ untagCore = untag . fmap untagCoreN
         untagCoreN :: CoreNode tag -> CoreNode NoTag
         untagCoreN (Let n a b) = Let n (untagCore a) (untagCore b)
         untagCoreN (Fix fs b) = Fix (fmap (\(a,b)->(a,untagCore b)) fs) (untagCore b)
+        untagCoreN (Tuple ts) = Tuple ts
         untagCoreN (Lam n a) = Lam n (untagCore a)
         untagCoreN (Match t n cs) = Match t n (fmap (\(a,b,c)->(a,NoTag,untagCore c)) cs)
         untagCoreN (Annot a t) = Annot (untagCore a) t
@@ -69,6 +72,8 @@ instance Show (CoreNode tag) where
     show (Let n ds ir) = "let " ++ n ++ " = " ++ show ds ++ " in\n" ++ show ir
     show (Fix ds ir) = "fix " ++ intercalate "\n    " (fmap (\(n, ir) -> show n ++ " = " ++ show ir) ds) ++ " in\n" ++ show ir
     show (Cons id args) = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
+    show (Tuple exprs) = "{" ++ intercalate "," (fmap show exprs) ++ "}"
+    show (Select i v) = '#':show i ++ "(" ++ show v ++ ")"
     show (Annot ir ty) = "(" ++ show ir ++ " :: " ++ show ty ++ ")"
     show (Lam n ir) = "(\\" ++ n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
@@ -88,6 +93,8 @@ instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Lam v ir) n = "(\\" ++ v ++ ". " ++ pretty ir n ++ ")"
     pretty (Val i) _ = show i
     pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
+    pretty (Select i v) n = '#':show i ++ "(" ++ show v ++ ")"
+    pretty (Tuple xs) n = "{" ++ intercalate "," (fmap show xs) ++ "}"
     pretty (Match (Nothing,_) ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Match (Just t,_) ir cases) n = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Error s) _ = "error " ++ show s

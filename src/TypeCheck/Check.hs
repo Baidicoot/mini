@@ -45,6 +45,7 @@ data TypeError
     = UnifyError SourcePos UnifyError UnifyAction
     | NotInScope SourcePos Identifier
     | ImmedErr SourcePos Int Int
+    | SelectErr SourcePos Type Int
     | Debug SourcePos String
     deriving(Eq, Show)
 
@@ -54,6 +55,7 @@ instance RenderableError TypeError where
     errPos (UnifyError p _ _) = p
     errPos (NotInScope p _) = p
     errPos (ImmedErr p _ _) = p
+    errPos (SelectErr p _ _) = p
     errPos (Debug p _) = p
 
     errCont (UnifyError _ e a) =
@@ -61,6 +63,7 @@ instance RenderableError TypeError where
         , "while " ++ show a ]
     errCont (NotInScope _ i) = ["the variable '" ++ show i ++ "' is unbound"]
     errCont (ImmedErr _ i j) = ["expected " ++ show i ++ " arguments, but got " ++ show j]
+    errCont (SelectErr _ t i) = ["cannot extract the " ++ show i ++ "th element from " ++ show t]
     errCont (Debug _ s) = [s]
 
 newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, Map.Map Identifier Scheme, Set.Set Name)
@@ -93,7 +96,7 @@ runChecker e s m =
     in (a,b,c)
 
 getSubst :: Checker Subst
-getSubst = fmap snd get
+getSubst = gets snd
 
 extSubst :: Subst -> Checker ()
 extSubst s' = modify (second (s' @@))
@@ -275,6 +278,19 @@ instance Inferable (Core SourcePos) (Core Type) where
         let vs' = fmap (Node p . Val) vs
         mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Cons i vs), t2)
+    -- TUPLE
+    infer m (Node p (Tuple vs)) = do
+        let vs' = fmap (Node p . Val) vs :: [Core SourcePos]
+        (_,ts') <- mapAndUnzipM (infer m) vs'
+        pure (Node (Node NoTag (Prod ts')) (Tuple vs), Node NoTag (Prod ts'))
+    infer m (Node p (Select i v)) = do
+        vt <- newest . snd =<< (infer m :: Core SourcePos -> Checker (Core Type,Type)) (Node p (Val v))
+        et <- case vt of
+            Node _ (Prod ts) | i < length ts -> pure $ ts !! i
+            _ -> do
+                t <- freshTV
+                err t [SelectErr p vt i]
+        pure (Node et (Select i v), et)
     -- LET-INFER
     infer m (Node p (Let x u t)) = do
         (x',m1,s1,u') <- infLetDef x u

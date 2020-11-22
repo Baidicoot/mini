@@ -15,12 +15,10 @@ import Types.Type
 import Control.Arrow
 import qualified Data.Map as Map
 
-import Data.Semigroup
-
 -- fields include constructor information
 data ModuleExports = ModuleExports
     { moduleMod :: Module           -- module path
-    , termNames :: [Name]           -- term-level names
+    , termNames :: [Name]           -- term-level names (ORDERED)
     , typeNames :: [Name]           -- type-level names
     , termTypes :: [(Name, Scheme)] -- term-level typing info
     , typeKinds :: [(Name, Kind)]   -- type-level kinding info

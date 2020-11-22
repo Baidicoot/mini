@@ -1,6 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
-
-module CPS.ClosureConv where
+module CPS.ClosureConv (closureConv) where
 
 import Types.CPS
 import Types.Ident
@@ -32,7 +30,7 @@ type ClosureEnv =
 --      escaping functions
     ,   ( Set.Set Identifier
 --      captured variables
-        , Map.Map Identifier (Set.Set Identifier)
+        , Map.Map Identifier FV
         )
     )
 
@@ -44,6 +42,17 @@ type ClosureState =
     )
 
 type ClosureConv = ReaderT ClosureEnv (State ClosureState)
+
+closureConv :: CExp -> Int -> (CExp, Int)
+closureConv e s =
+    let esc = getEscaping e
+        cap = getCaptured e
+        (e', (s',_)) = runClosureConv (convertExp e) (mempty,mempty,mempty,(esc,cap)) (s,mempty)
+        (fns, tail) = smash e'
+    in (Fix fns tail, s')
+
+runClosureConv :: ClosureConv a -> ClosureEnv -> ClosureState -> (a, ClosureState)
+runClosureConv c e = runState (runReaderT c e)
 
 enterfn :: ClosureConv a -> ClosureConv a
 enterfn = local (\(a,b,c,d)->(mempty,mempty,mempty,d))
@@ -60,7 +69,9 @@ split i = do
     case Map.lookup i splits of
         Just n  -> pure n
         Nothing -> do
-            f <- fresh
+            f <- case i of
+                LocalIdentifier n -> pure ("split_" ++ n)
+                ExternalIdentifier _ n -> pure ("split_" ++ n)
             modify (second (Map.insert i (LocalIdentifier f)))
             pure (LocalIdentifier f)
 
@@ -109,12 +120,13 @@ extractPtr i c = do
     i' <- renaming i
     Select 0 (Var i') fp <$> local (\(a,b,c,d) -> (Map.insert i' (Var $ LocalIdentifier fp) a,b,c,d)) c
 
-makeCls :: Identifier -> ClosureConv CExp -> ClosureConv CExp
-makeCls i c = do
+makeCls :: Value -> ClosureConv CExp -> ClosureConv CExp
+makeCls (Label i) c = do
     is <- split i
     icls <- fresh
     ffv <- mapM renaming =<< freeVars i
-    Record (fmap (\f -> (Var f, NoPath)) (is:ffv)) icls <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
+    Record ((Label is, NoPath):fmap (\f -> (Var f, NoPath)) ffv) icls <$> local (\(a,b,c,d)->(a,b,Map.insert i (Var $ LocalIdentifier icls) c,d)) c
+makeCls _ c = c
 
 rename :: Identifier -> Identifier -> ClosureConv CExp -> ClosureConv CExp
 rename x y = local (\(a,b,c,d) -> (a,Map.insert x y b,c,d))
@@ -131,11 +143,11 @@ splitFn f nargs nextra = do
     pure (Fun fs (args ++ [c]) body)
 
 convertExp :: CExp -> ClosureConv CExp
-convertExp (App (Label k) args) = flip (foldr makeCls) (extractIdents args) $ do
+convertExp (App (Label k) args) = flip (foldr makeCls) args $ do
         extra <- fmap (fmap Var) . mapM renaming =<< freeVars k
         args' <- mapM arg args
         pure (App (Label k) (args' ++ extra))
-convertExp (App (Var u) args) = flip (foldr makeCls) (extractIdents args) $ do
+convertExp (App (Var u) args) = flip (foldr makeCls) args $ do
     args' <- mapM arg args
     vp <- fnPtr u
     case vp of
@@ -150,18 +162,15 @@ convertExp (Fix fns e) = do
         extra <- mapM (\n -> do
             n' <- fresh
             pure (n, n')) =<< freeVars i
-        newargs <- mapM (\n -> do
-            n' <- fresh
-            pure (LocalIdentifier n, n')) args
-        let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id (extra ++ newargs)
+        let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id extra
         let extracts = foldr ((.) . extractPtr) id $ filter (calledIn e) (fmap fst extra ++ fmap LocalIdentifier args)
         e' <- renamings . extracts $ convertExp e
-        pure (Fun i (fmap snd newargs ++ fmap snd extra) e')) fns
+        pure (Fun i (args ++ fmap snd extra) e')) fns
     splits <- mapM (\(Fun i args _) -> splitFn i (length args) . length =<< freeVars i)
         =<< filterM (\(Fun i _ _) -> escapingFn i) fns
     e' <- convertExp e
     pure (Fix (fns' ++ splits) e')
-convertExp (Record vs n e) = flip (foldr makeCls) (extractIdents $ fmap fst vs) $ do
+convertExp (Record vs n e) = flip (foldr makeCls) (fmap fst vs) $ do
     vs' <- mapM (\(v,p) -> do
         v' <- arg v
         pure (v',p)) vs
@@ -175,7 +184,7 @@ convertExp (Switch v es) = do
     v' <- value v
     es' <- mapM convertExp es
     pure (Switch v' es')
-convertExp (Primop op vs n es) = flip (foldr makeCls) (extractIdents vs) $ do
+convertExp (Primop op vs n es) = flip (foldr makeCls) vs $ do
     vs' <- mapM arg vs
     es' <- mapM convertExp es
     pure (Primop op vs' n es')

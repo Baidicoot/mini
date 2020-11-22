@@ -13,6 +13,8 @@ import Error.Error
 
 import Text.Parsec.Pos
 
+import Data.List (intercalate)
+
 import qualified Data.Map as Map
 
 data ElabError
@@ -57,4 +59,10 @@ fresh :: Elaborator Name
 fresh = do
     n <- get
     put (n+1)
-    pure ('v':show n)
+    pure ('t':show n)
+
+fork :: Name -> Elaborator Name
+fork i = do
+    n <- get
+    put (n+1)
+    pure (i ++ "_" ++ show n)

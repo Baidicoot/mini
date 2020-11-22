@@ -45,6 +45,15 @@ extractExterns (Var (LocalIdentifier _):ns) = extractExterns ns
 extractExterns (Var i:ns) = i:extractExterns ns
 extractExterns [] = []
 -}
+getEscaping :: CExp -> Set.Set Identifier
+getEscaping (App _ vs) = Set.fromList $ extractLabels vs
+getEscaping (Fix fs e) = mconcat (getEscaping e:fmap (\(Fun _ _ e) -> getEscaping e) fs)
+getEscaping (Record vs _ e) = Set.fromList (extractLabels $ fmap fst vs) `mappend` getEscaping e
+getEscaping (Select _ v _ e) = Set.fromList (extractLabels [v]) `mappend` getEscaping e
+getEscaping (Switch v es) = mconcat (Set.fromList (extractLabels [v]):fmap getEscaping es)
+getEscaping (Primop _ vs _ es) = mconcat (Set.fromList (extractLabels vs):fmap getEscaping es)
+getEscaping _ = mempty
+
 extractIdents :: [Value] -> [Identifier]
 extractIdents (Var id:ns) = id:extractIdents ns
 extractIdents (_:xs) = extractIdents xs

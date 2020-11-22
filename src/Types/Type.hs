@@ -7,17 +7,18 @@ import Types.Pattern
 import Types.Graph
 import Types.Prim
 
-import Control.Monad
+import Data.List (intercalate)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import Text.Parsec.Pos
 
-data TypeNode
+data TypeNode t
     = FunctionType
     | KindStar
     | Builtin LitType
     | NamedType Identifier
+    | Prod [PolyType t]
     | TypeVar Name
     deriving(Eq, Ord)
 
@@ -36,20 +37,21 @@ opTy ASub = intty --> intty --> intty
 opTy ADiv = intty --> intty --> intty
 opTy AMul = intty --> intty --> intty
 
-type SourceType = SourceGraph TypeNode
+type SourceType = SourceGraph (TypeNode SourcePos)
 
-type Type = AppGraph TypeNode
+type Type = AppGraph (TypeNode NoTag)
 
-type PolyType t = TaggedAppGraph t TypeNode
+type PolyType t = TaggedAppGraph t (TypeNode t)
 
 type Kind = Type
 
-instance Show TypeNode where
+instance Show (TypeNode t) where
     show FunctionType = "(⟶)"
     show KindStar = "★"
     show (NamedType s) = show s
     show (TypeVar s) = s
     show (Builtin t) = show t
+    show (Prod ts) = "{" ++ intercalate "," (fmap show ts) ++ "}"
 
 showPar :: PolyType t -> String
 showPar (Node _ t) = show t
@@ -64,7 +66,7 @@ instance {-# OVERLAPPING #-} Show (PolyType t) where
     show (App _ a b) = show a ++ " " ++ showPar b
     show (Node _ t) = show t
 
-data PolyScheme t = Forall (Set.Set Name) (TaggedAppGraph t TypeNode) deriving(Eq)
+data PolyScheme t = Forall (Set.Set Name) (PolyType t) deriving(Eq)
 type Scheme = PolyScheme NoTag
 type SourceScheme = PolyScheme SourcePos
 
@@ -74,8 +76,18 @@ qualified (Forall a _) = a
 unqualified :: PolyType t -> PolyScheme t
 unqualified = Forall mempty
 
+untagType :: PolyType a -> Type
+untagType = untag . fmap untagTypeN
+    where
+        untagTypeN (Prod ts) = Prod (fmap untagType ts)
+        untagTypeN FunctionType = FunctionType
+        untagTypeN KindStar = KindStar
+        untagTypeN (NamedType s) = NamedType s
+        untagTypeN (TypeVar s) = TypeVar s
+        untagTypeN (Builtin t) = Builtin t
+
 untagScheme :: PolyScheme a -> Scheme
-untagScheme (Forall x t) = Forall x (untag t)
+untagScheme (Forall x t) = Forall x (untagType t)
 
 instance Show (PolyScheme t) where
     show (Forall ns t) = "∀" ++ unwords (Set.toList ns) ++ ". " ++ show t
@@ -116,6 +128,7 @@ data UnifyError
     | MatchUE Type Scheme
     | UnifyUE Type Type
     | RigidUE Name Type
+    | ProdUE [Type] [Type]
     deriving(Eq)
 
 instance Show UnifyError where
@@ -142,6 +155,14 @@ mgu (App _ a b) (App _ c d) = do
     s1 <- mgu a c
     s2 <- mgu (apply s1 b) (apply s1 d)
     Right (s1 @@ s2)
+mgu (Node _ (Prod as)) (Node _ (Prod bs)) = mguMany as bs
+    where
+        mguMany [] [] = Right mempty
+        mguMany (a:as) (b:bs) = do
+            s1 <- mgu a b
+            s2 <- mguMany (fmap (apply s1) as) (fmap (apply s1) bs)
+            Right (s1 @@ s2)
+        mguMany as bs = Left (ProdUE as bs)
 mgu (Node _ (TypeVar u)) t = varBind u t
 mgu t (Node _ (TypeVar u)) = varBind u t
 mgu a b
@@ -153,6 +174,14 @@ match (App _ w x) (Forall a (App _ y z)) = do
     s1 <- match w (Forall a y)
     s2 <- match (apply s1 x) (Forall a $ apply s1 z)
     Right (s1 @@ s2)
+match (Node _ (Prod as)) (Forall a (Node _ (Prod bs))) = matchMany a as bs
+    where
+        matchMany q [] [] = Right mempty
+        matchMany q (a:as) (b:bs) = do
+            s1 <- match a (Forall q b)
+            s2 <- matchMany q (fmap (apply s1) as) (fmap (apply s1) bs)
+            Right (s1 @@ s2)
+        matchMany q as bs = Left (ProdUE as bs)
 match (Node _ (TypeVar u)) (Forall a t)
     | not (u `Set.member` a) = varBind u t
     | otherwise = Left (RigidUE u t)

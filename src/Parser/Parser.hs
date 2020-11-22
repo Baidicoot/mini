@@ -154,9 +154,10 @@ annotation _ p (SExpr _ (x:SNode pos Ann:xs)) = annot p (x, SExpr pos xs)
 annotation s _ x = Left [Expecting ("annotated " ++ s) (display x) (getPos x)]
 
 toplevel :: Parser ExprS TopLevel
-toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data <$> indexp p xs
-toplevel (SExpr _ (SNode p (Keyword "fix"):xs)) = Group <$> mapM fundef xs
-toplevel x = Group . (:[]) <$> fundef x
+toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data p <$> indexp p xs
+toplevel (SExpr _ (SNode p (Keyword "fix"):xs)) = Group p <$> mapM fundef xs
+toplevel (SExpr _ (SNode p (Keyword "let"):xs)) = Vals p <$> mapM valdef xs
+toplevel x = Group (getPos x) . (:[]) <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]
 toplevelexpr = many toplevel

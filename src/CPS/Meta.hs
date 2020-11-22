@@ -9,6 +9,9 @@ import Control.Arrow
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+getCaptured :: CExp -> Map.Map Identifier FV
+getCaptured = reduce . fst . collectPerFunctionMeta
+
 data PerFunction = PerFunctionData
     { free :: Set.Set Identifier
     , bound :: Set.Set Name -- local variables are not top-level
@@ -17,6 +20,7 @@ data PerFunction = PerFunctionData
     , knownEsc :: Set.Set Identifier -- known escaping functions
     , nested :: Set.Set Name -- nested functions are not top-level and so have a Name
     }
+    deriving(Show)
 
 instance Semigroup PerFunction where
     (PerFunctionData f b k u e n) <> (PerFunctionData f' b' k' u' e' n') = PerFunctionData
@@ -55,8 +59,7 @@ calls _ = mappend mempty
 collectFunctionMeta :: CFun -> (Map.Map Identifier PerFunction, (Identifier,PerFunction))
 collectFunctionMeta (Fun i args e) =
     let (nested, self) = collectPerFunctionMeta e
-        self' = binds args self
-    in (nested, (i,nests nested self'))
+    in (nested, (i,binds args self))
 
 collectPerFunctionMeta :: CExp -> (Map.Map Identifier PerFunction, PerFunction)
 collectPerFunctionMeta (Fix defs e) =
@@ -80,7 +83,7 @@ type FV = Set.Set Identifier
 
 reduce :: Map.Map Identifier PerFunction -> Map.Map Identifier FV
 reduce
-    = fmap (\(vs,_,_) -> vs)
+    = fmap (\(_,_,f) -> f)
     . internal
     . fmap (\(PerFunctionData f b k _ e _) -> (k `Set.union` e, Set.map LocalIdentifier b, f))
     where
@@ -88,7 +91,7 @@ reduce
             Map.Map Identifier (Set.Set Identifier, Set.Set Identifier, Set.Set Identifier)
             -> Map.Map Identifier (Set.Set Identifier, Set.Set Identifier, Set.Set Identifier)
         internalStep m = fmap (\(c,b,f) ->
-            let (_,_,f') = mconcat $ fmap (\f -> Map.findWithDefault mempty f m) (Set.toList f)
+            let (_,_,f') = mconcat $ fmap (\c -> Map.findWithDefault mempty c m) (Set.toList c)
             in (c,b,f `Set.union` (f' `Set.difference` b))) m
         
         internal ::

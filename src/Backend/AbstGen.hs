@@ -1,4 +1,4 @@
-module Backend.AbstGen where
+module Backend.AbstGen (generateAbstract) where
 
 import Types.Abstract
 import Types.Ident
@@ -26,12 +26,15 @@ type AbstEnv = (Set.Set Identifier, Int)
 runAbstGen :: AbstGen a -> AbstEnv -> (a, [Operator])
 runAbstGen a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, mempty, 0))
 
+generateAbstract :: CExp -> Int -> [Operator]
+generateAbstract e n = snd $ runAbstGen (generate e) (CPS.getEscaping e,n)
+
 type AbstGen = RWS AbstEnv [Operator] AbstState
 
 -- observations:
 -- if a called function is known, it is non-escaping
 -- if a called function is unknown, it is escaping
--- escaping functions use r0 for first argument, etc.
+-- escaping functions use r1 for first argument, etc.
 
 max :: AbstGen Int
 max = fmap snd ask

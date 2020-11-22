@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Elaborate.Elaborate (elaborate) where
 
 import Types.Pattern
@@ -24,13 +26,13 @@ import Data.List (intercalate)
 
 import qualified Data.Map as Map
 
-elaborate :: Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
-elaborate i m e tl =
+elaborate :: [(ModuleExports,ImportAction)] -> Int -> Module -> Env -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, Int, [ElabWarning])
+elaborate imports i m e tl =
     let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
-        (res, s, w) = runElab (elabTL tl) env i
+        (res, s, w) = runElab (elabTL imports tl) env i
     in case res of
-        Success (c, g) -> Success (c, includeGADTs g, s, w)
-        FailWithResult e (c, g) -> FailWithResult (e, w) (c, includeGADTs g, s, w)
+        Success (c, g) -> Success (c, g, s, w)
+        FailWithResult e (c, g) -> FailWithResult (e, w) (c, g, s, w)
         Fail e -> Fail (e, w)
 
 runElab :: Elaborator a -> ElabEnv -> ElabState -> (ErrorsResult [ElabError] a, ElabState, [ElabWarning])
@@ -40,7 +42,7 @@ modul :: Elaborator Module
 modul = fmap (\(m,_,_,_) -> m) ask
 
 freshen :: [Name] -> Elaborator [(Identifier, Identifier)]
-freshen = mapM (\n -> fmap ((,) (LocalIdentifier n) . LocalIdentifier) fresh)
+freshen = mapM (\n -> fmap ((,) (LocalIdentifier n) . LocalIdentifier) (fork n))
 
 withTerms :: [(Identifier, Identifier)] -> Elaborator a -> Elaborator a
 withTerms xs = local (\(m,a,b,c) -> (m,Map.fromList xs `mappend` a,b,c))
@@ -48,8 +50,8 @@ withTerms xs = local (\(m,a,b,c) -> (m,Map.fromList xs `mappend` a,b,c))
 withTypes :: [(Identifier, Identifier)] -> Elaborator a -> Elaborator a
 withTypes xs = local (\(m,a,b,c) -> (m,a,Map.fromList xs `mappend` b,c))
 
-withSchemes :: [(Identifier, Scheme)] -> Elaborator a -> Elaborator a
-withSchemes xs = local (\(m,a,b,c) -> (m,a,b,Map.fromList xs `mappend` c))
+withCons :: [(Identifier, Scheme)] -> Elaborator a -> Elaborator a
+withCons xs = local (\(m,a,b,c) -> (m,a,b,Map.fromList xs `mappend` c))
 
 lookupTerm :: SourcePos -> Identifier -> Elaborator Identifier
 lookupTerm t i = do
@@ -140,7 +142,7 @@ elabLet :: SourcePos -> Syn.Let -> Elaborator (Core SourcePos)
 elabLet t (Syn.Let vs e) = do
     nvs <- mapM (\d@(Syn.ValDef _ _ n _) -> do
         e <- elabVal d
-        f <- fresh
+        f <- fork n
         pure ((LocalIdentifier n,LocalIdentifier f),e)) vs
     e' <- withTerms (fmap fst nvs) (elabExpr e)
     pure $ foldr (\((_,LocalIdentifier n),e) -> Node t . Let n e) e' nvs
@@ -149,10 +151,20 @@ elabFix :: SourcePos -> Syn.Fix -> Elaborator (Core SourcePos)
 elabFix t (Syn.Fix fs e) = do
     nfs <- mapM (\d@(Syn.FunDef _ _ n _ _) -> do
         e <- elabFun d
-        f <- fresh
+        f <- fork n
         pure ((LocalIdentifier n,LocalIdentifier f),e)) fs
     e' <- withTerms (fmap fst nfs) (elabExpr e)
     pure . Node t $ Fix (fmap (\((_,n),e) -> (n,e)) nfs) e'
+
+elabTuple :: SourcePos -> [Syn.Expr] -> Elaborator (Core SourcePos)
+elabTuple p es = internal [] p =<< mapM elabExpr es
+    where
+        internal :: [Value] -> SourcePos -> [Core SourcePos] -> Elaborator (Core SourcePos)
+        internal vs tp (Node p (Val v):xs) = internal (vs ++ [v]) tp xs
+        internal vs tp (x:xs) = do
+            f <- fresh
+            Node tp . Let f x <$> internal (vs ++ [Var (LocalIdentifier f)]) tp xs
+        internal vs tp [] = pure . Node tp $ Tuple vs
 
 elabType :: SourceType -> Elaborator Type
 elabType (Node p (NamedType i)) = do
@@ -162,13 +174,19 @@ elabType (App p a b) = do
     a' <- elabType a
     b' <- elabType b
     pure (App NoTag a' b')
-elabType x = pure (untag x)
+elabType x = pure (untagType x)
 
 elabAnnot :: SourcePos -> Syn.Annotation Syn.Expr -> Elaborator (Core SourcePos)
 elabAnnot t (Syn.Expl e ty) = do
     sc <- elabType ty
     e' <- elabExpr e
     pure . Node t $ Annot e' sc
+
+elabSelect :: SourcePos -> Int -> Syn.Expr -> Elaborator (Core SourcePos)
+elabSelect p i e = do
+    e' <- elabExpr e
+    x <- fresh
+    pure . Node p $ Let x e' (Node p $ Select i (Var $ LocalIdentifier x))
 
 elabExprNode :: SourcePos -> Syn.ExprNode -> Elaborator (Core SourcePos)
 elabExprNode t (Syn.Var i) = elabIdent t i
@@ -177,6 +195,8 @@ elabExprNode t (Syn.LetIn l) = elabLet t l
 elabExprNode t (Syn.FixIn f) = elabFix t f
 elabExprNode t (Syn.Lambda l) = elabLam t l
 elabExprNode t (Syn.Literal l) = pure . Node t . Val $ Lit l
+elabExprNode t (Syn.Tuple ts) = elabTuple t ts
+elabExprNode t (Syn.Select i e) = elabSelect t i e
 elabExprNode t (Syn.Switch m) = elabMatch t m
 elabExprNode t (Syn.Primop p) = elabPrim t p
 
@@ -187,6 +207,48 @@ elabExpr (App t a b) = do
     pure $ App t a' b'
 elabExpr (Node t a) = elabExprNode t a
 
+getInd :: [Syn.TopLevel] -> [Syn.Data]
+getInd (Syn.Data _ d:xs) = d:getInd xs
+getInd (_:xs) = getInd xs
+getInd [] = []
+
+getTypes :: Module -> [Syn.Data] -> [(Identifier, Identifier)]
+getTypes m (Syn.Ind n _ _:xs) = (LocalIdentifier n,ExternalIdentifier m n):getTypes m xs
+getTypes m [] = []
+
+genGADT :: Syn.Data -> Elaborator GADT
+genGADT (Syn.Ind n _ ns) = do
+    ns' <- mapM (\(Syn.Expl n t) -> fmap ((,) n . (\t -> Forall (ftv t) t)) (elabType t)) ns
+    pure (GADT n ns')
+
+translateTL :: Module -> [Name] -> [Syn.TopLevel] -> (Syn.Expr, [Name])
+translateTL m ns (Syn.Group p fs:xs) =
+    let names = fmap (\(Syn.FunDef _ _ n _ _) -> n) fs
+        (exp, ns') = translateTL m (names++ns) xs
+    in (Node p . Syn.FixIn $ Syn.Fix fs exp, ns')
+translateTL m ns (Syn.Vals p vs:xs) =
+    let names = fmap (\(Syn.ValDef _ _ n _) -> n) vs
+        (exp, ns') = translateTL m (names++ns) xs
+    in (Node p . Syn.LetIn $ Syn.Let vs exp, ns')
+translateTL m ns (_:xs) = translateTL m ns xs
+translateTL m ns [] = (Node (initialPos (intercalate "." m)) $ Syn.Tuple (fmap (Node (initialPos (intercalate "." m)) . Syn.Var . LocalIdentifier) ns), ns)
+
+collectCons :: Module -> [GADT] -> ([(Identifier,Identifier)],[(Identifier, Scheme)])
+collectCons m = mconcat . fmap (\(GADT _ ss) -> (fmap (\(i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,fmap (first (ExternalIdentifier m)) ss))
+
+elabTL :: [(ModuleExports,ImportAction)] -> [Syn.TopLevel] -> Elaborator (Core SourcePos, ModuleExports)
+elabTL imports tl = do
+    m <- modul
+    let inds = getInd tl
+    let indtys = getTypes m inds
+    let (expr, exports) = translateTL m [] tl
+    withTypes indtys $ do
+        gadts <- mapM genGADT inds
+        let (terms, cons) = collectCons m gadts
+        expr' <- withTerms terms $ withCons cons (elabExpr expr)
+        pure (expr', mempty {moduleMod = m, termNames = exports} `mappend` includeGADTs gadts)
+
+{-
 collectTypes :: Module -> [Syn.TopLevel] -> [(Identifier,Identifier)]
 collectTypes m (Syn.Data (Syn.Ind n _ _):xs) =
     (LocalIdentifier n,ExternalIdentifier m n):collectTypes m xs
@@ -224,10 +286,6 @@ genFns (Syn.Group ds:xs) = do
 genFns (_:xs) = genFns xs
 genFns [] = pure []
 
-collectCons :: Module -> [GADT] -> [(Identifier, Scheme)]
-collectCons m = concatMap (\(GADT _ ss) -> fmap (first (ExternalIdentifier m)) ss)
-
--- need to collect constructors as well
 elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT])
 elabTL xs = do
     m <- modul
@@ -237,3 +295,4 @@ elabTL xs = do
         fns <- withSchemes (collectCons m gadts) $ genFns xs
         let exp = foldr (\g -> Node t . Fix g) (Node t . Val $ Lit Unit) fns
         pure (exp, gadts)
+-}

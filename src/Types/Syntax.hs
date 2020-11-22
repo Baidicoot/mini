@@ -61,6 +61,8 @@ data Data
 
 data ExprNode
     = Var Identifier
+    | Tuple [Expr]
+    | Select Int Expr
     | Annot (Annotation Expr)
     | LetIn Let
     | FixIn Fix
@@ -81,6 +83,7 @@ data ValDef
     deriving(Eq, Show)
 
 data TopLevel
-    = Group [FunDef]
-    | Data Data
+    = Group SourcePos [FunDef]
+    | Vals SourcePos [ValDef]
+    | Data SourcePos Data
     deriving(Eq, Show)

@@ -9,6 +9,7 @@ import Elaborate.Elaborate
 import TypeCheck.Check
 import CPS.ClosureConv
 import CPS.Spill
+import CPS.Meta
 import Backend.AbstGen
 
 import Types.Env
@@ -47,20 +48,21 @@ compileStr config env s = do
     b <- toplevelexpr a
         `handleEither`
         (throwError . fmap (render s))
-    (c,constructors,s0,w) <- toEither (elaborate 0 modulePath env b)
+    (c,constructors,s0,w) <- toEither (elaborate [] 0 modulePath env b)
         `handleEither`
         (\(as,bs) -> throwError $ fmap (render s) as ++ fmap (render s) bs)
+    liftIO $ prettyPrint c (0::Int)
     let exports' = exports `mappend` constructors
     (d,functions,s1) <- toEither (typecheck s0 (importWithAction include exports' `mappend` env) c)
         `handleEither`
         (throwError . fmap (render s))
-    liftIO $ prettyPrint c (0::Int)
     liftIO $ prettyPrint d (0::Int)
     let exports'' = exports' `mappend` functions
     let (e, (s2,_)) = cpsify (importWithAction include exports'') (untagCore d) s1
     liftIO $ putStrLn "\n\nCPS Converted:"
     liftIO $ prettyPrint e (0::Int)
-    let (f,s3) = closureConvert e s2
+    let (f,s3) = closureConv e s2
+    liftIO $ print (getCaptured e)
     let (g,s4) = spill (regs config) s3 f
     liftIO $ putStrLn "\n\nSpilled & Closure Converted:"
     liftIO $ prettyPrint g (0::Int)
