@@ -6,6 +6,7 @@ import Parser.SExpr
 import Parser.Parser
 import CPS.CPSify
 import Elaborate.Elaborate
+import Elaborate.Defunctorize
 import TypeCheck.Check
 import CPS.ClosureConv
 import CPS.Spill
@@ -48,7 +49,7 @@ compileStr config s = do
     b <- toplevelexpr a
         `handleEither`
         (throwError . fmap (render s))
-    (c,constructors,s0,w) <- toEither (elaborate [] 0 modulePath b)
+    (c,constructors,s0,w) <- toEither (elaborate 0 mempty modulePath b)
         `handleEither`
         (\(as,bs) -> throwError $ fmap (render s) as ++ fmap (render s) bs)
     liftIO $ prettyPrint c (0::Int)
@@ -58,17 +59,18 @@ compileStr config s = do
         (throwError . fmap (render s))
     liftIO $ prettyPrint d (0::Int)
     let exports'' = exports' `mappend` functions
-    let (e, (s2,_)) = cpsify (importWithAction exports'' include) (untagCore d) s1
+    let (s2, e) = defunctorize [] s1 d
+    let (f, (s3,_)) = cpsify (importWithAction exports'' include) (untagCore e) s2
     liftIO $ putStrLn "\n\nCPS Converted:"
-    liftIO $ prettyPrint e (0::Int)
-    let (f,s3) = closureConv e s2
-    liftIO $ print (getCaptured e)
-    let (g,s4) = spill (regs config) s3 f
+    liftIO $ prettyPrint f (0::Int)
+    liftIO $ print (collectPerFunctionMeta f)
+    let (g,s4) = closureConv f s3
+    let (h,s5) = spill (regs config) s4 g
     liftIO $ putStrLn "\n\nSpilled & Closure Converted:"
-    liftIO $ prettyPrint g (0::Int)
-    let h = generateAbstract g (regs config)
+    liftIO $ prettyPrint h (0::Int)
+    let i = generateAbstract h (regs config)
     liftIO $ putStrLn "\n\nAbstract:"
     liftIO $ print h
-    let i = emit (codegen h :: X86 ())
-    liftIO $ putStrLn i
+    let j = emit (codegen i :: X86 ())
+    liftIO $ putStrLn j
     pure exports''

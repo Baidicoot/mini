@@ -7,11 +7,13 @@ module Types.Env
     , importWithAction
     , include
     , doImports
+    , getSignature
     ) where
 
 import Types.Ident
 import Types.Syntax
 import Types.Type
+import Types.Graph
 
 import Control.Arrow
 import qualified Data.Map as Map
@@ -19,7 +21,7 @@ import qualified Data.Map as Map
 -- fields include constructor information
 data ModuleExports = ModuleExports
     { moduleMod :: Module           -- module path
-    , termNames :: [Name]           -- term-level names (ORDERED)
+    , termNames :: [Name]           -- term-level names
     , typeNames :: [Name]           -- type-level names
     , termTypes :: [(Name, Scheme)] -- term-level typing info
     , typeKinds :: [(Name, Kind)]   -- type-level kinding info
@@ -27,6 +29,9 @@ data ModuleExports = ModuleExports
     , indGroups :: [(Name, GADT)]   -- type-addressed constructor info
     }
     deriving(Show)
+
+getSignature :: ModuleExports -> Type
+getSignature m = Node NoTag (Product $ fmap (\(_,Forall _ t) -> t) (termTypes m))
 
 instance Semigroup ModuleExports where
     (ModuleExports a c e g i k m) <> (ModuleExports _ d f h j l n) = ModuleExports

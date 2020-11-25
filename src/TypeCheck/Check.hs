@@ -282,11 +282,11 @@ instance Inferable (Core SourcePos) (Core Type) where
     infer m (Node p (Tuple vs)) = do
         let vs' = fmap (Node p . Val) vs :: [Core SourcePos]
         (_,ts') <- mapAndUnzipM (infer m) vs'
-        pure (Node (Node NoTag (Prod ts')) (Tuple vs), Node NoTag (Prod ts'))
+        pure (Node (Node NoTag (Product ts')) (Tuple vs), Node NoTag (Product ts'))
     infer m (Node p (Select i v)) = do
         vt <- newest . snd =<< (infer m :: Core SourcePos -> Checker (Core Type,Type)) (Node p (Val v))
         et <- case vt of
-            Node _ (Prod ts) | i < length ts -> pure $ ts !! i
+            Node _ (Product ts) | i < length ts -> pure $ ts !! i
             _ -> do
                 t <- freshTV
                 err t [SelectErr p vt i]

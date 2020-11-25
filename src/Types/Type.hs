@@ -3,7 +3,6 @@
 module Types.Type where
 
 import Types.Ident
-import Types.Pattern
 import Types.Graph
 import Types.Prim
 
@@ -18,7 +17,7 @@ data TypeNode t
     | KindStar
     | Builtin LitType
     | NamedType Identifier
-    | Prod [PolyType t]
+    | Product [PolyType t]
     | TypeVar Name
     deriving(Eq, Ord)
 
@@ -51,7 +50,7 @@ instance Show (TypeNode t) where
     show (NamedType s) = show s
     show (TypeVar s) = s
     show (Builtin t) = show t
-    show (Prod ts) = "{" ++ intercalate "," (fmap show ts) ++ "}"
+    show (Product ts) = "{" ++ intercalate "," (fmap show ts) ++ "}"
 
 showPar :: PolyType t -> String
 showPar (Node _ t) = show t
@@ -79,7 +78,7 @@ unqualified = Forall mempty
 untagType :: PolyType a -> Type
 untagType = untag . fmap untagTypeN
     where
-        untagTypeN (Prod ts) = Prod (fmap untagType ts)
+        untagTypeN (Product ts) = Product (fmap untagType ts)
         untagTypeN FunctionType = FunctionType
         untagTypeN KindStar = KindStar
         untagTypeN (NamedType s) = NamedType s
@@ -136,6 +135,7 @@ instance Show UnifyError where
     show (MatchUE t s) = "could not match '" ++ show t ++ "' with '" ++ show s ++ "'"
     show (UnifyUE t1 t2) = "could not unify '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
     show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ n ++ "'"
+    show (ProdUE as bs) = "could not match the variables " ++ show as ++ "with the variables " ++ show bs
 
 infixr 4 @@
 (@@) :: Subst -> Subst -> Subst
@@ -150,38 +150,40 @@ varBind u t
     | u `Set.member` ftv t = Left (OccursUE u t)
     | otherwise = Right (u `mapsTo` t)
 
+mguMany :: [Type] -> [Type] -> Either UnifyError Subst
+mguMany [] [] = Right mempty
+mguMany (a:as) (b:bs) = do
+    s1 <- mgu a b
+    s2 <- mguMany (fmap (apply s1) as) (fmap (apply s1) bs)
+    Right (s1 @@ s2)
+mguMany as bs = Left (ProdUE as bs)
+
 mgu :: Type -> Type -> Either UnifyError Subst
 mgu (App _ a b) (App _ c d) = do
     s1 <- mgu a c
     s2 <- mgu (apply s1 b) (apply s1 d)
     Right (s1 @@ s2)
-mgu (Node _ (Prod as)) (Node _ (Prod bs)) = mguMany as bs
-    where
-        mguMany [] [] = Right mempty
-        mguMany (a:as) (b:bs) = do
-            s1 <- mgu a b
-            s2 <- mguMany (fmap (apply s1) as) (fmap (apply s1) bs)
-            Right (s1 @@ s2)
-        mguMany as bs = Left (ProdUE as bs)
+mgu (Node _ (Product as)) (Node _ (Product bs)) = mguMany as bs
 mgu (Node _ (TypeVar u)) t = varBind u t
 mgu t (Node _ (TypeVar u)) = varBind u t
 mgu a b
     | a == b = Right mempty
 mgu a b = Left (UnifyUE a b)
 
+matchMany :: Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
+matchMany q _ [] = Right mempty
+matchMany q (a:as) (b:bs) = do
+    s1 <- match a (Forall q b)
+    s2 <- matchMany q (fmap (apply s1) as) (fmap (apply s1) bs)
+    Right (s1 @@ s2)
+matchMany q as bs = Left (ProdUE as bs)
+
 match :: Type -> Scheme -> Either UnifyError Subst
 match (App _ w x) (Forall a (App _ y z)) = do
     s1 <- match w (Forall a y)
     s2 <- match (apply s1 x) (Forall a $ apply s1 z)
     Right (s1 @@ s2)
-match (Node _ (Prod as)) (Forall a (Node _ (Prod bs))) = matchMany a as bs
-    where
-        matchMany q [] [] = Right mempty
-        matchMany q (a:as) (b:bs) = do
-            s1 <- match a (Forall q b)
-            s2 <- matchMany q (fmap (apply s1) as) (fmap (apply s1) bs)
-            Right (s1 @@ s2)
-        matchMany q as bs = Left (ProdUE as bs)
+match (Node _ (Product as)) (Forall a (Node _ (Product bs))) = matchMany a as bs
 match (Node _ (TypeVar u)) (Forall a t)
     | not (u `Set.member` a) = varBind u t
     | otherwise = Left (RigidUE u t)

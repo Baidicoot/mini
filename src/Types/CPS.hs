@@ -119,6 +119,7 @@ instance Pretty CExp Int where
 -- get whether the variable is called
 calledIn :: CExp -> Identifier -> Bool
 calledIn (App (Var m) _) n = n == m
+calledIn (Fix _ e) n = calledIn e n
 calledIn (Record _ _ e) n = calledIn e n
 calledIn (Select _ _ _ e) n = calledIn e n
 calledIn (Switch _ es) n = or $ fmap (`calledIn` n) es

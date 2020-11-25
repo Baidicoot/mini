@@ -47,7 +47,7 @@ untagCore = untag . fmap untagCoreN
     where
         untagCoreN :: CoreNode tag -> CoreNode NoTag
         untagCoreN (Let n a b) = Let n (untagCore a) (untagCore b)
-        untagCoreN (Fix fs b) = Fix (fmap (\(a,b)->(a,untagCore b)) fs) (untagCore b)
+        untagCoreN (Fix fs b) = Fix (fmap (second untagCore) fs) (untagCore b)
         untagCoreN (Tuple ts) = Tuple ts
         untagCoreN (Lam n a) = Lam n (untagCore a)
         untagCoreN (Match t n cs) = Match t n (fmap (\(a,b,c)->(a,NoTag,untagCore c)) cs)

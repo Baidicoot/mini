@@ -50,7 +50,8 @@ executable mini
     Backend.X86_64_linux.Textual,
     Backend.Backend,
     Backend.X86_64_linux.Types,
-    Backend.X86_64_linux.Translate
+    Backend.X86_64_linux.Translate,
+    Elaborate.Defunctorize
   -- other-extensions:    
   build-depends:
     base >=4.9,
