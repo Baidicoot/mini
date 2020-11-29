@@ -57,6 +57,8 @@ emitX86 Syscall = emitStr "syscall" >> endl
 emitX86 (Ccall s) = emitStr "call " >> emitStr s >> endl
 emitX86 (Addq a b) = emitStr "addq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
 emitX86 (Subq a b) = emitStr "subq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
+emitX86 (Extern l) = emitStr ("extern " ++ show l) >> endl
+emitX86 (Global l) = emitStr ("global " ++ show l) >> endl
 
 instance Backend (X86 ()) where
     codegen = mapM_ emitX86 . concatMap translate

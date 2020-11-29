@@ -54,6 +54,8 @@ data Operator
     | EmitPtr Label Int
     | Define Label
     | Comment String
+    | Exports Label
+    | Imports Label
     -- end of pseudoops
     | CheckLim Int
     | Jmp Operand
@@ -70,6 +72,8 @@ data Operator
 
 instance Show Operator where
     show (EmitLit l) = show l
+    show (Imports l) = "imports " ++ show l
+    show (Exports l) = "exports " ++ show l
     show (EmitPtr p o) = ('%':show p) ++ "[" ++ show o ++ "]"
     show (Define l) = '@':show l ++ ":"
     show (CheckLim i) = "check " ++ show i

@@ -51,7 +51,7 @@ type Action = Map.Map Name Name -> Elaborator (Core SourcePos)
 type ClauseRow = ([SourcePattern], Map.Map Name Name, Action)
 type ClauseMatrix = ([ClauseRow], [Name])
 
-type ElabEnv = (Module, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme)
+type ElabEnv = (ModulePath, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme)
 type ElabState = Int
 type Elaborator = ErrorsT [ElabError] (RWS ElabEnv [ElabWarning] ElabState)
 

@@ -59,4 +59,6 @@ translate (Select i o r) = translateAccess o (SelPath i NoPath) (Register (Direc
 translate (Fetch r o1 o2) = []
 translate Halt = [ Movq (Const (Int 60)) (Register (Direct rax)), Syscall ]
 translate (Error s) = [ Movq (Const (Int 60)) (Register (Direct rax)), Syscall ]
+translate (Exports l) = [ Global l ]
+translate (Imports l) = [ Extern l ]
 translate _ = []

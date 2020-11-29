@@ -78,7 +78,7 @@ liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
 liftUE _ _ (Right x) = pure x
 liftUE t a (Left e) = throw [UnifyError t e a]
 
-typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, ModuleExports, Int)
+typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, [Scheme], Int)
 typecheck i e c =
     let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
         (r,i',s) = runChecker

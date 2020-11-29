@@ -51,7 +51,9 @@ executable mini
     Backend.Backend,
     Backend.X86_64_linux.Types,
     Backend.X86_64_linux.Translate,
-    Elaborate.Defunctorize
+    Elaborate.Defunctorize,
+    Modules.Server,
+    Modules.Glue
   -- other-extensions:    
   build-depends:
     base >=4.9,

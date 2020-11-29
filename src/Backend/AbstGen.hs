@@ -23,11 +23,11 @@ type AbstState = (Inj.Injection Identifier GPR, Map.Map Identifier [GPR], Int)
 type AbstEnv = (Set.Set Identifier, Int)
 -- escaping functions, number of registers available
 
-runAbstGen :: AbstGen a -> AbstEnv -> (a, [Operator])
-runAbstGen a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, mempty, 0))
+runAbstGen :: [(Identifier, [GPR])] -> AbstGen a -> AbstEnv -> (a, [Operator])
+runAbstGen layouts a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, Map.fromList layouts, 0))
 
-generateAbstract :: CExp -> Int -> [Operator]
-generateAbstract e n = snd $ runAbstGen (generate e) (CPS.getEscaping e,n)
+generateAbstract :: [(Identifier, [GPR])] -> Identifier -> CExp -> Int -> [Operator]
+generateAbstract layouts m e n = Exports m:snd (runAbstGen layouts (generate e) (CPS.getEscaping e,n))
 
 type AbstGen = RWS AbstEnv [Operator] AbstState
 

@@ -4,10 +4,10 @@ import Control.Monad (replicateM)
 
 type Name = String
 
-type Module = [Name]
+type ModulePath = [Name]
 
 data Identifier
-    = ExternalIdentifier Module Name
+    = ExternalIdentifier ModulePath Name
     | LocalIdentifier Name
     deriving(Eq, Ord)
 

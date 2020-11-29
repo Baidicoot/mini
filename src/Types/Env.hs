@@ -20,7 +20,7 @@ import qualified Data.Map as Map
 
 -- fields include constructor information
 data ModuleExports = ModuleExports
-    { moduleMod :: Module           -- module path
+    { moduleMod :: ModulePath       -- module path
     , termNames :: [Name]           -- term-level names
     , typeNames :: [Name]           -- type-level names
     , termTypes :: [(Name, Scheme)] -- term-level typing info
@@ -71,7 +71,7 @@ includeGADTs gs = mempty
     }
 
 data ImportAction
-    = ImportAsHiding Module [Name] [Name]
+    = ImportAsHiding ModulePath [Name] [Name]
     deriving(Eq, Show)
 
 data Env = Env 
@@ -96,11 +96,11 @@ instance Monoid Env where
     mempty = Env mempty mempty mempty mempty mempty mempty
     mappend = (<>)
 
-ident :: Module -> Name -> Identifier
+ident :: ModulePath -> Name -> Identifier
 ident [] n = LocalIdentifier n
 ident xs n = ExternalIdentifier xs n
 
-importAs :: Module -> ModuleExports -> Env
+importAs :: ModulePath -> ModuleExports -> Env
 importAs m' (ModuleExports m a b c d e f) = Env
     (Map.fromList $ fmap (ident m' &&& ident m) a)
     (Map.fromList $ fmap (ident m' &&& ident m) b)

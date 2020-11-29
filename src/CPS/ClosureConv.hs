@@ -118,7 +118,7 @@ extractPtr :: Identifier -> ClosureConv CExp -> ClosureConv CExp
 extractPtr i c = do
     fp <- fresh
     i' <- renaming i
-    Select 0 (Var i') (LocalIdentifier fp) <$> local (\(a,b,c,d) -> (Map.insert i' (Var $ LocalIdentifier fp) a,b,c,d)) c
+    Select 0 (Var i') (LocalIdentifier fp) <$> local (\(a,b,c,d) -> (Map.insert i (Var $ LocalIdentifier fp) a,b,c,d)) c
 
 makeCls :: Value -> ClosureConv CExp -> ClosureConv CExp
 makeCls (Label i) c = do

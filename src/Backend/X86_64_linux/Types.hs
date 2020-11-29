@@ -68,6 +68,8 @@ data X86Operand
 
 data X86Instruction
     = DefLabel Label
+    | Global Label
+    | Extern Label
     | PPC String
     | Movq X86Operand X86Operand
     | Long X86ConstOp
