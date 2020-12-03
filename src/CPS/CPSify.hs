@@ -78,11 +78,11 @@ cpsNames = fmap (("c"++) . show) [0..]
 
 type CPSifier = StateT CPSState (Reader CPSEnv)
 
-runCPSify :: Int -> CPSEnv -> CPSifier a -> (a, CPSState)
-runCPSify ns e a = runReader (runStateT a (ns,[])) e
+runCPSify :: [Identifier] -> Int -> CPSEnv -> CPSifier a -> (a, CPSState)
+runCPSify k ns e a = runReader (runStateT a (ns,k)) e
 
-cpsify :: Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
-cpsify env exp i = runCPSify i (mkCPSEnv env) (convert exp (\z -> pure Halt))
+cpsify :: [Identifier] -> Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
+cpsify k env exp i = runCPSify k i (mkCPSEnv env) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (Core.Error s) c = pure (Error s)
