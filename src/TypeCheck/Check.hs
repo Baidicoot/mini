@@ -8,7 +8,7 @@ import Types.Graph
 import Types.Type
 import Types.Ident
 import Types.Core
-import Types.Env
+import Types.Module
 import Types.Prim
 
 import Control.Monad.Reader
@@ -78,9 +78,9 @@ liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
 liftUE _ _ (Right x) = pure x
 liftUE t a (Left e) = throw [UnifyError t e a]
 
-typecheck :: Int -> Env -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, [Scheme], Int)
+typecheck :: Int -> ModuleServer -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, [Scheme], Int)
 typecheck i e c =
-    let env = Gamma (types e, mempty, fmap (\(a,b,c)->b) (consInfo e), mempty)
+    let env = Gamma (Map.fromList (termTypes e), mempty, Map.fromList (consTypes e), mempty)
         (r,i',s) = runChecker
             env
             (i,mempty)

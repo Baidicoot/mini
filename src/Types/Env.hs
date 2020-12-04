@@ -11,14 +11,13 @@ module Types.Env
     ) where
 
 import Types.Ident
-import Types.Syntax
 import Types.Type
 import Types.Graph
 
 import Control.Arrow
 import qualified Data.Map as Map
 
--- fields include constructor information
+-- high-level interface for modules
 data ModuleExports = ModuleExports
     { moduleMod :: ModulePath       -- module path
     , termNames :: [Name]           -- term-level names

@@ -60,8 +60,8 @@ extractIdents (_:xs) = extractIdents xs
 extractIdents [] = []
 
 extractLabels :: [Value] -> [Identifier]
-extractLabels (Label id:ns) = id:extractIdents ns
-extractLabels (_:xs) = extractIdents xs
+extractLabels (Label id:ns) = id:extractLabels ns
+extractLabels (_:xs) = extractLabels xs
 extractLabels [] = []
 
 fv :: CExp -> Set.Set Identifier

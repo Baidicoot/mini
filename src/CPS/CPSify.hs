@@ -3,7 +3,7 @@ module CPS.CPSify where
 import Types.CPS
 import Types.Ident
 import Types.Prim
-import Types.Env
+import Types.Module
 import Types.Type
 import Types.Graph (NoTag)
 import qualified Types.Graph as Graph
@@ -23,10 +23,10 @@ import qualified Data.Map as Map
 type CPSState = (Int, [Identifier])
 type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int)
 
-mkCPSEnv :: Env -> CPSEnv
+mkCPSEnv :: [GADT] -> CPSEnv
 mkCPSEnv env =
-    let cons = (\(i,_,_) -> i) <$> consInfo env
-        gadts = (\(GADT _ ls) -> length ls) <$> indInfo env
+    let cons = Map.fromList $ concatMap (\(GADT _ _ ls) -> zip (fmap fst ls) [0..]) env
+        gadts = Map.fromList $ fmap (\(GADT i _ ls) -> (i,length ls)) env
     in (cons, gadts)
 
 fresh :: CPSifier Name
@@ -81,8 +81,8 @@ type CPSifier = StateT CPSState (Reader CPSEnv)
 runCPSify :: [Identifier] -> Int -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify k ns e a = runReader (runStateT a (ns,k)) e
 
-cpsify :: [Identifier] -> Env -> Core.Core NoTag -> Int -> (CExp, CPSState)
-cpsify k env exp i = runCPSify k i (mkCPSEnv env) (convert exp (\z -> pure Halt))
+cpsify :: [Identifier] -> ModuleServer -> Core.Core NoTag -> Int -> (CExp, CPSState)
+cpsify k env exp i = runCPSify k i (mkCPSEnv (gadts env)) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (Core.Error s) c = pure (Error s)

@@ -4,7 +4,7 @@ module Elaborate.Elaborate (elaborate) where
 
 import Types.Pattern
 import Types.Core
-import Types.Env
+import Types.Module
 import Types.Ident
 import Types.Graph
 import Types.Type
@@ -26,9 +26,9 @@ import Data.List (intercalate)
 
 import qualified Data.Map as Map
 
-elaborate :: Int -> Env -> ModulePath -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, ModuleExports, [Name], Int, [ElabWarning])
-elaborate i e m tl =
-    let env = (m, termRenames e, typeRenames e, fmap (\(a,b,c)->b) (consInfo e))
+elaborate :: Int -> ModuleServer -> Env -> ModulePath -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, [GADT], [Name], Int, [ElabWarning])
+elaborate i ms e m tl =
+    let env = (m, Map.fromList (termRenames e), Map.fromList (typeRenames e), Map.fromList (consTypes ms))
         (res, s, w) = runElab (elabTL tl) env i
     in case res of
         Success (c, g, n) -> Success (c, g, n, s, w)
@@ -218,8 +218,9 @@ getTypes m [] = []
 
 genGADT :: Syn.Data -> Elaborator GADT
 genGADT (Syn.Ind n _ ns) = do
-    ns' <- mapM (\(Syn.Expl n t) -> fmap ((,) n . (\t -> Forall (ftv t) t)) (elabType t)) ns
-    pure (GADT n ns')
+    m <- modul
+    ns' <- mapM (\(Syn.Expl n t) -> fmap ((,) (ExternalIdentifier m n) . (\t -> Forall (ftv t) t)) (elabType t)) ns
+    pure (GADT (ExternalIdentifier m n) (Node NoTag KindStar) ns')
 
 translateTL :: ModulePath -> [Name] -> [Syn.TopLevel] -> (Syn.Expr, [Name])
 translateTL m ns (Syn.Group p fs:xs) =
@@ -234,9 +235,9 @@ translateTL m ns (_:xs) = translateTL m ns xs
 translateTL m ns [] = (Node (initialPos (intercalate "." m)) $ Syn.Tuple (fmap (Node (initialPos (intercalate "." m)) . Syn.Var . LocalIdentifier) ns), ns)
 
 collectCons :: ModulePath -> [GADT] -> ([(Identifier,Identifier)],[(Identifier, Scheme)])
-collectCons m = mconcat . fmap (\(GADT _ ss) -> (fmap (\(i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,fmap (first (ExternalIdentifier m)) ss))
+collectCons m = mconcat . fmap (\(GADT _ _ ss) -> (fmap (\(LocalIdentifier i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,ss))
 
-elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, ModuleExports, [Name])
+elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT], [Name])
 elabTL tl = do
     m <- modul
     let inds = getInd tl
@@ -246,7 +247,7 @@ elabTL tl = do
         gadts <- mapM genGADT inds
         let (terms, cons) = collectCons m gadts
         expr' <- withTerms terms (withCons cons (elabExpr expr))
-        pure (expr', mempty {moduleMod = m, termNames = exports} `mappend` includeGADTs gadts, exports)
+        pure (expr', gadts, exports)
 
 {-
 collectTypes :: Module -> [Syn.TopLevel] -> [(Identifier,Identifier)]

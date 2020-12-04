@@ -13,13 +13,9 @@ config = Config {regs=10}
 main :: IO ()
 main = void
     . runExceptT $ do
-        envref <- liftIO $ newIORef mempty
         forever $ do
             line <- liftIO $ prompt "> "
             do {
-                env <- liftIO $ readIORef envref;
-                liftIO $ print env;
-                mod <- compileStr config line;
-                forM_ (termTypes mod) $ \(n,s) -> liftIO . putStrLn $ "Defined " ++ n ++ " : " ++ show s;
-                liftIO $ modifyIORef' envref (`mappend` importWithAction mod include);
+                compileStr config line;
+                pure ();
             } `catchError` mapM_ (liftIO . putStrLn)

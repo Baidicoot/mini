@@ -42,6 +42,7 @@ executable mini
     Elaborate.Elaborator,
     Types.CPS,
     Types.Env,
+    Types.Module,
     Types.Injection,
     Types.Pretty,
     TypeCheck.Meta,
@@ -51,9 +52,9 @@ executable mini
     Backend.Backend,
     Backend.X86_64_linux.Types,
     Backend.X86_64_linux.Translate,
-    Elaborate.Defunctorize,
-    Modules.Server,
-    Modules.Glue
+    Modules.Defunctorize,
+    Modules.Glue,
+    Modules.CoreToAbst
   -- other-extensions:    
   build-depends:
     base >=4.9,
