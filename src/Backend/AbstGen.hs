@@ -26,8 +26,8 @@ type AbstEnv = (Set.Set Identifier, Int)
 runAbstGen :: [(Identifier, [GPR])] -> AbstGen a -> AbstEnv -> (a, [Operator])
 runAbstGen layouts a e = (\(a,_,c) -> (a,c)) (runRWS a e (mempty, Map.fromList layouts, 0))
 
-generateAbstract :: [(Identifier, [GPR])] -> Identifier -> CExp -> Int -> [Operator]
-generateAbstract layouts m e n = Exports m:snd (runAbstGen layouts (generate e) (CPS.getEscaping e,n))
+generateAbstract :: [(Identifier, [GPR])] -> [Identifier] -> CExp -> Int -> [Operator]
+generateAbstract layouts m e n = fmap Exports m ++ snd (runAbstGen layouts (generate e) (CPS.getEscaping e,n))
 
 type AbstGen = RWS AbstEnv [Operator] AbstState
 

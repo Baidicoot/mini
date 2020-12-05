@@ -13,12 +13,15 @@ module Control.Monad.Errors
     , revert
     , ignore
     , ErrorsT
+    , Errors
     , err
     , errL
     , throw
     , throwL
     , report
     , toEither
+    , toErrors
+    , mapErr
     , ErrorsResult(..)
     ) where
 
@@ -44,10 +47,19 @@ data ErrorsResult e a
     | Success a
     deriving(Eq, Show)
 
+mapErr :: (e -> f) -> ErrorsResult e a -> ErrorsResult f a
+mapErr f (Fail e) = Fail (f e)
+mapErr f (FailWithResult e a) = FailWithResult (f e) a
+mapErr _ (Success a) = Success a
+
 toEither :: ErrorsResult e a -> Either e a
 toEither (FailWithResult e _) = Left e
 toEither (Fail e) = Left e
 toEither (Success a) = Right a
+
+toErrors :: Either e a -> ErrorsResult e a
+toErrors (Left e) = Fail e
+toErrors (Right a) = Success a
 
 runErrors :: (Monoid e) => Errors e a -> ErrorsResult e a
 runErrors = runIdentity . runErrorsT

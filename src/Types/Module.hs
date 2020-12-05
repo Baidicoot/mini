@@ -9,10 +9,14 @@ import Data.List
 
 import Control.Arrow
 import Control.Monad
+import Control.Monad.Errors
+
+mainFn :: ModulePath -> Identifier
+mainFn p = ExternalIdentifier p "main"
 
 data ModuleABI = ModuleABI
     { moduleABIPath :: ModulePath
-    , moduleABIMain :: Name
+    , moduleABIMain :: Identifier
     , moduleABIReqs :: [ModulePath]
     , moduleABIRegs :: [GPR]
     }
@@ -36,6 +40,12 @@ data ModuleServer = ModuleServer
     , gadts :: [GADT]
     }
 
+constructAPI :: ModulePath -> [(Name, Scheme)] -> [GADT] -> ModuleAPI
+constructAPI p ns gs =
+    let gadtkinds = fmap (discardPath . gadtName &&& gadtKind) gs
+        constypes = concatMap (fmap (first discardPath) . gadtCons) gs
+    in ModuleAPI p (ns ++ constypes) gadtkinds gs
+
 emptyServer :: ModuleServer
 emptyServer = ModuleServer mempty mempty mempty
 
@@ -49,7 +59,7 @@ consTypes :: ModuleServer -> [(Identifier,Scheme)]
 consTypes = concatMap gadtCons . gadts
 
 regLayouts :: ModuleServer -> [(Identifier,[GPR])]
-regLayouts = fmap (\(ModuleABI p n _ l) -> (ExternalIdentifier p n, l)) . abis
+regLayouts = fmap (\(ModuleABI p i _ l) -> (i, l)) . abis
 
 getABI :: ModuleServer -> ModulePath -> Maybe ModuleABI
 getABI m i = internal i (abis m)
@@ -101,20 +111,44 @@ emptyEnv :: Env
 emptyEnv = Env mempty mempty mempty
 
 data ImportError
-    = NameCollision Identifier (Identifier, Identifier)
+    = NameCollision ModulePath Identifier (Identifier, Identifier)
     | UnfulfilledDependency [ModulePath]
 
-checkRenames :: [(Identifier, Identifier)] -> [(Identifier, Identifier)] -> Either [ImportError] [(Identifier, Identifier)]
-checkRenames p p' = case partition ((`elem` fmap fst p) . fst) p' of
-    ([], xs) -> Right (p ++ xs)
-    (err,_) -> Left $ fmap (\(a,b) -> let (Just c) = lookup a p in NameCollision a (b,c)) err
+instance Show ImportError where
+    show (NameCollision p i (a,b)) = "module " ++ intercalate "." p ++ ": the name `" ++ show i ++ "` could refer to either `" ++ show a ++ "` or `" ++ show b ++ "`"
+    show (UnfulfilledDependency mp) = "could not resolve a dependency ordering for:" ++ concatMap (\p -> "\n    " ++ intercalate "." p) mp
 
-importWithAction :: Env -> ModuleAPI -> ImportAction -> Either [ImportError] Env
-importWithAction (Env tr ty co) (ModuleAPI p mtr mty gs) (ImportAs p') =
+sortDependencies :: [(ModulePath,[ModulePath],a)] -> Either [ImportError] [(ModulePath,a)]
+sortDependencies = internal []
+    where
+        internal :: [(ModulePath,a)] -> [(ModulePath,[ModulePath],a)] -> Either [ImportError] [(ModulePath,a)]
+        internal sorted [] = pure sorted
+        internal sorted todo = 
+            let (solved, remaining) = partition (satisfiedDependencies sorted) todo
+            in case solved of
+                [] -> Left [UnfulfilledDependency $ fmap fst sorted ++ concatMap (\(_,p,_)->p) remaining]
+                _ -> internal (fmap (\(a,_,b)->(a,b)) solved ++ sorted) remaining 
+
+        satisfiedDependencies :: [(ModulePath,a)] -> (ModulePath,[ModulePath],a) -> Bool
+        satisfiedDependencies has (_,m,_) = null (m \\ fmap fst has)
+
+checkRenames :: ModulePath -> [(Identifier, Identifier)] -> [(Identifier, Identifier)] -> Errors [ImportError] [(Identifier, Identifier)]
+checkRenames path p p' = case partition ((`elem` fmap fst p) . fst) p' of
+    ([], xs) -> pure (p ++ xs)
+    (err,_) -> throw $ fmap (\(a,b) -> let (Just c) = lookup a p in NameCollision path a (b,c)) err
+
+importWithAction :: ModuleAPI -> ImportAction -> Env -> Errors [ImportError] Env
+importWithAction (ModuleAPI p mtr mty gs) (ImportAs p') (Env tr ty co) =
     let rtr = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mtr]
         rty = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mty]
         rco = [n | GADT _ _ co <- gs, n <- fmap fst co]
-        tr' = checkRenames tr rtr
-        ty' = checkRenames ty rty
-        co' = Right $ nub (rco ++ co)
+        tr' = checkRenames p tr rtr
+        ty' = checkRenames p ty rty
+        co' = pure $ nub (rco ++ co)
     in liftM3 Env tr' ty' co'
+
+doImports :: ModuleServer -> [(ModulePath,ImportAction)] -> Errors [ImportError] Env
+doImports ms [] = pure emptyEnv
+doImports ms ((mp,ia):is) = case getAPI ms mp of
+    Just api -> importWithAction api ia =<< doImports ms is
+    Nothing -> throw [UnfulfilledDependency [mp]]

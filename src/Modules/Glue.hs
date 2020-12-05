@@ -10,20 +10,7 @@ import Types.Prim
 
 import Modules.CoreToAbst
 import Data.List
-
-sortModules :: ModuleServer -> Either [ImportError] [ModuleABI]
-sortModules = internal [] . abis
-    where
-        internal :: [ModuleABI] -> [ModuleABI] -> Either [ImportError] [ModuleABI]
-        internal sorted [] = Right sorted
-        internal sorted remaining =
-            let (solved, left) = partition (satisfiedDependencies sorted) remaining
-            in case solved of
-                [] -> Left [UnfulfilledDependency . fmap moduleABIPath $ sorted ++ remaining]
-                _ -> internal (sorted ++ solved) left
-
-        satisfiedDependencies :: [ModuleABI] -> ModuleABI -> Bool
-        satisfiedDependencies has m = null (moduleABIReqs m \\ fmap moduleABIPath has)
+import Control.Monad.Errors
 
 modName :: ModulePath -> Identifier
 modName m = ExternalIdentifier m "mod"
@@ -47,7 +34,9 @@ glueLExp s (m:ms) loaded = Node unitty $ Let name resTerm (glueLExp s ms ((modul
         resTerm :: Core Type
         resTerm = App resTyp (Node (argTyp --> resTyp) . Val $ Var name) argTerm
 
-glue :: ModuleServer -> Either [ImportError] [Operand]
-glue ms = do
-    abis <- sortModules ms
-    pure (glueLExp ms abis [])
+glue :: Identifier -> Int -> ModuleServer -> Either [ImportError] [Operator]
+glue main regs ms = do
+    abis <- fmap snd <$> sortDependencies (fmap (\x -> (moduleABIPath x,moduleABIReqs x,x)) (abis ms))
+    let core = glueLExp ms abis []
+    let ops = fst $ coreToAbst (fmap (mainFn . moduleABIPath) abis) [] ms 0 core regs
+    pure (Exports main:Define main:ops)

@@ -54,7 +54,8 @@ executable mini
     Backend.X86_64_linux.Translate,
     Modules.Defunctorize,
     Modules.Glue,
-    Modules.CoreToAbst
+    Modules.CoreToAbst,
+    Modules.TextToCore
   -- other-extensions:    
   build-depends:
     base >=4.9,

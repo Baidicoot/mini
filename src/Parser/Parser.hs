@@ -1,16 +1,18 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Parser.Parser (toplevelexpr) where
+module Parser.Parser (program) where
 
 import Prelude hiding(or)
 
 import Data.Monoid
 import Data.Functor
 import Control.Monad
+import Control.Arrow
 import Data.Either
 
 import Types.SExpr
 import Types.Ident
+import Types.Module
 import Types.Syntax
 import Types.Type
 import Types.Prim hiding(Value(..))
@@ -161,3 +163,11 @@ toplevel x = Group (getPos x) . (:[]) <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]
 toplevelexpr = many toplevel
+
+importdecl :: SourcePos -> Parser [ExprS] (ModulePath,ImportAction)
+importdecl _ [SNode _ (Keyword "import-as"),p,p'] = liftM2 (flip (,) . ImportAs) (args p') (args p)
+importdecl t x = Left [Expecting "import" (display $ SExpr t x) t]
+
+program :: Parser [ExprS] ([(ModulePath,ImportAction)],[TopLevel])
+program (SExpr _ x@(SNode t (Keyword "import-as"):_):xs) = liftM2 (first . (:)) (importdecl t x) (program xs)
+program xs = (,) [] <$> toplevelexpr xs

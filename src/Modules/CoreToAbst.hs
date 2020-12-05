@@ -11,7 +11,7 @@ import CPS.ClosureConv
 import CPS.Spill
 import Backend.AbstGen
 
-coreToAbst :: [Identifier] -> Identifier -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], Int)
+coreToAbst :: [Identifier] -> [Identifier] -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], Int)
 coreToAbst k m e r c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
         (c2,s2) = closureConv c1 s1
