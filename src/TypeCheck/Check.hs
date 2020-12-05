@@ -297,7 +297,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         (t',t2) <- withEnv [(x',m1,s1)] (infer m t)
         pure (Node t2 (Let x u' t'), t2)
     -- FIX-INFER
-    infer m (Node p (Fix fs t)) = do
+    infer m n@(Node p (Fix fs t)) = do
         imtxs <- infFixDefs fs
         let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs

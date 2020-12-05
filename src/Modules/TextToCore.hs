@@ -1,4 +1,4 @@
-module Module.TextToCore where
+module Modules.TextToCore (textToCore) where
 
 import Text.Parsec
 import Parser.Parser

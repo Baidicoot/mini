@@ -184,14 +184,14 @@ match (App _ w x) (Forall a (App _ y z)) = do
     s2 <- match (apply s1 x) (Forall a $ apply s1 z)
     Right (s1 @@ s2)
 match (Node _ (Product as)) (Forall a (Node _ (Product bs))) = matchMany a as bs
+match x (Forall a y)
+    | x == y = Right mempty
 match (Node _ (TypeVar u)) (Forall a t)
     | not (u `Set.member` a) = varBind u t
     | otherwise = Left (RigidUE u t)
 match t (Forall a (Node _ (TypeVar u)))
     | not (u `Set.member` a) = varBind u t
     | otherwise = Left (RigidUE u t)
-match x (Forall a y)
-    | x == y = Right mempty
 match a b = Left (MatchUE a b)
 
 infixr 9 -->
