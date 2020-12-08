@@ -9,19 +9,20 @@
 module Control.Monad.Errors
     ( runErrors
     , runErrorsT
-    , MonadErrors
+    , MonadErrors(..)
     , revert
     , ignore
     , ErrorsT
     , Errors
     , err
     , errL
-    , throw
     , throwL
     , report
     , toEither
     , toErrors
     , mapErr
+    , mapLeft
+    , liftEither
     , ErrorsResult(..)
     ) where
 
@@ -30,6 +31,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Reader.Class
 import Control.Monad.Writer.Class
 import Control.Monad.State.Class
+import Control.Monad.IO.Class
 import Control.Monad
 
 import Data.Monoid
@@ -51,6 +53,10 @@ mapErr :: (e -> f) -> ErrorsResult e a -> ErrorsResult f a
 mapErr f (Fail e) = Fail (f e)
 mapErr f (FailWithResult e a) = FailWithResult (f e) a
 mapErr _ (Success a) = Success a
+
+mapLeft :: (a -> b) -> Either a c -> Either b c
+mapLeft f (Left x) = Left (f x)
+mapLeft _ (Right x) = Right x
 
 toEither :: ErrorsResult e a -> Either e a
 toEither (FailWithResult e _) = Left e
@@ -76,6 +82,7 @@ runErrorsT (ErrorsT action) = do
 class MonadErrors e m | m -> e where
     throw :: e -> m a
     recover :: (a -> b) -> b -> m a -> m b
+    liftErrors :: ErrorsResult e a -> m a
 
 revert :: (MonadErrors e m) => a -> m a -> m a
 revert = recover id
@@ -95,6 +102,9 @@ throwL = throw . (:[])
 errL :: (MonadErrors [e] m) => a -> e -> m a
 errL a e = revert a (throwL e)
 
+liftEither :: (MonadErrors e m) => Either e a -> m a
+liftEither = liftErrors . toErrors
+
 instance (Monad m, Monoid e) => MonadErrors e (ErrorsT e m) where
     throw e = ErrorsT $ return (Just e,Nothing)
     recover f def (ErrorsT action) = ErrorsT $ do
@@ -102,6 +112,9 @@ instance (Monad m, Monoid e) => MonadErrors e (ErrorsT e m) where
         case a of
             Nothing -> pure (x,Just def)
             Just a' -> pure (x,Just (f a'))
+    liftErrors (Fail e) = throw e
+    liftErrors (FailWithResult e a) = err a e
+    liftErrors (Success a) = pure a
 
 instance (Monad m, Monoid e) => Functor (ErrorsT e m) where
     fmap = liftM
@@ -128,6 +141,9 @@ instance (Monoid e) => MonadTrans (ErrorsT e) where
     lift x = ErrorsT $ do
         x' <- x
         return (Nothing,Just x')
+
+instance (MonadIO m, Monoid e) => MonadIO (ErrorsT e m) where
+    liftIO = lift . liftIO
 
 instance (MonadState s m, Monoid e) => MonadState s (ErrorsT e m) where
     state f = lift (state f)

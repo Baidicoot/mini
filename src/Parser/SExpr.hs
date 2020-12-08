@@ -25,5 +25,5 @@ sexpr n
         node = liftA2 SNode sourcePos (whiteSep n)
         sexp = liftA2 SExpr sourcePos (whiteSep . parens . many . sexpr $ n)
 
-rpncc :: Parser ExprS
-rpncc = sexpr rpnccTok
+rpncc :: Parser [ExprS]
+rpncc = many (sexpr rpnccTok)

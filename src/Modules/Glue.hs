@@ -8,7 +8,7 @@ import Types.Core
 import Types.Graph
 import Types.Prim
 
-import Modules.CoreToAbst
+import Modules.Module
 import Data.List
 import Control.Monad.Errors
 
@@ -38,5 +38,5 @@ glue :: Identifier -> Int -> ModuleServer -> Either [ImportError] [Operator]
 glue main regs ms = do
     abis <- fmap snd <$> sortDependencies (fmap (\x -> (moduleABIPath x,moduleABIReqs x,x)) (abis ms))
     let core = glueLExp ms abis []
-    let ops = fst $ coreToAbst (fmap (mainFn . moduleABIPath) abis) [] ms 0 core regs
+    let ops = (\(x,_,_)->x) $ coreToAbst (fmap (mainFn . moduleABIPath) abis) [] ms 0 core regs
     pure (Exports main:Define main:ops)

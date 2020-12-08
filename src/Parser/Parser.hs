@@ -1,6 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
-
-module Parser.Parser (program) where
+module Parser.Parser (parse,emptyResult,ParseResult,Program,Stream) where
 
 import Prelude hiding(or)
 
@@ -22,7 +20,12 @@ import Types.Graph
 import Error.Error
 
 import Data.Char (isLower)
+import qualified Text.Parsec as Parsec (parse)
 import Text.Parsec.Pos
+
+import Data.List (intercalate)
+
+import Parser.SExpr (rpncc)
 
 data SyntaxError
     = Expecting String String SourcePos
@@ -171,3 +174,19 @@ importdecl t x = Left [Expecting "import" (display $ SExpr t x) t]
 program :: Parser [ExprS] ([(ModulePath,ImportAction)],[TopLevel])
 program (SExpr _ x@(SNode t (Keyword "import-as"):_):xs) = liftM2 (first . (:)) (importdecl t x) (program xs)
 program xs = (,) [] <$> toplevelexpr xs
+
+type ParseResult = ([(ModulePath,ImportAction)],Program)
+type Program = [TopLevel]
+type Stream = String
+
+emptyResult :: ParseResult
+emptyResult = ([],[])
+
+mapLeft :: (a -> b) -> Either a c -> Either b c
+mapLeft f (Left x) = Left (f x)
+mapLeft _ (Right x) = Right x
+
+parse :: ModulePath -> Stream -> Either [String] ParseResult
+parse p s = do
+    sexpr <- mapLeft ((:[]) . show) (Parsec.parse rpncc (intercalate "." p) s)
+    mapLeft (fmap (render s)) (program sexpr) 

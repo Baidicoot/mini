@@ -1,13 +1,17 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 
-module Backend.X86_64_linux.Textual where
+module Backend.X86_64_linux.Textual (x86_64_linuxTextualBackend) where
 
-import Backend.Backend
 import Backend.X86_64_linux.Types
 import Backend.X86_64_linux.Translate
 import Control.Applicative hiding(Const(..))
+import Control.Monad.IO.Class
+import Control.Monad
 
 import Types.Abstract
+import Types.Build
+import Types.Ident
 
 newtype X86_64_linux a = X86 (a, String)
 
@@ -60,6 +64,21 @@ emitX86 (Subq a b) = emitStr "subq " >> emitOp a >> emitStr ", " >> emitOp b >> 
 emitX86 (Extern l) = emitStr ("extern " ++ show l) >> endl
 emitX86 (Global l) = emitStr ("global " ++ show l) >> endl
 
-instance Backend (X86 ()) where
-    codegen = mapM_ emitX86 . concatMap translate
-    emit (X86 (_,s)) = s
+abstToTexutalX86 :: [Operator] -> String
+abstToTexutalX86 = (\(X86 (_,s))->s) . mapM emitX86 . concatMap translate
+
+assembleX86 :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build String
+assembleX86 cfg files glue = do
+    paths <- forM files $ \case
+        (p,Right ops) ->
+            liftIO $ writeFile
+                (root cfg ++ "cache-x86_64-linux-textual/" ++ concatMap (++".") p ++ "asm")
+                (abstToTexutalX86 ops)
+                >> pure (root cfg ++ "cache-x86_64-linux-textual/" ++ concatMap (++".") p ++ "asm")
+    liftIO $ writeFile
+        (root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
+        (abstToTexutalX86 glue)
+    pure (root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
+
+x86_64_linuxTextualBackend :: Backend
+x86_64_linuxTextualBackend = Backend assembleX86 nregs (LocalIdentifier "__start")

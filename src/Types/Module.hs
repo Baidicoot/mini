@@ -77,6 +77,9 @@ getAPI m i = internal i (apis m)
             | otherwise = internal i xs
         internal i [] = Nothing
 
+loadModule :: ModuleABI -> ModuleAPI -> ModuleServer -> ModuleServer
+loadModule abi api@(ModuleAPI _ _ _ g) (ModuleServer abs aps as) = ModuleServer (abi:abs) (api:aps) (g ++ as)
+
 getSignature :: ModuleAPI -> Type
 getSignature (ModuleAPI _ ts _ _) =
     let --a = mconcat $ fmap (\(_,Forall a _) -> a) ts

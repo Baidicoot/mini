@@ -23,6 +23,9 @@ Abstract    X86     Callee-Saved
 arith       r15     => not required to be saved
 -}
 
+nregs :: Int
+nregs = 15
+
 callerSaved :: [Register]
 callerSaved = GPR <$> [0,1,3,4,5,7,8,9,10,14]
 
