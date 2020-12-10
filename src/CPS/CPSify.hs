@@ -61,7 +61,7 @@ index id = do
     (env,_) <- ask
     case Map.lookup id env of
         Just x -> pure x
-        Nothing -> error $ "oh bees oh bees oh bees oh bees"
+        Nothing -> error $ "oh bees oh bees oh bees oh bees" ++ show env
 
 cases :: Identifier -> CPSifier Int
 cases id = do

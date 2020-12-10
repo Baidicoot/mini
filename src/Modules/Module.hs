@@ -44,5 +44,5 @@ coreToAbst k m e r c0 s0 =
 parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator])
 parsedToAbst p ms k m r s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
-    let (o,[(_,l)],_) = coreToAbst k [m] ms r t s0
+    let (o,[(_,l)],_) = coreToAbst k [m] (loadAPI a ms) r t s0
     pure (w,a,ModuleABI p m (fmap fst i) l,o)

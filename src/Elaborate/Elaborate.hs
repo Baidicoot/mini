@@ -235,7 +235,7 @@ translateTL m ns (_:xs) = translateTL m ns xs
 translateTL m ns [] = (Node (initialPos (intercalate "." m)) $ Syn.Tuple (fmap (Node (initialPos (intercalate "." m)) . Syn.Var . LocalIdentifier) ns), ns)
 
 collectCons :: ModulePath -> [GADT] -> ([(Identifier,Identifier)],[(Identifier, Scheme)])
-collectCons m = mconcat . fmap (\(GADT _ _ ss) -> (fmap (\(LocalIdentifier i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,ss))
+collectCons m = mconcat . fmap (\(GADT _ _ ss) -> (fmap (\(ExternalIdentifier m i,_) -> (LocalIdentifier i, ExternalIdentifier m i)) ss,ss))
 
 elabTL :: [Syn.TopLevel] -> Elaborator (Core SourcePos, [GADT], [Name])
 elabTL tl = do

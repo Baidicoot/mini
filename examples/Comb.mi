@@ -1,4 +1,5 @@
-(s (x y z) x z (y z))
-(k (a b) a)
+(ind Maybe
+    (Just :: a -> Maybe a)
+    (Nothing :: Maybe a))
 
-(let (x k 0 1))
+(let (x Just 3))
