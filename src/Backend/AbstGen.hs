@@ -147,8 +147,7 @@ switch v exps = do
     table <- fmap (LocalIdentifier . ("table_"++) . show) caseLabel
     emit (Fetch ar (ImmLabel table) o)
     emit (Jmp ar)
-    emit (Define table)
-    mapM_ (emit . flip EmitPtr 0) lbls
+    emit (Table table (fmap (`EmitLabel` 0) lbls))
     mapM_ (\(lbl,exp) -> do
         emit (Define lbl)
         generate exp) (zip lbls exps)
@@ -255,10 +254,13 @@ genLayout (_:xs) = do
     pure (a:ls)
 genLayout [] = pure []
 
+saveLayout :: Identifier -> [GPR] -> AbstGen ()
+saveLayout n ls = modify (\(a,b,c) -> (a, Map.insert n ls b, c))
+
 setLayout :: Identifier -> [Value] -> AbstGen [GPR]
 setLayout n vs = do
     ls <- genLayout vs
-    modify (\(a,b,c) -> (a, Map.insert n ls b, c))
+    saveLayout n ls
     pure ls
 
 getLayout :: Identifier -> [Value] -> AbstGen [(Value, GPR)]
@@ -297,9 +299,9 @@ partEsc (f@(CPS.Fun v _ _):fs) = do
     (esc, _) <- ask
     (nonfn, escfn) <- partEsc fs
     if v `Set.member` esc then
-        pure (f:nonfn, escfn)
-    else
         pure (nonfn, f:escfn)
+    else
+        pure (f:nonfn, escfn)
 partEsc [] = pure ([], [])
 
 partAssigned :: [CFun] -> AbstGen ([CFun], [CFun])
@@ -312,12 +314,23 @@ partAssigned (f@(CPS.Fun v _ _):fs) = do
         pure (assignedfns, f:otherfns)
 partAssigned [] = pure ([], [])
 
+genEsc :: CFun -> AbstGen ()
+genEsc (CPS.Fun id args exp) = do
+    emit (Comment (show id ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args [1..])))
+    emit (Define id)
+    loadRegs (zip args [1..])
+    saveLayout id (take (length args) [1..])
+    generate exp
+
+genNonAssigned :: [CFun] -> AbstGen ()
+genNonAssigned (f:fs) = genEsc f >> genNonEsc fs
+
 genNonEsc :: [CFun] -> AbstGen ()
+genNonEsc [] = pure ()
 genNonEsc fns = do
     (assignedfns, otherfns) <- partAssigned fns
     if null assignedfns then
-        -- here functions in otherfns are never called, so it is fine to halt generation
-        pure ()
+        genNonAssigned otherfns
     else do
         mapM_ (\(CPS.Fun n args exp) -> do
             layout <- irrefutableGetLayout n
@@ -330,11 +343,7 @@ genNonEsc fns = do
 fix :: [CFun] -> AbstGen ()
 fix fns = do
     (nonesc, esc) <- partEsc fns
-    mapM_ (\(CPS.Fun id args exp) -> do
-        emit (Comment (show id ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args [1..])))
-        emit (Define id)
-        loadRegs (zip args [1..])
-        generate exp) esc
+    mapM_ genEsc esc
     genNonEsc nonesc
 
 generate :: CExp -> AbstGen ()

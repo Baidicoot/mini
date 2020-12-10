@@ -4,13 +4,11 @@ import Types.Ident
 data UnboxedLit
     = Int Int
     | Char Char
-    | Unit
     deriving(Eq, Ord)
 
 data LitType
     = IntTy
     | CharTy
-    | UnitTy
     deriving(Eq, Show, Ord)
 
 data Primop
@@ -40,7 +38,6 @@ arityOp AMul = 2
 litPrimTy :: UnboxedLit -> LitType
 litPrimTy (Int _) = IntTy
 litPrimTy (Char _) = CharTy
-litPrimTy Unit = UnitTy
 
 instance Show Primop where
     show AAdd = "#+"
@@ -50,4 +47,3 @@ instance Show Primop where
 
 instance Show UnboxedLit where
     show (Int i) = '#':show i
-    show Unit = "()"

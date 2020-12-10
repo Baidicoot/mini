@@ -25,7 +25,7 @@ intty :: Type
 intty = Node NoTag (Builtin IntTy)
 
 unitty :: Type
-unitty = Node NoTag (Builtin UnitTy)
+unitty = Node NoTag (Product [])
 
 litTy :: UnboxedLit -> Type
 litTy = Node NoTag . Builtin . litPrimTy
@@ -197,6 +197,9 @@ match a b = Left (MatchUE a b)
 infixr 9 -->
 (-->) :: Type -> Type -> Type
 a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b
+
+tv :: Name -> Type
+tv = Node NoTag . TypeVar
 
 arity :: PolyType t -> Int
 arity (App _ (App _ (Node _ FunctionType) _) b) = 1 + arity b

@@ -116,6 +116,7 @@ convertNode (Core.Cons id args) c = do
     x <- fresh
     convC <- c (Var $ LocalIdentifier x)
     pure $ Record ((Lit (Int i), NoPath):cont) (LocalIdentifier x) convC
+convertNode (Core.Tuple []) c = c (Lit $ Int 0)
 convertNode (Core.Tuple xs) c = do
     cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal xs
     x <- fresh

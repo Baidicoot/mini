@@ -37,19 +37,14 @@ charLit = do
   char '\''
   pure c
 
-unit :: Parser UnboxedLit
-unit = string "unit" $> Unit
-
 literal :: Parser UnboxedLit
 literal
   =   Int   <$> int
-  <|> unit   $> Unit
   <|> Char  <$> charLit
 
 literalTy :: Parser LitType
 literalTy
-  =   string "Unit" $>  UnitTy
-  <|> string "Int"  $>  IntTy
+  =   string "Int"  $>  IntTy
   <|> string "Char" $>  CharTy
 
 keyword :: Parser String

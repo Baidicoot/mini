@@ -42,7 +42,7 @@ regName (GPR 5) = "rdi"
 regName (GPR 6) = "rbp"
 regName (GPR 14) = "rsp"
 regName Arith = "r15"
-regName (GPR i) = 'r':show (i-1)
+regName (GPR i) = 'r':show (i+1)
 
 rax :: Register
 rax = GPR 0

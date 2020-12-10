@@ -52,7 +52,7 @@ emitOp (Register (IndirectDI r i d s)) = emitStr (show d ++ "(" ++ getReg r ++ "
 
 emitX86 :: X86Instruction -> X86 ()
 emitX86 (DefLabel l) = emitStr (show l ++ ":") >> endl
-emitX86 (PPC s) = emitStr ("; "++s) >> endl
+emitX86 (PPC s) = emitStr ("# "++s) >> endl
 emitX86 (Movq a b) = emitStr "movq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
 emitX86 (Long c) = emitStr ".long " >> emitConst c >> endl
 emitX86 (DB c) = emitStr ".db " >> emitConst c >> endl
@@ -61,8 +61,8 @@ emitX86 Syscall = emitStr "syscall" >> endl
 emitX86 (Ccall s) = emitStr "call " >> emitStr s >> endl
 emitX86 (Addq a b) = emitStr "addq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
 emitX86 (Subq a b) = emitStr "subq " >> emitOp a >> emitStr ", " >> emitOp b >> endl
-emitX86 (Extern l) = emitStr ("extern " ++ show l) >> endl
-emitX86 (Global l) = emitStr ("global " ++ show l) >> endl
+emitX86 (Extern l) = emitStr (".extern " ++ show l) >> endl
+emitX86 (Global l) = emitStr (".global " ++ show l) >> endl
 
 abstToTexutalX86 :: [Operator] -> String
 abstToTexutalX86 = (\(X86 (_,s))->s) . mapM emitX86 . concatMap translate

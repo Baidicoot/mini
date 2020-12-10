@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Backend.X86_64_linux.Translate where
 
 import Backend.X86_64_linux.Types
@@ -12,7 +14,6 @@ translateOpDirect (Reg r) = Register (Direct r)
 translateOpDirect (ImmLabel l) = Const (Label l 0)
 translateOpDirect (ImmLit (Prim.Int i)) = Const (Int i)
 translateOpDirect (ImmLit (Prim.Char c)) = Const (Char c)
-translateOpDirect (ImmLit Prim.Unit) = Const (Int 0)
 
 -- most other things take the 'indirect' (pointed-to value) of their operands
 translateOp :: Operand -> X86Operand
@@ -20,7 +21,6 @@ translateOp (Reg r) = Register (Indirect r)
 translateOp (ImmLabel l) = Const (Label l 0)
 translateOp (ImmLit (Prim.Int i)) = Const (Int i)
 translateOp (ImmLit (Prim.Char c)) = Const (Char c)
-translateOp (ImmLit Prim.Unit) = Const (Int 0)
 
 translateAccess :: Operand -> AccessPath -> X86Operand -> [X86Instruction]
 translateAccess o NoPath dst = [ Movq (translateOp o) dst ]
@@ -43,10 +43,10 @@ restoreExcept rs =
     ++ [ Addq (Register (Direct rsp)) (Const (Int callerFrame)) ]
 
 translate :: Operator -> [X86Instruction]
-translate (EmitLit (Prim.Int i)) = [Long (Int i)]
-translate (EmitLit (Prim.Char c)) = [DB (Char c)]
-translate (EmitLit Prim.Unit) = [Long (Int 0)]
-translate (EmitPtr l i) = [Long (Label l i)]
+translate (Table t xs) = DefLabel t:fmap (\case
+    EmitLit (Prim.Int i) -> Long (Int i)
+    EmitLit (Prim.Char c) -> DB (Char c)
+    EmitLabel l o -> Long (Label l o)) xs
 translate (Define l) = [DefLabel l]
 translate (Comment s) = [PPC s]
 translate (Jmp o) = [Jmpq (translateOpDirect o)]

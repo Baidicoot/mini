@@ -5,6 +5,7 @@ import qualified Data.Set as Set
 import Types.Ident
 import Types.Prim
 import Types.CPS
+import Types.Pretty
 
 import Control.Arrow
 import Control.Monad.State
@@ -22,11 +23,6 @@ spill :: Int -> Int -> CExp -> (CExp, Int)
 spill n s e = runSpill n s $ do
         e' <- overflowArgs e
         spillFix e'
-
-indexOf :: (Eq a) => a -> [a] -> Int
-indexOf a (a':as)
-    | a == a' = 0
-    | otherwise = indexOf a as + 1
 
 fresh :: Spill Name
 fresh = do
@@ -86,6 +82,7 @@ cull s i
     | otherwise = s
 
 spillExp :: Set.Set Identifier -> Set.Set Identifier -> Set.Set Identifier -> [Identifier] -> Maybe Identifier -> CExp -> Spill CExp
+spillExp _ _ _ _ _ Halt = pure Halt
 spillExp r u d sc sv e = do
     n <- ask
     let a = argsRoot e
@@ -125,9 +122,15 @@ spillExp r u d sc sv e = do
             (_,_) -> do
                 c' <- mapM (spillExp w (u `Set.intersection` vafter) d' safterc safterv) c
                 pure $ root e c'
+    where
+        indexOf :: (Show a,Eq a) => a -> [a] -> Int
+        indexOf a (a':as)
+            | a == a' = 0
+            | otherwise = indexOf a as + 1
+        indexOf a [] = error ("could not find index of " ++ show a ++ " in " ++ pretty e(0::Int))
 
 spillFix :: CExp -> Spill CExp
-spillFix (Fix defs e)  = do
+spillFix (Fix defs e) = do
     defs' <- mapM (\(Fun i args e) -> do
         e' <- spillExp mempty (Set.fromList args) mempty [] Nothing e
         pure $ Fun i args e') defs

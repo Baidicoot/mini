@@ -56,7 +56,9 @@ executable mini
     Types.Build,
     Build.Load,
     Build.Compile,
-    Build.Build
+    Build.Build,
+    Test,
+    Backend.C
   -- other-extensions:    
   build-depends:
     base >=4.9,

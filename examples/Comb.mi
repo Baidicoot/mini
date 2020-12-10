@@ -1,0 +1,4 @@
+(s (x y z) x z (y z))
+(k (a b) a)
+
+(let (x k 0 1))

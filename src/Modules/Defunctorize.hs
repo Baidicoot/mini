@@ -26,9 +26,9 @@ defunctorizeArg i a ns [] s e =
             Node (getTag e)
             . Let (LocalIdentifier n) (Node t . Select i . Var $ LocalIdentifier a)) e (zip (reverse ns) [0..])
     in (,) s
-        . Node (Node NoTag $ Builtin UnitTy)
+        . Node unitty
         . Fix [(i,Node (getTag e) $ Lam (LocalIdentifier a) e')]
-        $ Node (Node NoTag $ Builtin UnitTy) . Val $ Lit Unit
+        $ Node unitty $ Tuple []
 
 defunctorize :: Identifier -> [(ModuleAPI,ImportAction)] -> Int -> Core Type -> (Int,Core Type)
 defunctorize i m s = let (s',a) = fresh s in defunctorizeArg i a [] m s'
