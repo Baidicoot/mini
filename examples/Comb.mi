@@ -2,4 +2,6 @@
     (Just :: a -> Maybe a)
     (Nothing :: Maybe a))
 
-(let (x Just 3))
+(f x f x)
+
+(let (x f Nothing))

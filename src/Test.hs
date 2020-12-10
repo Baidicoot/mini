@@ -12,6 +12,28 @@ import Types.Module
 import Types.Type
 import Data.Set (fromList)
 
+import qualified Types.Syntax as Syn
+import Elaborate.Elaborate
+import Elaborate.Elaborator
+
+import qualified Types.Core as Core
+import Text.Parsec.Pos
+
+import qualified Types.Graph as Graph
+
+import Control.Monad.Errors
+
+testPos :: SourcePos
+testPos = initialPos "hjahaha"
+
+fixTest :: ErrorsResult ([ElabError], [ElabWarning]) (Core.Core SourcePos, [GADT], [Name], Int, [ElabWarning])
+fixTest = elaborate 0 emptyServer emptyEnv [] [tl] 
+    where
+        tl = Syn.Group testPos [f]
+        f = Syn.FunDef testPos Nothing "f" ["x"] (Graph.App testPos
+            (Graph.Node testPos $ Syn.Var (LocalIdentifier "f"))
+            (Graph.Node testPos $ Syn.Var (LocalIdentifier "x")))
+
 spillTest :: CExp
 spillTest = fst $ spill 15 20 testExp
     where

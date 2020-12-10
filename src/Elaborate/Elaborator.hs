@@ -18,19 +18,19 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 
 data ElabError
-    = UnboundTerm SourcePos Identifier
+    = UnboundTerm SourcePos Identifier (Map.Map Identifier Identifier)
     | UnboundType SourcePos Identifier
     | Conflicting SourcePos Name
     deriving(Show)
 
 instance RenderableError ElabError where
-    errPos (UnboundTerm p _) = p
+    errPos (UnboundTerm p _ _) = p
     errPos (UnboundType p _) = p
     errPos (Conflicting p _) = p
 
-    errType _ = "source"
+    errType _ = "source error"
 
-    errCont (UnboundTerm _ i) = ["unbound identifier '" ++ show i ++ "'"]
+    errCont (UnboundTerm _ i _) = ["unbound identifier '" ++ show i ++ "'"]
     errCont (UnboundType _ i) = ["unbound named type '" ++ show i ++ "'"]
     errCont (Conflicting _ n) = ["conflicting definitions for '" ++ n ++ "'"]
 
@@ -40,7 +40,7 @@ data ElabWarning
 instance RenderableError ElabWarning where
     errPos (Unreachable p _) = p
 
-    errType _ = "source"
+    errType _ = "source warning"
 
     errCont (Unreachable _ rows) = ["some rows are unreachable"]
 

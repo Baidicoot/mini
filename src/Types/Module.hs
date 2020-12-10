@@ -19,26 +19,26 @@ data ModuleABI = ModuleABI
     , moduleABIMain :: Identifier
     , moduleABIReqs :: [ModulePath]
     , moduleABIRegs :: [GPR]
-    }
+    } deriving(Show)
 
 data ModuleAPI = ModuleAPI
     { moduleAPIPath :: ModulePath
     , moduleAPITerms :: [(Name, Scheme)]
     , moduleAPITypes :: [(Name, Kind)]
     , moduleAPIGADTs :: [GADT]
-    }
+    } deriving(Show)
 
 data GADT = GADT
     { gadtName :: Identifier
     , gadtKind :: Kind
     , gadtCons :: [(Identifier, Scheme)]
-    }
+    } deriving(Show)
 
 data ModuleServer = ModuleServer
     { abis :: [ModuleABI]
     , apis :: [ModuleAPI]
     , gadts :: [GADT]
-    }
+    } deriving(Show)
 
 constructAPI :: ModulePath -> [(Name, Scheme)] -> [GADT] -> ModuleAPI
 constructAPI p ns gs =

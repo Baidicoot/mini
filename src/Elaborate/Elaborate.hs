@@ -58,7 +58,7 @@ lookupTerm t i = do
     (_,m,_,_) <- ask
     case Map.lookup i m of
         Just i' -> pure i'
-        Nothing -> err i [UnboundTerm t i]
+        Nothing -> err i [UnboundTerm t i m]
 
 lookupType :: SourcePos -> Identifier -> Elaborator Identifier
 lookupType t i = do
@@ -149,12 +149,15 @@ elabLet t (Syn.Let vs e) = do
 
 elabFix :: SourcePos -> Syn.Fix -> Elaborator (Core SourcePos)
 elabFix t (Syn.Fix fs e) = do
-    nfs <- mapM (\d@(Syn.FunDef _ _ n _ _) -> do
-        e <- elabFun d
+    renames <- mapM (\d@(Syn.FunDef _ _ n _ _) -> do
         f <- fork n
-        pure ((LocalIdentifier n,LocalIdentifier f),e)) fs
-    e' <- withTerms (fmap fst nfs) (elabExpr e)
-    pure . Node t $ Fix (fmap (\((_,n),e) -> (n,e)) nfs) e'
+        pure (LocalIdentifier n,LocalIdentifier f)) fs
+    fs' <- withTerms renames $ mapM (\d@(Syn.FunDef p _ n _ _) -> do
+        e <- elabFun d
+        f <- lookupTerm p (LocalIdentifier n)
+        pure (f,e)) fs
+    e' <- withTerms renames $ elabExpr e
+    pure . Node t $ Fix fs' e'
 
 elabTuple :: SourcePos -> [Syn.Expr] -> Elaborator (Core SourcePos)
 elabTuple p es = internal [] p =<< mapM elabExpr es
