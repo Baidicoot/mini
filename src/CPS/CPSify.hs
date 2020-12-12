@@ -17,6 +17,7 @@ import Control.Arrow
 import Control.Monad
 import Data.Maybe (listToMaybe, fromMaybe)
 import Data.List (partition)
+import Data.Maybe (isJust)
 
 import qualified Data.Map as Map
 
@@ -127,8 +128,8 @@ convertNode (Core.Select i v) c = do
     v' <- convVal v
     ce <- c (Var $ LocalIdentifier x)
     pure $ Select i v' (LocalIdentifier x) ce
-
-convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n cs) c = do
+convertNode (Core.Match (Just ty, p) n cs) c | isJust (constructor ty) = do
+    let (Just i) = constructor ty
     t <- fresh
     ncases <- cases i
     let (dflt, cs') = selectDefault cs
@@ -139,9 +140,10 @@ convertNode (Core.Match (Just (Graph.App _ (Graph.Node _ (NamedType i)) _), p) n
     cs'' <- flip mapM [0..ncases-1] $ \i -> case lookup i casemap of
             Nothing -> pure fallback
             Just (Core.ConsPattern _ ns, _, cse) ->
-                let bindings = foldr (\(i,v) f -> Select i (Var $ LocalIdentifier n) (LocalIdentifier v) . f) id (zip [1..] ns)
+                let bindings = foldr (\(i,v) f -> Select i (Var n) (LocalIdentifier v) . f) id (zip [1..] ns)
                 in fmap bindings (convert cse c)
-    pure . Select 0 (Var $ LocalIdentifier n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
+    pure . Select 0 (Var n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
+convertNode x _ = error (show x)
 
 selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])
 selectDefault (p@(Core.WildcardPattern, _, e):_) = (Just e, [])

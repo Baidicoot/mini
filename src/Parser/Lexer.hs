@@ -50,10 +50,11 @@ literalTy
 keyword :: Parser String
 keyword
   =   try (string "let")
+  <|> try (string "ind")
   <|> string "lam"
-  <|> string "ind"
   <|> string "match"
   <|> string "fix"
+  <|> string "import-as"
 
 ident :: Parser Identifier
 ident = do

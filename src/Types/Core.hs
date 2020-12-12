@@ -31,7 +31,7 @@ data CoreNode tag
     | Fix [(Identifier, Core tag)] (Core tag)
     | Lam Identifier (Core tag)
     | Val Value
-    | Match (Maybe Type, SourcePos) Name [(PatternBinding, tag, Core tag)]
+    | Match (Maybe Type, SourcePos) Identifier [(PatternBinding, tag, Core tag)]
     | Annot (Core tag) Type
     | Cons Identifier [Value]
     | Tuple [Value]
@@ -71,14 +71,14 @@ aconv _ x = x
 instance Show (CoreNode tag) where
     show (Let n ds ir) = "let " ++ show n ++ " = " ++ show ds ++ " in\n" ++ show ir
     show (Fix ds ir) = "fix " ++ intercalate "\n    " (fmap (\(n, ir) -> show n ++ " = " ++ show ir) ds) ++ " in\n" ++ show ir
-    show (Cons id args) = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
+    show (Cons id args) = show id ++ "{" ++ concatMap ((',':) . show) args ++ "}"
     show (Tuple exprs) = "{" ++ intercalate "," (fmap show exprs) ++ "}"
     show (Select i v) = '#':show i ++ "(" ++ show v ++ ")"
     show (Annot ir ty) = "(" ++ show ir ++ " :: " ++ show ty ++ ")"
     show (Lam n ir) = "(\\" ++ show n ++ ". " ++ show ir ++ ")"
     show (Val v) = show v
-    show (Match (Nothing,_) ir cases) = "match " ++ ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
-    show (Match (Just t,_) ir cases) = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Match (Nothing,_) ir cases) = "match " ++ show ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
+    show (Match (Just t,_) ir cases) = "match " ++ show ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
     show (Error s) = "error " ++ show s
 
 instance Show tag => Pretty (CoreNode tag) Int where
@@ -92,11 +92,11 @@ instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Annot ir ty) n = "(" ++ pretty ir n ++ " :: " ++ show ty ++ ")"
     pretty (Lam v ir) n = "(\\" ++ show v ++ ". " ++ pretty ir n ++ ")"
     pretty (Val i) _ = show i
-    pretty (Cons id args) _ = "{" ++ show id ++ concatMap ((',':) . show) args ++ "}"
+    pretty (Cons id args) _ = show id ++ "{" ++ concatMap ((',':) . show) args ++ "}"
     pretty (Select i v) n = '#':show i ++ "(" ++ show v ++ ")"
     pretty (Tuple xs) n = "{" ++ intercalate "," (fmap show xs) ++ "}"
-    pretty (Match (Nothing,_) ir cases) n = "match " ++ ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
-    pretty (Match (Just t,_) ir cases) n = "match " ++ ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
+    pretty (Match (Nothing,_) ir cases) n = "match " ++ show ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
+    pretty (Match (Just t,_) ir cases) n = "match " ++ show ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Error s) _ = "error " ++ show s
 
 instance (Substitutable tag) => Substitutable (CoreNode tag) where
@@ -111,5 +111,5 @@ instance (Substitutable tag) => Substitutable (CoreNode tag) where
     ftv (Let n ds ir) = ftv ds `mappend` ftv ir
     ftv (Annot ir ty) = ftv ir `mappend` ftv ty
     ftv (Lam _ ir) = ftv ir
-    ftv (Match _ v cases) = mconcat (fmap (\(_, _, b) -> ftv b) cases) `mappend` (Set.singleton v)
+    ftv (Match (t,_) _ cases) = mconcat (fmap (\(_, _, b) -> ftv b) cases) `mappend` foldr mappend mempty (fmap ftv t)
     ftv _ = mempty

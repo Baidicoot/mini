@@ -24,6 +24,7 @@ data ModuleABI = ModuleABI
 data ModuleAPI = ModuleAPI
     { moduleAPIPath :: ModulePath
     , moduleAPITerms :: [(Name, Scheme)]
+    , moduleAPICons :: [(Name,Scheme)]
     , moduleAPITypes :: [(Name, Kind)]
     , moduleAPIGADTs :: [GADT]
     } deriving(Show)
@@ -44,16 +45,16 @@ constructAPI :: ModulePath -> [(Name, Scheme)] -> [GADT] -> ModuleAPI
 constructAPI p ns gs =
     let gadtkinds = fmap (discardPath . gadtName &&& gadtKind) gs
         constypes = concatMap (fmap (first discardPath) . gadtCons) gs
-    in ModuleAPI p (ns ++ constypes) gadtkinds gs
+    in ModuleAPI p ns constypes gadtkinds gs
 
 emptyServer :: ModuleServer
 emptyServer = ModuleServer mempty mempty mempty
 
 termTypes :: ModuleServer -> [(Identifier, Scheme)]
-termTypes (ModuleServer _ apis _) = concatMap (\(ModuleAPI p t _ _) -> fmap (first (ExternalIdentifier p)) t) apis
+termTypes (ModuleServer _ apis _) = concatMap (\(ModuleAPI p t c _ _) -> fmap (first (ExternalIdentifier p)) (t++c)) apis
 
 typeKinds :: ModuleServer -> [(Identifier, Kind)]
-typeKinds (ModuleServer _ apis _) = concatMap (\(ModuleAPI p _ t _) -> fmap (first (ExternalIdentifier p)) t) apis
+typeKinds (ModuleServer _ apis _) = concatMap (\(ModuleAPI p _ _ t _) -> fmap (first (ExternalIdentifier p)) t) apis
 
 consTypes :: ModuleServer -> [(Identifier,Scheme)]
 consTypes = concatMap gadtCons . gadts
@@ -78,16 +79,16 @@ getAPI m i = internal i (apis m)
         internal i [] = Nothing
 
 loadModule :: ModuleABI -> ModuleAPI -> ModuleServer -> ModuleServer
-loadModule abi api@(ModuleAPI _ _ _ g) (ModuleServer abs aps as) = ModuleServer (abi:abs) (api:aps) (g ++ as)
+loadModule abi api@(ModuleAPI _ _ _ _ g) (ModuleServer abs aps as) = ModuleServer (abi:abs) (api:aps) (g ++ as)
 
 loadAPI :: ModuleAPI -> ModuleServer -> ModuleServer
-loadAPI api@(ModuleAPI _ _ _ g) (ModuleServer abs aps as) = ModuleServer abs (api:aps) (g ++ as)
+loadAPI api@(ModuleAPI _ _ _ _ g) (ModuleServer abs aps as) = ModuleServer abs (api:aps) (g ++ as)
 
 getSignature :: ModuleAPI -> Type
-getSignature (ModuleAPI _ ts _ _) =
+getSignature (ModuleAPI _ t _ _ _) =
     let --a = mconcat $ fmap (\(_,Forall a _) -> a) ts
-        t = Node NoTag . Product $ fmap (\(_,Forall _ t) -> t) ts
-    in t
+        sig = Node NoTag . Product $ fmap (\(_,Forall _ t) -> t) t
+    in sig
 
 getGADT :: ModuleServer -> Identifier -> Maybe GADT
 getGADT m i = internal i (gadts m)
@@ -110,7 +111,7 @@ data ImportAction
 data Env = Env
     { termRenames :: [(Identifier, Identifier)]
     , typeRenames :: [(Identifier, Identifier)]
-    , constructors :: [Identifier]
+    , consRenames :: [(Identifier, Identifier)]
     }
 
 emptyEnv :: Env
@@ -118,25 +119,27 @@ emptyEnv = Env mempty mempty mempty
 
 data ImportError
     = NameCollision ModulePath Identifier (Identifier, Identifier)
-    | UnfulfilledDependency [ModulePath]
+    | NonexistentModule ModulePath
+    | UnfulfilledDependency [(ModulePath,[ModulePath])]
 
 instance Show ImportError where
     show (NameCollision p i (a,b)) = "module " ++ intercalate "." p ++ ": the name `" ++ show i ++ "` could refer to either `" ++ show a ++ "` or `" ++ show b ++ "`"
-    show (UnfulfilledDependency mp) = "could not resolve a dependency ordering for:" ++ concatMap (\p -> "\n    " ++ intercalate "." p) mp
+    show (UnfulfilledDependency mp) = "could not resolve a dependency ordering for:" ++ concatMap (\(p,rq) -> "\n    " ++ intercalate "." p ++ " which requires" ++ concatMap (\p -> " " ++ intercalate "." p) rq) mp
+    show (NonexistentModule m) = "could not find the module " ++ intercalate "." m
 
 sortDependencies :: [(ModulePath,[ModulePath],a)] -> Either [ImportError] [(ModulePath,a)]
-sortDependencies = internal []
+sortDependencies = fmap (fmap (\(a,_,b)->(a,b))) . internal []
     where
-        internal :: [(ModulePath,a)] -> [(ModulePath,[ModulePath],a)] -> Either [ImportError] [(ModulePath,a)]
+        internal :: [(ModulePath,[ModulePath],a)] -> [(ModulePath,[ModulePath],a)] -> Either [ImportError] [(ModulePath,[ModulePath],a)]
         internal sorted [] = pure sorted
         internal sorted todo = 
             let (solved, remaining) = partition (satisfiedDependencies sorted) todo
             in case solved of
-                [] -> Left [UnfulfilledDependency $ fmap fst sorted ++ concatMap (\(_,p,_)->p) remaining]
-                _ -> internal (fmap (\(a,_,b)->(a,b)) solved ++ sorted) remaining 
+                [] -> Left [UnfulfilledDependency $ fmap (\(a,b,_)->(a,b)) (solved ++ sorted ++ remaining)]
+                _ -> internal (sorted ++ solved) remaining 
 
-        satisfiedDependencies :: [(ModulePath,a)] -> (ModulePath,[ModulePath],a) -> Bool
-        satisfiedDependencies has (_,m,_) = null (m \\ fmap fst has)
+        satisfiedDependencies :: [(ModulePath,[ModulePath],a)] -> (ModulePath,[ModulePath],a) -> Bool
+        satisfiedDependencies has (_,m,_) = null (m \\ fmap (\(a,_,_)->a) has)
 
 checkRenames :: ModulePath -> [(Identifier, Identifier)] -> [(Identifier, Identifier)] -> Errors [ImportError] [(Identifier, Identifier)]
 checkRenames path p p' = case partition ((`elem` fmap fst p) . fst) p' of
@@ -144,17 +147,17 @@ checkRenames path p p' = case partition ((`elem` fmap fst p) . fst) p' of
     (err,_) -> throw $ fmap (\(a,b) -> let (Just c) = lookup a p in NameCollision path a (b,c)) err
 
 importWithAction :: ModuleAPI -> ImportAction -> Env -> Errors [ImportError] Env
-importWithAction (ModuleAPI p mtr mty gs) (ImportAs p') (Env tr ty co) =
+importWithAction (ModuleAPI p mtr mco mty _) (ImportAs p') (Env tr ty co) =
     let rtr = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mtr]
         rty = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mty]
-        rco = [n | GADT _ _ co <- gs, n <- fmap fst co]
+        rco = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mco]
         tr' = checkRenames p tr rtr
         ty' = checkRenames p ty rty
-        co' = pure $ nub (rco ++ co)
+        co' = checkRenames p co rco
     in liftM3 Env tr' ty' co'
 
 doImports :: ModuleServer -> [(ModulePath,ImportAction)] -> Errors [ImportError] Env
 doImports ms [] = pure emptyEnv
 doImports ms ((mp,ia):is) = case getAPI ms mp of
     Just api -> importWithAction api ia =<< doImports ms is
-    Nothing -> throw [UnfulfilledDependency [mp]]
+    Nothing -> throw [NonexistentModule mp]

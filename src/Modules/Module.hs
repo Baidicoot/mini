@@ -21,6 +21,8 @@ import Data.List
 import Error.Error
 import Control.Monad.Errors
 
+import Types.Pretty
+
 parsedToCore :: ModulePath -> ModuleServer -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, Core Type, Int)
 parsedToCore p ser s0 s (imports,parsed) = do
     env <- mapLeft (fmap show) . toEither . runErrors $ doImports ser imports
@@ -41,8 +43,8 @@ coreToAbst k m e r c0 s0 =
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) m c3 r
     in (ops,l,s3)
 
-parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator])
+parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
 parsedToAbst p ms k m r s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
     let (o,[(_,l)],_) = coreToAbst k [m] (loadAPI a ms) r t s0
-    pure (w,a,ModuleABI p m (fmap fst i) l,o)
+    pure (w,a,ModuleABI p m (fmap fst i) l,o, t)

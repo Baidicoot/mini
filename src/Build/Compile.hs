@@ -17,10 +17,13 @@ import Control.Monad.IO.Class
 
 import Data.List
 
+import Types.Pretty
+
 compile :: Int -> Int -> BuildConfig -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,Either CachedFile [Operator])] -> Build String
 compile index num cfg ms ((p,Right (pr,s)):fs) done = do
     liftIO . putStrLn $ "compiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
-    (w,api,abi,ops) <- liftEither $ parsedToAbst p ms [] (mainFn p) (registers $ backend cfg) s pr
+    (w,api,abi,ops,t) <- liftEither $ parsedToAbst p ms [] (mainFn p) (registers $ backend cfg) s pr
+    liftIO $ prettyPrint t (0::Int)
     liftIO $ mapM_ putStrLn w
     compile (index+1) num cfg (loadModule abi api ms) fs ((p,Right ops):done)
 compile index num cfg ms ((p,Left c):fs) done = compile (index+1) num cfg (loadModule (abi c) (api c) ms) fs ((p,Left c):done)

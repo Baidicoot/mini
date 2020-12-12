@@ -305,7 +305,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node t2 (Fix fs' t'), t2)
     -- MATCH-INFER
     infer m (Node p (Match _ n cs)) = do
-        tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
+        tp <- instantiate =<< lookupLocal n p
         tt <- freshTV
         cs' <- mapM (\case
             -- PCONS-INFER
@@ -351,8 +351,8 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node t1 (Fix fs' t'))
     -- MATCH-CHECK
     check m (Node p (Match _ n cs)) (Forall a ts) = do
-        m1 <- lookupRigidity (LocalIdentifier n)
-        tp <- instantiate =<< lookupLocal (LocalIdentifier n) p
+        m1 <- lookupRigidity n
+        tp <- instantiate =<< lookupLocal n p
         cs' <- mapM (pcon m1 m tp (Forall a ts)) cs
         pure (Node ts (Match (Just tp,p) n cs'))
     -- CHECK-INFER

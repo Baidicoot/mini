@@ -122,6 +122,11 @@ args (SNode _ (Ident (LocalIdentifier i))) = Right [i]
 args (SExpr p xs) = many1 "name" p name xs
 args x = Left [Expecting "arguments" "nothing" (getPos x)]
 
+path :: ExprParser ModulePath
+path (SNode _ (Ident (LocalIdentifier i))) = Right [i]
+path (SNode _ (Ident (ExternalIdentifier is i))) = Right (is ++ [i])
+path x = Left [Expecting "module path" (show x) (getPos x)]
+
 caseexp :: ExprParser (SourcePattern, Expr)
 caseexp (SExpr pp xs) = (\(p,e,ep) -> both patexp expr (SExpr pp p, SExpr ep e)) =<< splitArr pp xs
     where
@@ -140,14 +145,11 @@ decl (SExpr _ (SNode _ (Ident (LocalIdentifier l)):SNode p Ann:xs)) = (\t -> (Ju
 decl x = Left [Expecting "declaration" (display x) (getPos x)]
 
 patexp :: ExprParser SourcePattern
-patexp (SNode p (Ident i@(LocalIdentifier l@(c:_))))
-    | isLower c = Right (PatternVar p l)
-    | otherwise = Right (PatternCons p i [])
+patexp (SNode p (Ident i)) = Right (PatternCons p i [])
 patexp (SNode p Hole) = Right (PatternWildcard p)
-patexp (SExpr p [SNode _ (Ident i@(LocalIdentifier l@(c:_)))])
-    | isLower c = Right (PatternVar p l)
-    | otherwise = Right (PatternCons p i [])
+patexp (SNode p (SynLit l)) = Right (PatternLit p l)
 patexp (SExpr p (SNode _ (Ident l):xs)) = PatternCons p l <$> many patexp xs
+patexp (SExpr _ [x]) = patexp x
 patexp x = Left [Expecting "pattern" (display x) (getPos x)]
 
 indexp :: SourcePos -> Parser [ExprS] Data
@@ -168,7 +170,7 @@ toplevelexpr :: Parser [ExprS] [TopLevel]
 toplevelexpr = many toplevel
 
 importdecl :: SourcePos -> Parser [ExprS] (ModulePath,ImportAction)
-importdecl _ [SNode _ (Keyword "import-as"),p,p'] = liftM2 (flip (,) . ImportAs) (args p') (args p)
+importdecl _ [SNode _ (Keyword "import-as"),p,p'] = liftM2 (flip (,) . ImportAs) (path p') (path p)
 importdecl t x = Left [Expecting "import" (display $ SExpr t x) t]
 
 program :: Parser [ExprS] ([(ModulePath,ImportAction)],[TopLevel])

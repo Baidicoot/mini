@@ -28,7 +28,7 @@ import qualified Data.Map as Map
 
 elaborate :: Int -> ModuleServer -> Env -> ModulePath -> [Syn.TopLevel] -> ErrorsResult ([ElabError], [ElabWarning]) (Core SourcePos, [GADT], [Name], Int, [ElabWarning])
 elaborate i ms e m tl =
-    let env = (m, Map.fromList (termRenames e), Map.fromList (typeRenames e), Map.fromList (consTypes ms))
+    let env = (m, Map.fromList (termRenames e), Map.fromList (typeRenames e), Map.fromList (consTypes ms), Map.fromList (consRenames e))
         (res, s, w) = runElab (elabTL tl) env i
     in case res of
         Success (c, g, n) -> Success (c, g, n, s, w)
@@ -39,48 +39,62 @@ runElab :: Elaborator a -> ElabEnv -> ElabState -> (ErrorsResult [ElabError] a, 
 runElab m = runRWS (runErrorsT m)
 
 modul :: Elaborator ModulePath
-modul = fmap (\(m,_,_,_) -> m) ask
+modul = fmap (\(m,_,_,_,_) -> m) ask
 
 freshen :: [Name] -> Elaborator [(Identifier, Identifier)]
 freshen = mapM (\n -> fmap ((,) (LocalIdentifier n) . LocalIdentifier) (fork n))
 
 withTerms :: [(Identifier, Identifier)] -> Elaborator a -> Elaborator a
-withTerms xs = local (\(m,a,b,c) -> (m,Map.fromList xs `mappend` a,b,c))
+withTerms xs = local (\(m,a,b,c,d) -> (m,Map.fromList xs `mappend` a,b,c,d))
 
 withTypes :: [(Identifier, Identifier)] -> Elaborator a -> Elaborator a
-withTypes xs = local (\(m,a,b,c) -> (m,a,Map.fromList xs `mappend` b,c))
+withTypes xs = local (\(m,a,b,c,d) -> (m,a,Map.fromList xs `mappend` b,c,d))
 
-withCons :: [(Identifier, Scheme)] -> Elaborator a -> Elaborator a
-withCons xs = local (\(m,a,b,c) -> (m,a,b,Map.fromList xs `mappend` c))
+withConsTys :: [(Identifier, Scheme)] -> Elaborator a -> Elaborator a
+withConsTys xs = local (\(m,a,b,c,d) -> (m,a,b,Map.fromList xs `mappend` c,d))
 
-lookupTerm :: SourcePos -> Identifier -> Elaborator Identifier
-lookupTerm t i = do
-    (_,m,_,_) <- ask
+withCons :: [(Identifier,Identifier)] -> Elaborator a -> Elaborator a
+withCons xs = local (\(m,a,b,c,d) -> (m,a,b,c,Map.fromList xs `mappend` d))
+
+lookupTerm :: Identifier -> Elaborator (Maybe Identifier)
+lookupTerm i = do
+    (_,m,_,_,_) <- ask
+    pure (Map.lookup i m)
+
+irrefuteLookupTerm :: SourcePos -> Identifier -> Elaborator Identifier
+irrefuteLookupTerm p i = do
+    (_,m,_,_,_) <- ask
     case Map.lookup i m of
-        Just i' -> pure i'
-        Nothing -> err i [UnboundTerm t i m]
+        Just x -> pure x
+        Nothing -> err i [UnboundTerm p i]
 
 lookupType :: SourcePos -> Identifier -> Elaborator Identifier
 lookupType t i = do
-    (_,_,m,_) <- ask
+    (_,_,m,_,_) <- ask
     case Map.lookup i m of
         Just i' -> pure i'
         Nothing -> err i [UnboundType t i]
 
-lookupCons :: Identifier -> Elaborator (Maybe Scheme)
+lookupCons :: Identifier -> Elaborator (Maybe (Identifier,Int))
 lookupCons i = do
-    (_,_,_,c) <- ask
-    pure (Map.lookup i c)
+    (_,_,_,s,c) <- ask
+    case Map.lookup i c of
+        Just i' -> case Map.lookup i' s of
+            Just sc -> pure (Just (i',aritySc sc))
+            Nothing -> error "bees"
+        Nothing -> pure Nothing
 
 elabIdent :: SourcePos -> Identifier -> Elaborator (Core SourcePos)
 elabIdent t i = do
-    i' <- lookupTerm t i
-    sc <- lookupCons i'
-    case sc of
-        Just sc -> do
-            ns <- replicateM (aritySc sc) fresh
-            pure $ foldr (\n -> Node t . Lam (LocalIdentifier n)) (Node t . Cons i' $ fmap (Var . LocalIdentifier) ns) ns
-        Nothing -> pure . Node t . Val $ Var i'
+    i' <- lookupTerm i
+    c' <- lookupCons i
+    case i' of
+        Just i -> pure . Node t . Val $ Var i
+        Nothing -> case c' of
+            Just (c,a) -> do
+                ns <- replicateM a fresh
+                pure $ foldr (\n -> Node t . Lam (LocalIdentifier n)) (Node t . Cons c $ fmap (Var . LocalIdentifier) ns) ns
+            Nothing -> err (Node t . Val $ Var i) [UnboundTerm t i]
 
 elabPrim :: SourcePos -> Primop -> Elaborator (Core SourcePos)
 elabPrim t p = do
@@ -107,9 +121,14 @@ elabLam t (Syn.Lam args exp) = do
 
 elabPat :: SourcePattern -> Elaborator SourcePattern
 elabPat (PatternCons t i ps) = do
-    i' <- lookupTerm t i
-    ps' <- mapM elabPat ps
-    pure (PatternCons t i' ps')
+    c' <- lookupCons i
+    case c' of
+        Just (c,_) -> do
+            ps' <- mapM elabPat ps
+            pure (PatternCons t c ps')
+        Nothing -> case ps of
+            [] -> pure (PatternVar t i)
+            _ -> err (PatternVar t i) [PatternVarArgs t i ps]
 elabPat x = pure x
 
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
@@ -118,8 +137,8 @@ elabMatch t (Syn.Match e ps) = do
     e' <- elabExpr e
     rows <- forM ps $ \(p,e) -> do
             p' <- elabPat p
-            pure ([p'], mempty, \m -> withTerms ((LocalIdentifier *** LocalIdentifier) <$> Map.toList m) (elabExpr e))
-    Node t . Let (LocalIdentifier n) e' <$> matchcomp t (rows, [n]) []
+            pure ([p'], mempty, \m -> withTerms (Map.toList m) (elabExpr e))
+    Node t . Let (LocalIdentifier n) e' <$> matchcomp t (rows, [LocalIdentifier n]) []
 {-
 elabMatch :: SourcePos -> Syn.Match -> Elaborator (Core SourcePos)
 elabMatch t (Syn.Match e ps) = do
@@ -154,7 +173,7 @@ elabFix t (Syn.Fix fs e) = do
         pure (LocalIdentifier n,LocalIdentifier f)) fs
     fs' <- withTerms renames $ mapM (\d@(Syn.FunDef p _ n _ _) -> do
         e <- elabFun d
-        f <- lookupTerm p (LocalIdentifier n)
+        f <- irrefuteLookupTerm p (LocalIdentifier n)
         pure (f,e)) fs
     e' <- withTerms renames $ elabExpr e
     pure . Node t $ Fix fs' e'
@@ -249,7 +268,7 @@ elabTL tl = do
     withTypes indtys $ do
         gadts <- mapM genGADT inds
         let (terms, cons) = collectCons m gadts
-        expr' <- withTerms terms (withCons cons (elabExpr expr))
+        expr' <- withCons terms (withConsTys cons (elabExpr expr))
         pure (expr', gadts, exports)
 
 {-

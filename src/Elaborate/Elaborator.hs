@@ -18,21 +18,21 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 
 data ElabError
-    = UnboundTerm SourcePos Identifier (Map.Map Identifier Identifier)
+    = UnboundTerm SourcePos Identifier
     | UnboundType SourcePos Identifier
-    | Conflicting SourcePos Name
+    | PatternVarArgs SourcePos Identifier [SourcePattern]
     deriving(Show)
 
 instance RenderableError ElabError where
-    errPos (UnboundTerm p _ _) = p
+    errPos (UnboundTerm p _) = p
     errPos (UnboundType p _) = p
-    errPos (Conflicting p _) = p
+    errPos (PatternVarArgs p _ _) = p
 
     errType _ = "source error"
 
-    errCont (UnboundTerm _ i _) = ["unbound identifier '" ++ show i ++ "'"]
+    errCont (UnboundTerm _ i) = ["unbound identifier '" ++ show i ++ "'"]
     errCont (UnboundType _ i) = ["unbound named type '" ++ show i ++ "'"]
-    errCont (Conflicting _ n) = ["conflicting definitions for '" ++ n ++ "'"]
+    errCont (PatternVarArgs _ n xs) = ["pattern variable '" ++ show n ++ "' has arguments '" ++ unwords (fmap show xs) ++ "'"]
 
 data ElabWarning
     = Unreachable SourcePos [ClauseRow]
@@ -47,11 +47,11 @@ instance RenderableError ElabWarning where
 instance Show ElabWarning where
     show (Unreachable p rows) = "Unreachable " ++ show p ++ show (fmap (\(a,_,_) -> a) rows)
 
-type Action = Map.Map Name Name -> Elaborator (Core SourcePos)
-type ClauseRow = ([SourcePattern], Map.Map Name Name, Action)
-type ClauseMatrix = ([ClauseRow], [Name])
+type Action = Map.Map Identifier Identifier -> Elaborator (Core SourcePos)
+type ClauseRow = ([SourcePattern], Map.Map Identifier Identifier, Action)
+type ClauseMatrix = ([ClauseRow], [Identifier])
 
-type ElabEnv = (ModulePath, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme)
+type ElabEnv = (ModulePath, Map.Map Identifier Identifier, Map.Map Identifier Identifier, Map.Map Identifier Scheme, Map.Map Identifier Identifier)
 type ElabState = Int
 type Elaborator = ErrorsT [ElabError] (RWS ElabEnv [ElabWarning] ElabState)
 

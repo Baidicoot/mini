@@ -194,6 +194,11 @@ match t (Forall a (Node _ (TypeVar u)))
     | otherwise = Left (RigidUE u t)
 match a b = Left (MatchUE a b)
 
+constructor :: Type -> Maybe Identifier
+constructor (App _ a _) = constructor a
+constructor (Node _ (NamedType i)) = Just i
+constructor _ = Nothing
+
 infixr 9 -->
 (-->) :: Type -> Type -> Type
 a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b

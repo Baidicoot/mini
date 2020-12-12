@@ -46,4 +46,5 @@ instance Show Primop where
     show ADiv = "#/"
 
 instance Show UnboxedLit where
-    show (Int i) = '#':show i
+    show (Int i) = '$':show i
+    show (Char c) = '\'':c:"'"

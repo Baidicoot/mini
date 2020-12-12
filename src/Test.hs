@@ -61,6 +61,6 @@ ms = ModuleServer [abi] [api] []
 
         api = ModuleAPI ["Comb"] [("s",Forall (fromList ["x","y","z"])
             $ (tv "x" --> tv "y" --> tv "z") --> (tv "x" --> tv "y") --> tv "x" --> tv "z"
-            )] [] []
+            )] [] [] []
 
 glueTest = glue (LocalIdentifier "__start") 15 ms

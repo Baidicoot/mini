@@ -13,7 +13,7 @@ import Text.Parsec.Pos
 data Pattern tag
     = PatternCons tag Identifier [Pattern tag]
     | PatternLit tag UnboxedLit
-    | PatternVar tag Name
+    | PatternVar tag Identifier
     | PatternWildcard tag
     deriving(Eq, Show)
 
@@ -23,10 +23,10 @@ data PatternConstructor
     = ConsCons Identifier Int
     | ConsLit UnboxedLit
     | ConsWild
-    | ConsVar Name
+    | ConsVar Identifier
     deriving(Eq, Show)
 
-pvars :: Pattern tag -> Set.Set Name
+pvars :: Pattern tag -> Set.Set Identifier
 pvars (PatternCons _ _ ps) = mconcat (fmap pvars ps)
 pvars (PatternVar _ n) = Set.singleton n
 pvars _ = mempty

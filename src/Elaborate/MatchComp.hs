@@ -66,7 +66,7 @@ literals (xs,_) = internal [] xs
         internal ls (_:xs) = internal ls xs
         internal ls [] = ls
 
-matchhead :: Identifier -> [Name] -> ClauseMatrix -> ClauseMatrix
+matchhead :: Identifier -> [Identifier] -> ClauseMatrix -> ClauseMatrix
 matchhead i ns' (xs,_:ns) = (internal xs, ns'++ns)
     where
         internal ((PatternCons _ j ss:ps,r,a):xs)
@@ -89,7 +89,7 @@ matchlit l (xs,_:ns) = (internal xs,ns)
         internal (_:xs) = internal xs
         internal [] = []
 
-getvar :: ClauseMatrix -> Name
+getvar :: ClauseMatrix -> Identifier
 getvar (_,n:_) = n
 
 isCons :: ClauseRow -> Bool
@@ -123,7 +123,7 @@ matchcomp p c ds
         let cons = constructors c
         cses <- flip mapM cons $ \(i,n) -> do
             ns' <- replicateM n fresh
-            let c' = matchhead i ns' c
+            let c' = matchhead i (fmap LocalIdentifier ns') c
             exp <- matchcomp p c' ds
             pure (ConsPattern i ns', p, exp)
         dflt <- compileDefaults p ds

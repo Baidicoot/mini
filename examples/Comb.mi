@@ -2,6 +2,7 @@
     (Just :: a -> Maybe a)
     (Nothing :: Maybe a))
 
-(f x f x)
+(unwrap x match x
+    (Just y -> y))
 
-(let (x f Nothing))
+(let (main unwrap Nothing))

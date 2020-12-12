@@ -3,7 +3,7 @@ module Types.Injection where
 import Data.Maybe (listToMaybe)
 import Data.List (any)
 
-newtype Injection a b = Injection [(a,b)]
+newtype Injection a b = Injection [(a,b)] deriving(Show)
 
 injectify :: ([(a,b)] -> [(a,b)]) -> Injection a b -> Injection a b
 injectify f (Injection ns) = Injection (f ns)

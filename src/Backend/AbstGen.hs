@@ -148,7 +148,9 @@ switch v exps = do
     emit (Fetch ar (ImmLabel table) o)
     emit (Jmp ar)
     emit (Table table (fmap (`EmitLabel` 0) lbls))
+    (regs,_,_) <- get
     mapM_ (\(lbl,exp) -> do
+        modify (\(_,b,c) -> (regs,b,c))
         emit (Define lbl)
         generate exp) (zip lbls exps)
 
@@ -202,7 +204,9 @@ getOp (Var v) = do
     reg <- getPrimaryReg v
     case reg of
         Just a -> pure (Reg (r a))
-        Nothing -> error ("variable " ++ show v ++ " unknown")
+        Nothing -> do
+            (env,_,_) <- get
+            error ("variable " ++ show v ++ " unknown in env " ++ show env)
 getOp (Label i) = pure (ImmLabel i)
 
 fill :: [(Operand, GPR)] -> AbstGen ()

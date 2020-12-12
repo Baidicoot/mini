@@ -29,7 +29,7 @@ instance Show SyntaxNode where
     show Ann = "::"
     show Star = "Ty"
     show Hole = "_"
-    show (Keyword s) = s
+    show (Keyword s) = "keyword " ++ s
 
 type ExprS = SExpr SyntaxNode
 
