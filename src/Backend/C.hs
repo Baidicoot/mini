@@ -50,11 +50,15 @@ translate d p (Table t xs) = "void* " ++ mangle p t ++ "[] = {"  ++ intercalate 
 translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered " ++ show l ++ "\\n\");\n" else ""
 translate d p (Comment s) = if d then  "/* " ++ s ++ " */\n" else ""
 translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
-translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\ngoto *reg_arith" ++ ";\n"
+translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\n"
+    ++ (if d then "printf(\"jumping to %x\\n\",reg_arith);\n" else "")
+    ++ "goto *reg_arith" ++ ";\n"
 translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloca(sizeof(void*)*" ++ show (length ps) ++ ");\n"
     ++ "data_ptr -= sizeof(void*)*" ++ show (length ps) ++ ";\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
-    ++ if d then "printf(\"data_ptr %x\\n\",data_ptr);\n" else ""
+    ++ case (ps,d) of
+        ((ImmLabel l,_):_,True) -> "printf(\"allocated closure to " ++ show l ++ " (%x) at %x\\n\",&&" ++ mangle p l ++ "," ++ showOp True p (Reg r) ++ ");\n"
+        _ -> ""
 translate d p (Select i o r) = showOp True p (Reg r) ++ " = " ++ translateOp True p o (POff $ SelPath i NoPath) ++ ";\n"
 translate d p (Fetch r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ translateOp False p o1 (OOff o2) ++ ";\n"

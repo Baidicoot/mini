@@ -32,7 +32,8 @@ parsedToCore p ser s0 s (imports,parsed) = do
         . toEither $ elaborate s0 ser env p parsed
     let ser' = let (ModuleServer abis apis gadts') = ser in ModuleServer abis apis (gadts ++ gadts')
     (typed, types, s2) <- mapLeft (fmap (render s)) . toEither $ typecheck s1 ser' untyped
-    let (s3, defunc) = defunctorize (mainFn p) [] s2 typed
+    imports <- mapLeft (fmap show) (getAPIs ser imports)
+    let (s3, defunc) = defunctorize (mainFn p) imports s2 typed
     let exportSchemes = zip exports types
     pure (fmap (render s) w0, constructAPI p exportSchemes gadts, defunc, s3)
 

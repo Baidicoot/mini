@@ -10,12 +10,11 @@ module Control.Monad.Errors
     ( runErrors
     , runErrorsT
     , MonadErrors(..)
-    , revert
-    , ignore
     , ErrorsT
     , Errors
     , err
     , errL
+    , throw
     , throwL
     , report
     , toEither
@@ -28,9 +27,11 @@ module Control.Monad.Errors
 
 import Control.Monad.Identity
 import Control.Monad.Trans.Class
-import Control.Monad.Reader.Class
+--import Control.Monad.Reader.Class
+import Control.Monad.Reader
 import Control.Monad.Writer.Class
 import Control.Monad.State.Class
+import Control.Monad.State
 import Control.Monad.IO.Class
 import Control.Monad
 
@@ -80,38 +81,27 @@ runErrorsT (ErrorsT action) = do
         _ -> error "no idea how you got here"
 
 class MonadErrors e m | m -> e where
-    throw :: e -> m a
-    recover :: (a -> b) -> b -> m a -> m b
     liftErrors :: ErrorsResult e a -> m a
 
-revert :: (MonadErrors e m) => a -> m a -> m a
-revert = recover id
-
-ignore :: (MonadErrors e m) => m a -> m ()
-ignore = recover (const ()) ()
+throw :: (MonadErrors e m) => e -> m a
+throw e = liftErrors (Fail e)
 
 err :: (MonadErrors e m) => a -> e -> m a
-err a = revert a . throw
+err a e = liftErrors (FailWithResult e a)
 
 report :: (MonadErrors e m) => e -> m ()
-report = ignore . throw
+report e = liftErrors (FailWithResult e ())
 
 throwL :: (MonadErrors [e] m) => e -> m a
 throwL = throw . (:[])
 
 errL :: (MonadErrors [e] m) => a -> e -> m a
-errL a e = revert a (throwL e)
+errL a = err a . (:[])
 
 liftEither :: (MonadErrors e m) => Either e a -> m a
 liftEither = liftErrors . toErrors
 
 instance (Monad m, Monoid e) => MonadErrors e (ErrorsT e m) where
-    throw e = ErrorsT $ return (Just e,Nothing)
-    recover f def (ErrorsT action) = ErrorsT $ do
-        (x,a) <- action
-        case a of
-            Nothing -> pure (x,Just def)
-            Just a' -> pure (x,Just (f a'))
     liftErrors (Fail e) = throw e
     liftErrors (FailWithResult e a) = err a e
     liftErrors (Success a) = pure a
@@ -168,3 +158,9 @@ instance (MonadWriter w m, Monad m, Monoid e) => MonadWriter w (ErrorsT e m) whe
                 c <- pass (pure b)
                 pure (aErr,Just c)
             Nothing -> pure (aErr,Nothing)
+
+instance (Monad m, MonadErrors e m, Monoid e) => MonadErrors e (StateT s m) where
+    liftErrors = lift . liftErrors
+
+instance (Monad m, MonadErrors e m, Monoid e) => MonadErrors e (ReaderT r m) where
+    liftErrors = lift . liftErrors

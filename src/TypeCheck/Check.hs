@@ -74,9 +74,9 @@ instance Substitutable Gamma where
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
-liftUE :: SourcePos -> UnifyAction -> Either UnifyError a -> Checker a
-liftUE _ _ (Right x) = pure x
-liftUE t a (Left e) = throw [UnifyError t e a]
+liftUE :: SourcePos -> UnifyAction -> a -> Either UnifyError a -> Checker a
+liftUE _ _ _ (Right x) = pure x
+liftUE t ac a (Left e) = err a [UnifyError t e ac]
 
 typecheck :: Int -> ModuleServer -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, [Scheme], Int)
 typecheck i e c =
@@ -104,19 +104,19 @@ extSubst s' = modify (second (s' @@))
 matches :: SourcePos -> Type -> Scheme -> Checker ()
 matches t a b = do
     s  <- getSubst
-    s' <- revert mempty $ liftUE t (MatchAct (apply s a) (apply s b)) (match (apply s a) (apply s b))
+    s' <- liftUE t (MatchAct (apply s a) (apply s b)) mempty (match (apply s a) (apply s b))
     extSubst s'
 
 unify :: SourcePos -> Type -> Type -> Checker ()
 unify t a b = do
     s  <- getSubst
-    s' <- revert mempty $ liftUE t (UnifyAct (apply s a) (apply s b)) (mgu (apply s a) (apply s b))
+    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu (apply s a) (apply s b))
     extSubst s'
 
 unifier :: SourcePos -> Type -> Type -> Checker Subst
 unifier t a b = do
     s <- getSubst
-    s' <- revert mempty $ liftUE t (UnifyAct (apply s a) (apply s b)) (mgu (apply s a) (apply s b))
+    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu (apply s a) (apply s b))
     pure (s' @@ s)
 
 immedMatch :: SourcePos -> [a] -> [b] -> Checker ()

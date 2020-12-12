@@ -56,6 +56,7 @@ untagCore = untag . fmap untagCoreN
         untagCoreN (Cons i vs) = Cons i vs
         untagCoreN (Prim p vs) = Prim p vs
         untagCoreN (Error s) = Error s
+        untagCoreN (Select i v) = Select i v
 
 {-
 aconv :: Map.Map Name Name -> Core t -> Core t

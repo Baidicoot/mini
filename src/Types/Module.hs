@@ -156,6 +156,12 @@ importWithAction (ModuleAPI p mtr mco mty _) (ImportAs p') (Env tr ty co) =
         co' = checkRenames p co rco
     in liftM3 Env tr' ty' co'
 
+getAPIs :: ModuleServer -> [(ModulePath,ImportAction)] -> Either [ImportError] [(ModuleAPI,ImportAction)]
+getAPIs ms [] = pure []
+getAPIs ms ((mp,ia):is) = case getAPI ms mp of
+    Just api -> ((api,ia):) <$> getAPIs ms is
+    Nothing -> Left [NonexistentModule mp]
+
 doImports :: ModuleServer -> [(ModulePath,ImportAction)] -> Errors [ImportError] Env
 doImports ms [] = pure emptyEnv
 doImports ms ((mp,ia):is) = case getAPI ms mp of
