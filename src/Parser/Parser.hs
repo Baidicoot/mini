@@ -70,6 +70,7 @@ expr (SExpr _ (SNode p (Keyword "lam"):xs)) = Node p . Lambda <$> lamexp p xs
 expr (SExpr _ (SNode p (Keyword "match"):xs)) = Node p . Switch <$> matchexp p xs
 expr (SNode p (SynLit l)) = Right (Node p $ Literal l)
 expr (SNode p (Ident i)) = Right (Node p $ Var i)
+expr (SNode t (Prim p)) = Right (Node t $ Primop p)
 expr (SExpr p xs) = apps "expression" p expr xs
 expr s = Left [Expecting "expression" (display s) (getPos s)]
 

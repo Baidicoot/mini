@@ -1,8 +1,13 @@
-(ind Maybe
-    (Just :: a -> Maybe a)
-    (Nothing :: Maybe a))
+(ind List
+    (cons :: a -> (List a) -> List a)
+    (nil :: List a))
 
-(unwrap x match x
-    (Just y -> y))
+(seq (a b) b)
 
-(let (main unwrap Nothing))
+(putstr x match x
+    (cons c xs -> seq (putchr c) (putstr xs))
+    (nil -> 0))
+
+(let (msg cons 'a' (cons 'b' nil)))
+
+(let (main putstr msg))

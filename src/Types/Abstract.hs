@@ -66,10 +66,11 @@ data Operator
     | Imports Label
     | Table Label [Emit]
     -- end of pseudoops
+    | ArithOp Primop Register Operand Operand
+    | EffectOp Primop Operand
     | CheckLim Int
     | Jmp Operand
     | Record [(Operand,AccessPath)] Register
-    | Free Register
     | Select Int Operand Register
     | Fetch Register Operand Operand
     | Move Register Operand
@@ -84,7 +85,8 @@ instance Show Operator where
     show (CheckLim i) = "check " ++ show i
     show (Jmp o) = "jmp " ++ show o
     show (Record p r) = "record " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
-    show (Free r) = "free " ++ show r
+    show (ArithOp p r o1 o2) = show r ++ " <- " ++ show o1 ++ show p ++ show o2
+    show (EffectOp p o) = show p ++ " " ++ show o
     show (Select i o r) = "select " ++ show i ++ ", " ++ show o ++ ", " ++ show r
     show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " ++ show o0 ++ ", " ++ show o1
     show (Move a b) = "move " ++ show a ++ ", " ++ show b

@@ -8,6 +8,7 @@ import Modules.Defunctorize
 import CPS.CPSify
 import CPS.ClosureConv
 import CPS.Spill
+import CPS.Meta
 import Backend.AbstGen
 
 import Types.Core

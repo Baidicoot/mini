@@ -11,6 +11,7 @@ import Data.List
 import Control.Monad.IO.Class
 
 import Types.Build
+import Types.Prim (Primop(..))
 
 import Control.Arrow
 
@@ -50,9 +51,10 @@ translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered 
 translate d p (Comment s) = if d then  "/* " ++ s ++ " */\n" else ""
 translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
 translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\ngoto *reg_arith" ++ ";\n"
-translate d p (Record ps r) = showOp True p (Reg r) ++ " = malloc(sizeof(void*)*" ++ show (length ps) ++ ");\n"
+translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloca(sizeof(void*)*" ++ show (length ps) ++ ");\n"
+    ++ "data_ptr -= sizeof(void*)*" ++ show (length ps) ++ ";\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
-    ++ if d then "printf(\"allocated " ++ show (length ps) ++ " in " ++ show r ++ "\\n\");\n" else ""
+    ++ if d then "printf(\"data_ptr %x\\n\",data_ptr);\n" else ""
 translate d p (Select i o r) = showOp True p (Reg r) ++ " = " ++ translateOp True p o (POff $ SelPath i NoPath) ++ ";\n"
 translate d p (Fetch r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ translateOp False p o1 (OOff o2) ++ ";\n"
@@ -62,10 +64,28 @@ translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");return 1;\n"
 translate d p (Move r op) = showOp True p (Reg r) ++ " = " ++ showOp True p op ++ ";\n"
 translate d _ (Exports _) = ""
 translate d _ (Imports _) = ""
-translate d p x = if d then "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n" else ""
+translate d p (EffectOp PutChr o) = "putchar(" ++ showOp True p o ++ ");\n"
+translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"
 
 preheader :: String
-preheader = "void* reg_gpr[100];\nvoid* reg_arith;\nvoid* data_ptr;\nvoid* data_lim;\nint main() {\n"
+preheader = unlines
+    [ "#define ALLOC_SPACE 1000000"
+    , "void* reg_gpr[100];"
+    , "void* reg_arith;"
+    , "void* data_start;"
+    , "void* data_ptr;"
+    , "void* data_lim;"
+    , "int main() {"
+    ]
+
+postheader :: String
+postheader = unlines
+    [ "int xxyyzz;"
+    , "data_start = &xxyyzz;"
+    , "data_ptr = data_start;"
+    , "data_lim = data_start - ALLOC_SPACE;"
+    , "goto start;"
+    ]
 
 footer :: String
 footer = "}\n"
@@ -80,7 +100,7 @@ cgen cfg fs glue = do
     let (a,b) = unzip $ fmap (\(p,ops) -> let (static,ins) = moveStatic ops in ((p,static),(p,ins))) (([],glue):fmap (\(p,Right ops)->(p,ops)) fs)
     let statics = concatMap (\(p,s)->concatMap (translate False p) s) a
     let ins = concatMap (\(p,o)->concatMap (translate False p) o) b
-    liftIO $ writeFile (root cfg ++ "main.c") (preheader ++ statics ++ "goto start;\n" ++ ins ++ footer)
+    liftIO $ writeFile (root cfg ++ "main.c") (preheader ++ statics ++ postheader ++ ins ++ footer)
     pure (root cfg ++ "main.c")
 
 cbackend :: Backend

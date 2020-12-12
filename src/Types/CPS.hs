@@ -85,6 +85,7 @@ instance Show CExp where
     show (Record va id exp) = "let " ++ show id ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) va) ++ "} in " ++ show exp
     show (Select i v id exp) = "let " ++ show id ++ " = " ++ show v ++ "[" ++ show i ++ "]" ++ " in " ++ show exp
     show (Switch v exp) = "switch " ++ show v ++ concatMap (\cse -> "\n" ++ show cse) exp
+    show (Primop p args n [exp]) = "let " ++ show n ++ " = " ++ show p ++ "{" ++ intercalate "," (fmap show args) ++ "} in" ++ show exp
     show Halt = "halt"
     show (Error s) = "error '" ++ s ++ "'"
 

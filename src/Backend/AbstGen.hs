@@ -92,6 +92,22 @@ record ps n exp = do
     emit (Record ps' (r a))
     generate exp
 
+primop :: Primop -> [Value] -> Identifier -> [CExp] -> AbstGen ()
+primop op vs@[o1,o2] n [exp] | arithOp op = do
+    o1 <- getOp o1
+    o2 <- getOp o2
+    a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
+    assoc n a
+    emit (ArithOp op (GPR a) o1 o2)
+    generate exp
+primop op vs@[o] n [exp] | effectOp op = do
+    o <- getOp o
+    a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
+    assoc n a
+    emit (EffectOp op o)
+    emit (Move (GPR a) (ImmLit (Int 0)))
+    generate exp
+
 select :: Int -> Value -> Identifier -> CExp -> AbstGen ()
 select i v n exp = do
     o <- getOp v
@@ -357,4 +373,5 @@ generate (CPS.Record paths name exp) = record paths name exp
 generate (CPS.Select i v n exp) = select i v n exp
 generate (CPS.Switch v exps) = switch v exps
 generate (CPS.Error s) = emit (Error s)
+generate (CPS.Primop p vs i exps) = primop p vs i exps
 generate CPS.Halt = emit Halt

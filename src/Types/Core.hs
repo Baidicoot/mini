@@ -80,6 +80,7 @@ instance Show (CoreNode tag) where
     show (Match (Nothing,_) ir cases) = "match " ++ show ir ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
     show (Match (Just t,_) ir cases) = "match " ++ show ir ++ " :: " ++ show t ++ " with\n" ++ concatMap (\(p, _, ir) -> "    " ++ show p ++ " -> " ++ show ir ++ "\n") cases
     show (Error s) = "error " ++ show s
+    show (Prim p args) = show p ++ "{" ++ concatMap ((',':) . show) args ++ "}"
 
 instance Show tag => Pretty (CoreNode tag) Int where
     showtag (Let _ _ _) _ = True
@@ -98,6 +99,7 @@ instance Show tag => Pretty (CoreNode tag) Int where
     pretty (Match (Nothing,_) ir cases) n = "match " ++ show ir ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Match (Just t,_) ir cases) n = "match " ++ show ir ++ " :: " ++ show t ++ " with\n" ++ intercalate "\n" (fmap (\(p, _, ir) -> replicate n ' ' ++ show p ++ " -> " ++ pretty ir (n+4)) cases)
     pretty (Error s) _ = "error " ++ show s
+    pretty (Prim p args) _ = show p ++ "{" ++ concatMap ((',':) . show) args ++ "}"
 
 instance (Substitutable tag) => Substitutable (CoreNode tag) where
     apply s (Fix ds ir) = Fix (fmap (\(a, b) -> (a, apply s b)) ds) (apply s ir)

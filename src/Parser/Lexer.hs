@@ -56,6 +56,13 @@ keyword
   <|> string "fix"
   <|> string "import-as"
 
+primop :: Parser Primop
+primop
+  =   try (string "+")      $> AAdd
+  <|> try (string "-")      $> ASub
+  <|> try (string "putint") $> PutInt
+  <|> try (string "putchr") $> PutChr
+
 ident :: Parser Identifier
 ident = do
   is <- sepBy1 name (char '.')
@@ -79,4 +86,5 @@ rpnccTok
   <|> try (string "::")  $> Ann
   <|> try (string "Ty")  $> Star
   <|> try (string "_")   $> Hole
+  <|> Prim              <$> try primop
   <|> Ident             <$> ident

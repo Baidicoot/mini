@@ -143,6 +143,11 @@ convertNode (Core.Match (Just ty, p) n cs) c | isJust (constructor ty) = do
                 let bindings = foldr (\(i,v) f -> Select i (Var n) (LocalIdentifier v) . f) id (zip [1..] ns)
                 in fmap bindings (convert cse c)
     pure . Select 0 (Var n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
+convertNode (Core.Prim p vs) c = do
+    x <- fresh
+    vs' <- mapM convVal vs
+    convC <- c (Var $ LocalIdentifier x)
+    pure $ Primop p vs' (LocalIdentifier x) [convC]
 convertNode x _ = error (show x)
 
 selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])

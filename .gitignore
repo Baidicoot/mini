@@ -17,3 +17,5 @@ Meta-Old.hs
 cache-x86_64-linux-textual
 *.out
 *.c
+scheme-test
+test.*

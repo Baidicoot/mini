@@ -10,7 +10,10 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 getCaptured :: CExp -> Map.Map Identifier FV
-getCaptured = reduce . fst . collectPerFunctionMeta
+getCaptured = fmap fst . reduce . fst . collectPerFunctionMeta
+
+getBound :: CExp -> Map.Map Identifier FV
+getBound = fmap snd . reduce . fst . collectPerFunctionMeta
 
 data PerFunction = PerFunctionData
     { free :: Set.Set Identifier
@@ -43,11 +46,10 @@ passes ids = mappend (mempty {knownEsc = Set.fromList ids})
 
 binds :: [Identifier] -> PerFunction -> PerFunction
 binds ids f = f
-    { free = free f `Set.difference` Set.fromList ids
-    , bound = Set.fromList ids }
+    { bound = bound f `mappend` Set.fromList ids }
 
 nests :: Map.Map Identifier PerFunction -> PerFunction -> PerFunction
-nests m = mappend mempty {free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, nested = Set.fromList $ Map.keys m}
+nests m = mappend mempty {bound = mconcat $ fmap bound fns, free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, nested = Set.fromList $ Map.keys m}
     where
         fns = Map.elems m
 
@@ -81,11 +83,11 @@ collectPerFunctionMeta Halt = mempty
 
 type FV = Set.Set Identifier
 
-reduce :: Map.Map Identifier PerFunction -> Map.Map Identifier FV
+reduce :: Map.Map Identifier PerFunction -> Map.Map Identifier (FV,FV)
 reduce
-    = fmap (\(_,_,f) -> f)
+    = fmap (\(_,b,f) -> (f `Set.difference` b,b))
     . internal
-    . fmap (\(PerFunctionData f b k _ e _) -> (k `Set.union` e, b, f))
+    . fmap (\(PerFunctionData f b k _ e _) -> (k `Set.union` e, b, f `Set.difference` b))
     where
         internalStep ::
             Map.Map Identifier (Set.Set Identifier, Set.Set Identifier, Set.Set Identifier)

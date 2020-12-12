@@ -24,6 +24,9 @@ data TypeNode t
 intty :: Type
 intty = Node NoTag (Builtin IntTy)
 
+charty :: Type
+charty = Node NoTag (Builtin CharTy)
+
 unitty :: Type
 unitty = Node NoTag (Product [])
 
@@ -35,6 +38,8 @@ opTy AAdd = intty --> intty --> intty
 opTy ASub = intty --> intty --> intty
 opTy ADiv = intty --> intty --> intty
 opTy AMul = intty --> intty --> intty
+opTy PutChr = charty --> unitty
+opTy PutInt = intty --> unitty
 
 type SourceType = SourceGraph (TypeNode SourcePos)
 
