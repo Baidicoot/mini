@@ -13,6 +13,7 @@ import Backend.AbstGen
 
 import Types.Core
 import qualified Types.CPS as CPS
+import qualified Data.Map as Map
 import Types.Ident
 import Types.Type
 import Types.Module
@@ -34,7 +35,7 @@ parsedToCore p ser s0 s (imports,parsed) = do
     let ser' = let (ModuleServer abis apis gadts') = ser in ModuleServer abis apis (gadts ++ gadts')
     (typed, types, s2) <- mapLeft (fmap (render s)) . toEither $ typecheck s1 ser' untyped
     imports <- mapLeft (fmap show) (getAPIs ser imports)
-    let (s3, defunc) = defunctorize (mainFn p) imports s2 typed
+    let (s3, defunc) = defunctorize (mainFn p) (fmap fst imports) s2 typed
     let exportSchemes = zip exports types
     pure (fmap (render s) w0, constructAPI p exportSchemes gadts, defunc, s3)
 
@@ -46,10 +47,11 @@ coreToAbst k m e r c0 s0 =
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) m c3 r
     in (ops,l,s3)
 
-coreToCPS :: [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int -> (CPS.CExp,Int)
+coreToCPS :: [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int -> (CPS.CExp,Int,CPS.CExp)
 coreToCPS k m e c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
-    in closureConv c1 s1
+        (c2,s2) = closureConv c1 s1
+    in (c2,s2,c1)
 
 parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
 parsedToAbst p ms k m r s pr@(i,_) = do
@@ -57,8 +59,8 @@ parsedToAbst p ms k m r s pr@(i,_) = do
     let (o,[(_,l)],_) = coreToAbst k [m] (loadAPI a ms) r t s0
     pure (w,a,ModuleABI p m (fmap fst i) l,o, t)
 
-parsedToCPS :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, Core Type)
+parsedToCPS :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, (CPS.CExp,Core Type))
 parsedToCPS p ms k m s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
-    let (c,_) = coreToCPS k [m] (loadAPI a ms) t s0
-    pure (w,a,ModuleABI p m (fmap fst i) [],c,t)
+    let (c,_,ucc) = coreToCPS k [m] (loadAPI a ms) t s0
+    pure (w,a,ModuleABI p m (fmap fst i) [],c,(ucc,t))

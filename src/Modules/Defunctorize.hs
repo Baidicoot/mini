@@ -10,17 +10,17 @@ import Types.Prim
 fresh :: Int -> (Int,Name)
 fresh i = (i+1,'i':show i)
 
-doImportAs :: Int -> Name -> ModuleAPI -> ModulePath -> Core Type -> (Int,Core Type)
-doImportAs s f m m' e =
+importAPI :: Int -> Name -> ModuleAPI -> Core Type -> (Int,Core Type)
+importAPI s f m e =
     let importing = zip (moduleAPITerms m) [0..]
     in (,) s
         $ foldr (\((n,Forall _ t),i) ->
             Node (getTag e)
-            . Let (ExternalIdentifier m' n) (Node t . Select i . Var $ LocalIdentifier f)) e importing
+            . Let (ExternalIdentifier (moduleAPIPath m) n) (Node t . Select i . Var $ LocalIdentifier f)) e importing
 
-defunctorizeArg :: Identifier -> Name -> [(Name,Type)] -> [(ModuleAPI,ImportAction)] -> Int -> Core Type -> (Int,Core Type)
-defunctorizeArg i a ns ((m,ImportAs m'):xs) s e =
-    let (s',f) = fresh s in uncurry (defunctorizeArg i a ((f,getSignature m):ns) xs) (doImportAs s' f m m' e)
+defunctorizeArg :: Identifier -> Name -> [(Name,Type)] -> [ModuleAPI] -> Int -> Core Type -> (Int,Core Type)
+defunctorizeArg i a ns (m:xs) s e =
+    let (s',f) = fresh s in uncurry (defunctorizeArg i a ((f,getSignature m):ns) xs) (importAPI s' f m e)
 defunctorizeArg i a ns [] s e =
     let e' = foldr (\((n,t),i) -> 
             Node (getTag e)
@@ -30,5 +30,5 @@ defunctorizeArg i a ns [] s e =
         . Fix [(i,Node (getTag e) $ Lam (LocalIdentifier a) e')]
         $ Node unitty $ Tuple []
 
-defunctorize :: Identifier -> [(ModuleAPI,ImportAction)] -> Int -> Core Type -> (Int,Core Type)
+defunctorize :: Identifier -> [ModuleAPI] -> Int -> Core Type -> (Int,Core Type)
 defunctorize i m s = let (s',a) = fresh s in defunctorizeArg i a [] m s'

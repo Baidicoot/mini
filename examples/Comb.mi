@@ -1,24 +1,4 @@
-(ind Nat
-    (Z :: Nat)
-    (S :: Nat -> Nat))
-
-(add (x y) match x
-    (S x' -> S (add x' y))
-    (Z -> y))
-
-(pred y match y
-    (S y' -> y')
-    (Z -> y))
-
-(sub (x y) match x
-    (S x' -> pred (sub x' y))
-    (Z -> y))
-
-(putnat x match x
-    (S x -> (lam (a b) b) (putchr 's') (putnat x))
-    (Z -> putchr 'z'))
-
-(let (three S (S (S Z))))
-(let (six (add three three)))
-
-(let (test putnat six))
+(seq (a b) b)
+(const (a b) a)
+(after (f g x) f (g x))
+(flip (f a b) f b a)

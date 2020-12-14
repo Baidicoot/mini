@@ -14,12 +14,14 @@
     (S x' -> pred (sub x' y))
     (Z -> y))
 
+(arr (f x y) match x
+    (S Z -> y)
+    (S x' -> f y (arr f x' y))
+    (Z -> Z))
+
+(let (mult arr add))
+(let (pow arr mult))
+
 (putnat x match x
     (S x -> (lam (a b) b) (putchr 's') (putnat x))
     (Z -> putchr 'z'))
-
-(let (one S Z))
-(let (two S one))
-(let (three S two))
-
-(let (test putnat (add three three)))

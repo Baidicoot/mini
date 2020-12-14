@@ -1,0 +1,9 @@
+(import-as List L)
+
+(let (hello L.cons 'h' (L.cons 'e' (L.cons 'l' (L.cons 'l' (L.cons 'o' L.nil))))))
+(let (world L.cons 'w' (L.cons 'o' (L.cons 'r' (L.cons 'l' (L.cons 'd' L.nil))))))
+
+(unwords2 (x y) L.concat x (L.cons ' ' y))
+
+(let (main
+    L.putstr (unwords2 hello world)))

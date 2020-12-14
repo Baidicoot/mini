@@ -12,6 +12,7 @@ import Types.Prim
 import Types.Build
 
 import qualified Data.Map as Map
+import Data.List
 
 type GlobalIdent = (ModulePath,Identifier)
 
@@ -21,7 +22,20 @@ data CVal
     | CPtr GlobalIdent
     deriving(Show)
 
-type CPSEnv = (ModulePath, Map.Map GlobalIdent ([Identifier], CExp), Map.Map GlobalIdent CVal)
+type CPSEnv = (ModulePath, [GlobalIdent], Map.Map GlobalIdent ([Identifier], CExp), Map.Map GlobalIdent CVal)
+
+printEnv :: Interpreter ()
+printEnv = do
+    (p,trace,fns,mem) <- ask
+    liftIO . putStrLn $ "trace: " ++ intercalate " <- " (fmap (\(m,i) -> intercalate "." m ++ " " ++ show i) trace)
+    liftIO . putStrLn $ "in module: " ++ intercalate "." p
+    liftIO . forM_ (Map.toList fns) $ \((m,i),(a,e)) -> do
+        putStrLn $ intercalate "." m ++ " " ++ show i ++ concatMap ((' ':) . show) a ++ ": "
+        print e
+    liftIO . forM_ (Map.toList mem) $ \((m,i),v) -> do
+        putStr $ intercalate "." m ++ " " ++ show i ++ ": "
+        print v
+    
 
 type Interpreter = ReaderT CPSEnv IO
 
@@ -32,7 +46,7 @@ interpret :: Identifier -> [(ModulePath,CExp)] -> IO ()
 interpret i es = runInterpreter (interpretExp (App (Label i) [])) (toEnv [] es)
 
 toEnv :: ModulePath -> [(ModulePath,CExp)] -> CPSEnv
-toEnv p fs = (p,Map.fromList (fns fs),mempty)
+toEnv p fs = (p,[],Map.fromList (fns fs),mempty)
     where
         fns ((p,Fix defs _):xs) =
             fmap (\(Fun n args exp) -> ((p,n),(args,exp))) defs
@@ -41,15 +55,17 @@ toEnv p fs = (p,Map.fromList (fns fs),mempty)
 
 getGlobal :: Identifier -> Interpreter GlobalIdent
 getGlobal i = do
-    (p,_,_) <- ask
+    (p,_,_,_) <- ask
     pure (p,i)
 
 lookupVar :: GlobalIdent -> Interpreter CVal
 lookupVar i = do
-    (_,_,vs) <- ask
+    (_,_,_,vs) <- ask
     case Map.lookup i vs of
         Just v -> pure v
-        Nothing -> error $ "value " ++ show i ++ " not found"
+        Nothing -> do
+            fatal $ "value " ++ show i ++ " not found"
+            undefined
 
 convVal :: Value -> Interpreter CVal
 convVal (Label i@(ExternalIdentifier m _)) = pure (CPtr (m,i))
@@ -58,19 +74,26 @@ convVal (Var i) = lookupVar =<< getGlobal i
 convVal (Lit l) = pure (CLit l)
 
 enterModule :: ModulePath -> Interpreter a -> Interpreter a
-enterModule p = local (\(_,a,b)->(p,a,b))
+enterModule p = local (\(_,t,a,b)->(p,t,a,b))
 
 withVars :: [(Identifier,CVal)] -> Interpreter a -> Interpreter a
 withVars vs c = do
     vs' <- mapM (\(b,a) -> fmap (flip (,) a) (getGlobal b)) vs
-    local (\(m,a,b)->(m,a,Map.fromList vs' `mappend` b)) c
+    local (\(m,t,a,b)->(m,t,a,Map.fromList vs' `mappend` b)) c
+
+withTrace :: GlobalIdent -> Interpreter a -> Interpreter a
+withTrace i = local (\(p,t,a,b)->(p,i:t,a,b))
 
 execGlobal :: GlobalIdent -> [CVal] -> Interpreter ()
 execGlobal g@(m,_) vs = do
-    (_,fns,_) <- ask
+    (_,_,fns,_) <- ask
     case Map.lookup g fns of
-        Just (args, exp) -> enterModule m $ withVars (zip args vs) (interpretExp exp)
-        Nothing -> error $ "function " ++ show g ++ " not found"
+        Just (args, exp) -> do
+            if length args /= length vs then
+                liftIO . putStrLn $ "WARNING: arguments " ++ show args ++ " given values: " ++ show vs
+            else pure ()
+            enterModule m . withTrace g $ withVars (zip args vs) (interpretExp exp)
+        Nothing -> fatal $ "function " ++ show g ++ " not found"
 
 access :: CVal -> AccessPath -> CVal
 access v NoPath = v
@@ -82,17 +105,23 @@ getArithOp ASub = (-)
 getArithOp AMul = (*)
 getArithOp ADiv = div
 
+fatal :: String -> Interpreter ()
+fatal s = do
+    printEnv
+    liftIO $ putStrLn s
+    pure ()
+
 getIOOp :: Primop -> CVal -> Interpreter ()
 getIOOp PutChr (CLit (Char c)) = liftIO $ putChar c
 getIOOp PutInt (CLit (Int i)) = liftIO $ print i
-getIOOp p v = error $ "tried to " ++ show p ++ " " ++ show v
+getIOOp p v = fatal $ "tried to " ++ show p ++ " " ++ show v
 
 interpretExp :: CExp -> Interpreter ()
 interpretExp (App v vs) = do
     v' <- convVal v
     case v' of
         CPtr g -> execGlobal g =<< mapM convVal vs
-        _ -> error $ "tried to jump to " ++ show v'
+        _ -> fatal $ "tried to jump to " ++ show v'
 interpretExp (Record vp n c) = do
     vs <- mapM (\(v,p) -> access <$> convVal v <*> pure p) vp
     withVars [(n,CRecord vs)] (interpretExp c)
@@ -103,13 +132,13 @@ interpretExp (Switch v cs) = do
     v' <- convVal v
     case v' of
         CLit (Int i) -> interpretExp (cs !! i)
-        _ -> error $ "tried to switch on " ++ show v'
+        _ -> fatal $ "tried to switch on " ++ show v'
 interpretExp (Primop p [a,b] n [c]) | arithOp p = do
     a' <- convVal a
     b' <- convVal b
     case (a',b') of
         (CLit (Int a),CLit (Int b)) -> withVars [(n,CLit (Int (getArithOp p a b)))] (interpretExp c)
-        _ -> error $ "tried to " ++ show p ++ " " ++ show (a',b')
+        _ -> fatal $ "tried to " ++ show p ++ " " ++ show (a',b')
 interpretExp (Primop p [v] n [c]) | effectOp p = do
     v' <- convVal v
     getIOOp p v'
