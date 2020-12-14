@@ -24,8 +24,11 @@ whiteSep p = do
   whiteSpace
   pure a
 
+reserved :: String -> Parser String
+reserved = whiteSep . string
+
 int :: Parser Int
-int = do
+int = whiteSep $ do
   s <- option "" (string "-")
   d <- many1 digit
   pure $ read (s ++ d)
@@ -44,24 +47,24 @@ literal
 
 literalTy :: Parser LitType
 literalTy
-  =   string "Int"  $>  IntTy
-  <|> string "Char" $>  CharTy
+  =   reserved "Int"  $>  IntTy
+  <|> reserved "Char" $>  CharTy
 
 keyword :: Parser String
 keyword
-  =   try (string "let")
-  <|> try (string "ind")
-  <|> string "lam"
-  <|> string "match"
-  <|> string "fix"
-  <|> string "import-as"
+  =   try (reserved "let")
+  <|> try (reserved "ind")
+  <|> reserved "lam"
+  <|> reserved "match"
+  <|> reserved "fix"
+  <|> reserved "import-as"
 
 primop :: Parser Primop
 primop
-  =   try (string "+")      $> AAdd
-  <|> try (string "-")      $> ASub
-  <|> try (string "putint") $> PutInt
-  <|> try (string "putchr") $> PutChr
+  =   try (reserved "+")      $> AAdd
+  <|> try (reserved "-")      $> ASub
+  <|> try (reserved "putint") $> PutInt
+  <|> try (reserved "putchr") $> PutChr
 
 ident :: Parser Identifier
 ident = do
@@ -79,12 +82,12 @@ parens p = do
 
 rpnccTok :: Parser SyntaxNode
 rpnccTok
-  =   SynLit            <$> try literal
-  <|> LitTy             <$> try literalTy
-  <|> Keyword           <$> try keyword
-  <|> try (string "->")  $> Arr
-  <|> try (string "::")  $> Ann
-  <|> try (string "Ty")  $> Star
-  <|> try (string "_")   $> Hole
-  <|> Prim              <$> try primop
-  <|> Ident             <$> ident
+  =   SynLit              <$> try literal
+  <|> LitTy               <$> try literalTy
+  <|> Keyword             <$> try keyword
+  <|> try (reserved "->")  $> Arr
+  <|> try (reserved "::")  $> Ann
+  <|> try (reserved "Ty")  $> Star
+  <|> try (reserved "_")   $> Hole
+  <|> Prim                <$> try primop
+  <|> Ident               <$> ident

@@ -5,5 +5,5 @@
 
 (unwords2 (x y) L.concat x (L.cons ' ' y))
 
-(let (main
-    L.putstr (unwords2 hello world)))
+(let
+    (_ L.putstr (unwords2 hello world)))

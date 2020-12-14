@@ -26,7 +26,7 @@ compile index num mainLabel ms ((p,Right (pr,s)):fs) done = do
     -- liftIO . forM_ (Map.toList (getCaptured ucc)) $ \(i,b) -> putStrLn (show i ++ ":" ++ concatMap ((' ':) . show) (Set.toList b))
     -- liftIO . forM_ (Map.toList (getBound ucc)) $ \(i,b) -> putStrLn (show i ++ ":" ++ concatMap ((' ':) . show) (Set.toList b))
     -- liftIO $ prettyPrint t (0::Int)
-    -- liftIO $ mapM_ putStrLn w
+    liftIO $ mapM_ putStrLn w
     compile (index+1) num mainLabel (loadModule abi api ms) fs ((p,ops):done)
 compile _ _ mainLabel ms [] done = do
     g <- liftEither . mapLeft (fmap show) $ glueToCPS mainLabel ms

@@ -79,7 +79,7 @@ data FunDef
     deriving(Eq, Show)
 
 data ValDef
-    = ValDef SourcePos (Maybe SourceType) Name Expr
+    = ValDef SourcePos (Maybe SourceType) (Maybe Name) Expr
     deriving(Eq, Show)
 
 data TopLevel

@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
 
 module Control.Monad.Errors
     ( runErrors
@@ -38,7 +39,7 @@ import Control.Monad
 import Data.Monoid
 import Data.Semigroup
 
-newtype ErrorsT e m a = ErrorsT {action :: m (Maybe e, Maybe a)}
+newtype ErrorsT e m a = ErrorsT {action :: m (ErrorsResult e a)}
 type Errors e a = ErrorsT e Identity a
 
 second :: (b -> c) -> (a, b) -> (a, c)
@@ -50,10 +51,20 @@ data ErrorsResult e a
     | Success a
     deriving(Eq, Show)
 
+addErr :: Monoid e => e -> ErrorsResult e a -> ErrorsResult e a
+addErr e (Success a) = FailWithResult e a
+addErr e (Fail f) = Fail (e `mappend` f)
+addErr e (FailWithResult f a) = FailWithResult (e `mappend` f) a
+
 mapErr :: (e -> f) -> ErrorsResult e a -> ErrorsResult f a
 mapErr f (Fail e) = Fail (f e)
 mapErr f (FailWithResult e a) = FailWithResult (f e) a
 mapErr _ (Success a) = Success a
+
+instance Functor (ErrorsResult e) where
+    fmap f (Success a) = Success (f a)
+    fmap f (FailWithResult e a) = FailWithResult e (f a)
+    fmap f (Fail e) = Fail e
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f (Left x) = Left (f x)
@@ -72,13 +83,7 @@ runErrors :: (Monoid e) => Errors e a -> ErrorsResult e a
 runErrors = runIdentity . runErrorsT
 
 runErrorsT :: (Monad m, Monoid e) => ErrorsT e m a -> m (ErrorsResult e a)
-runErrorsT (ErrorsT action) = do
-    a <- action
-    case a of
-        (Just e,Just a) -> pure (FailWithResult e a)
-        (Just e,_) -> pure (Fail e)
-        (_,Just a) -> pure (Success a)
-        _ -> error "no idea how you got here"
+runErrorsT  = action
 
 class MonadErrors e m | m -> e where
     liftErrors :: ErrorsResult e a -> m a
@@ -102,9 +107,7 @@ liftEither :: (MonadErrors e m) => Either e a -> m a
 liftEither = liftErrors . toErrors
 
 instance (Monad m, Monoid e) => MonadErrors e (ErrorsT e m) where
-    liftErrors (Fail e) = throw e
-    liftErrors (FailWithResult e a) = err a e
-    liftErrors (Success a) = pure a
+    liftErrors = ErrorsT . pure
 
 instance (Monad m, Monoid e) => Functor (ErrorsT e m) where
     fmap = liftM
@@ -114,23 +117,20 @@ instance (Monad m, Monoid e) => Applicative (ErrorsT e m) where
     (<*>) = ap
 
 instance (Monad m, Monoid e) => Monad (ErrorsT e m) where
-    return x = ErrorsT $ return (Nothing,Just x)
+    return x = ErrorsT $ return (Success x)
     x >>= k = ErrorsT $ do
-        (xErr,xRes) <- action x
+        xRes <- action x
         case xRes of
-            Just a -> do
-                (kErr,kRes) <- action (k a)
-                pure (kErr `mappend` xErr,kRes)
-            Nothing -> pure (xErr,Nothing)
+            Success a -> action (k a)
+            FailWithResult e a -> addErr e <$> action (k a)
+            Fail e -> pure (Fail e)
 
 -- Instances for mtl transformers
 -- All of these instances need UndecidableInstances,
 -- as they do not satisfy the coverage condition.
 
 instance (Monoid e) => MonadTrans (ErrorsT e) where
-    lift x = ErrorsT $ do
-        x' <- x
-        return (Nothing,Just x')
+    lift x = ErrorsT $ Success <$> x
 
 instance (MonadIO m, Monoid e) => MonadIO (ErrorsT e m) where
     liftIO = lift . liftIO
@@ -144,20 +144,17 @@ instance (MonadReader r m, Monad m, Monoid e) => MonadReader r (ErrorsT e m) whe
 
 instance (MonadWriter w m, Monad m, Monoid e) => MonadWriter w (ErrorsT e m) where
     tell = lift . tell
-    listen a = ErrorsT $ do
-        (aErr,aRes) <- action a
-        case aRes of
-            Just b -> do
-                c <- listen (pure b)
-                pure (aErr,Just c)
-            Nothing -> pure (aErr,Nothing)
+    listen a = ErrorsT $ fmap (\(e, w) -> fmap (, w) e) (listen (action a))
     pass a = ErrorsT $ do
-        (aErr,aRes) <- action a
+        aRes <- action a
         case aRes of
-            Just b -> do
+            Success b -> do
                 c <- pass (pure b)
-                pure (aErr,Just c)
-            Nothing -> pure (aErr,Nothing)
+                pure (Success c)
+            FailWithResult e b -> do
+                c <- pass (pure b)
+                pure (FailWithResult e c)
+            Fail e -> pure (Fail e)
 
 instance (Monad m, MonadErrors e m, Monoid e) => MonadErrors e (StateT s m) where
     liftErrors = lift . liftErrors

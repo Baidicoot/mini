@@ -9,7 +9,11 @@ data UnboxedLit
 data LitType
     = IntTy
     | CharTy
-    deriving(Eq, Show, Ord)
+    deriving(Eq, Ord)
+
+instance Show LitType where
+    show IntTy = "Int"
+    show CharTy = "Char"
 
 data Primop
     = AAdd

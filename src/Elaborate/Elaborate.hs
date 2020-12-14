@@ -17,6 +17,7 @@ import Elaborate.MatchComp
 
 import Control.Monad.Errors
 import Control.Monad
+import Data.Maybe
 import Control.Monad.RWS
 import Control.Arrow
 
@@ -158,13 +159,16 @@ elabMatch t (Syn.Match e ps) = do
     pure . Node t . Fix (fmap (\((_,(n,_,_)),e) -> (LocalIdentifier n,e)) exprCalls) . Node t $ Let n e' m
 -}
 elabLet :: SourcePos -> Syn.Let -> Elaborator (Core SourcePos)
-elabLet t (Syn.Let vs e) = do
-    nvs <- mapM (\d@(Syn.ValDef _ _ n _) -> do
-        e <- elabVal d
-        f <- fork n
-        pure ((LocalIdentifier n,LocalIdentifier f),e)) vs
-    e' <- withTerms (fmap fst nvs) (elabExpr e)
-    pure $ foldr (\((_,LocalIdentifier n),e) -> Node t . Let (LocalIdentifier n) e) e' nvs
+elabLet t (Syn.Let (d@(Syn.ValDef _ _ mn _):vs) e) = do
+    v <- elabVal d
+    case mn of
+        Just n -> do
+            f <- fork n
+            Node t . Let (LocalIdentifier f) v <$> withTerms [(LocalIdentifier n,LocalIdentifier f)] (elabLet t (Syn.Let vs e))
+        Nothing -> do
+            f <- fresh
+            Node t . Let (LocalIdentifier f) v <$> elabLet t (Syn.Let vs e)
+elabLet _ (Syn.Let [] e) = elabExpr e
 
 elabFix :: SourcePos -> Syn.Fix -> Elaborator (Core SourcePos)
 elabFix t (Syn.Fix fs e) = do
@@ -251,7 +255,7 @@ translateTL m ns (Syn.Group p fs:xs) =
     in (Node p . Syn.FixIn $ Syn.Fix fs exp, ns')
 translateTL m ns (Syn.Vals p vs:xs) =
     let names = fmap (\(Syn.ValDef _ _ n _) -> n) vs
-        (exp, ns') = translateTL m (names++ns) xs
+        (exp, ns') = translateTL m (catMaybes names++ns) xs
     in (Node p . Syn.LetIn $ Syn.Let vs exp, ns')
 translateTL m ns (_:xs) = translateTL m ns xs
 translateTL m ns [] = (Node (initialPos (intercalate "." m)) $ Syn.Tuple (fmap (Node (initialPos (intercalate "." m)) . Syn.Var . LocalIdentifier) ns), ns)

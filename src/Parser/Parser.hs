@@ -109,7 +109,7 @@ typeexp (SExpr p xs) = apps "type" p typeexp xs
 typeexp x = Left [Expecting "type" (display x) (getPos x)]
 
 valdef :: ExprParser ValDef
-valdef (SExpr p (d:xs)) = (\((mt,n),e) -> ValDef p mt n e) <$> both decl expr (d, SExpr (getPos d) xs)
+valdef (SExpr p (d:xs)) = (\((mt,n),e) -> ValDef p mt n e) <$> both emptydecl expr (d, SExpr (getPos d) xs)
 valdef x = Left [Expecting "value definition" (display x) (getPos x)]
 
 fundef :: ExprParser FunDef
@@ -139,6 +139,16 @@ caseexp x = Left [Expecting "case" (display x) (getPos x)]
 name :: ExprParser Name
 name (SNode _ (Ident (LocalIdentifier l))) = Right l
 name x = Left [Expecting "name" (display x) (getPos x)]
+
+emptyname :: ExprParser (Maybe Name)
+emptyname (SNode _ (Ident (LocalIdentifier l))) = Right (Just l)
+emptyname (SNode _ Hole) = Right Nothing
+emptyname x = Left [Expecting "name or empty" (display x) (getPos x)]
+
+emptydecl :: ExprParser (Maybe SourceType, Maybe Name)
+emptydecl (SExpr _ (n:SNode p Ann:xs)) = liftM2 (\a b -> (Just a, b)) (typeexp (SExpr p xs)) (emptyname n)
+emptydecl n@(SNode _ _) = fmap ((,) Nothing) (emptyname n)
+emptydecl x = Left [Expecting "declaration or empty" (display x) (getPos x)]
 
 decl :: ExprParser (Maybe SourceType, Name)
 decl (SNode _ (Ident (LocalIdentifier l))) = Right (Nothing, l)
