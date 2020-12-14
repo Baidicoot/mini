@@ -9,6 +9,16 @@
     x
     {(#1 x) (#0 x)})
 
+((putcoord :: {Int Int} -> {})
+    x
+    let
+        (_ putchr '{')
+        (_ putint (#0 x))
+        (_ putchr ',')
+        (_ putint (#1 x))
+        (_ putchr '}')
+        {})
+
 (let
     (_ L.putstr (unwords2 hello world))
-    (_ #1 {0 1}))
+    (_ putcoord (swap {0 1})))

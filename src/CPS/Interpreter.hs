@@ -113,7 +113,7 @@ fatal s = do
 
 getIOOp :: Primop -> CVal -> Interpreter ()
 getIOOp PutChr (CLit (Char c)) = liftIO $ putChar c
-getIOOp PutInt (CLit (Int i)) = liftIO $ print i
+getIOOp PutInt (CLit (Int i)) = liftIO $ putStr (show i)
 getIOOp p v = fatal $ "tried to " ++ show p ++ " " ++ show v
 
 interpretExp :: CExp -> Interpreter ()
