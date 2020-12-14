@@ -13,6 +13,7 @@ data SyntaxNode
     = Ident Identifier
     | SynLit UnboxedLit
     | LitTy LitType
+    | Sel Int
     | Prim Primop
     | Arr
     | Ann
@@ -29,6 +30,7 @@ instance Show SyntaxNode where
     show Ann = "::"
     show Star = "Ty"
     show Hole = "_"
+    show (Sel i) = '#':show i
     show (Keyword s) = "keyword " ++ s
 
 type ExprS = SExpr SyntaxNode

@@ -5,5 +5,10 @@
 
 (unwords2 (x y) L.concat x (L.cons ' ' y))
 
+((swap :: {a b} -> {b a})
+    x
+    {(#1 x) (#0 x)})
+
 (let
-    (_ L.putstr (unwords2 hello world)))
+    (_ L.putstr (unwords2 hello world))
+    (_ #1 {0 1}))

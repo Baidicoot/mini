@@ -13,7 +13,7 @@ import Types.Syntax
 import Data.Functor
 
 name :: Parser Name
-name = many1 (noneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b ().")
+name = many1 (noneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b (){}#.")
 
 whiteSpace :: Parser String
 whiteSpace = many (oneOf "\n\r\t\v\f\x00a0\x1680\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x200b ")
@@ -32,6 +32,9 @@ int = whiteSep $ do
   s <- option "" (string "-")
   d <- many1 digit
   pure $ read (s ++ d)
+
+sel :: Parser Int
+sel = whiteSep $ char '#' >> read <$> many1 digit
 
 charLit :: Parser Char
 charLit = do
@@ -80,6 +83,13 @@ parens p = do
   char ')'
   pure a
 
+record :: Parser a -> Parser a
+record p = do
+  char '{'
+  as <- p
+  char '}'
+  pure as
+
 rpnccTok :: Parser SyntaxNode
 rpnccTok
   =   SynLit              <$> try literal
@@ -89,5 +99,6 @@ rpnccTok
   <|> try (reserved "::")  $> Ann
   <|> try (reserved "Ty")  $> Star
   <|> try (reserved "_")   $> Hole
+  <|> Sel                 <$> sel
   <|> Prim                <$> try primop
   <|> Ident               <$> ident

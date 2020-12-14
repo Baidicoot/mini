@@ -2,7 +2,6 @@ module Parser.Parser (parse,emptyResult,ParseResult,Program,Stream) where
 
 import Prelude hiding(or)
 
-import Data.Monoid
 import Data.Functor
 import Control.Monad
 import Control.Arrow
@@ -68,10 +67,12 @@ expr (SExpr _ (SNode p (Keyword "let"):xs)) = Node p . LetIn <$> letexp p xs
 expr (SExpr _ (SNode p (Keyword "fix"):xs)) = Node p . FixIn <$> fixexp p xs
 expr (SExpr _ (SNode p (Keyword "lam"):xs)) = Node p . Lambda <$> lamexp p xs
 expr (SExpr _ (SNode p (Keyword "match"):xs)) = Node p . Switch <$> matchexp p xs
+expr (SExpr t (SNode p (Sel i):xs)) = Node p . Select i <$> expr (SExpr t xs)
 expr (SNode p (SynLit l)) = Right (Node p $ Literal l)
 expr (SNode p (Ident i)) = Right (Node p $ Var i)
 expr (SNode t (Prim p)) = Right (Node t $ Primop p)
 expr (SExpr p xs) = apps "expression" p expr xs
+expr (SRcrd p xs) = fmap (Node p . Tuple) (many expr xs)
 expr s = Left [Expecting "expression" (display s) (getPos s)]
 
 annot :: ExprParser a -> Parser (ExprS, ExprS) (Annotation a)
@@ -100,6 +101,7 @@ apps s o p (x:xs) = p x >>= internal xs
 
 typeexp :: ExprParser SourceType
 typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (\a b -> App p (App p (Node p FunctionType) a) b) <$> both typeexp typeexp (x, SExpr p xs)
+typeexp (SRcrd p xs) = Node p . Product <$> many typeexp xs
 typeexp (SNode p (Ident (LocalIdentifier i@(c:_))))
     | isLower c = Right (Node p (TypeVar i))
 typeexp (SNode p (Ident i)) = Right (Node p (NamedType i))

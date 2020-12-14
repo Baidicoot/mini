@@ -6,7 +6,7 @@
 
 (putstr x match x
     (cons c xs -> C.seq (putchr c) (putstr xs))
-    (nil -> 0))
+    (nil -> {}))
 
 (concat (x y) match x
     (cons xe xs -> cons xe (concat xs y))
