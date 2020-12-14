@@ -110,10 +110,13 @@ instance {-# OVERLAPPING #-} Substitutable Type where
     apply s = (applyN s =<<)
         where
             applyN s t@(TypeVar n) = Map.findWithDefault (Node NoTag t) n s
+            applyN s (Product ts) = Node NoTag (Product (fmap (apply s) ts))
             applyN _ t = Node NoTag t
     ftv = foldr mappend mempty . fmap ftvN
         where
+            ftvN :: TypeNode NoTag -> Set.Set Name
             ftvN (TypeVar n) = Set.singleton n
+            ftvN (Product ts) = mconcat (fmap ftv ts)
             ftvN _ = Set.empty
 
 instance (Substitutable s, Substitutable a) => Substitutable (TaggedAppGraph s a) where
