@@ -53,6 +53,20 @@ glueCoreToAbst k m e r c0 s0 =
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) [m] c3 r
     in (ops,l,s3)
 
+glueCoreToCPS :: [Identifier] -> Identifier -> ModuleServer -> Core Type -> Int -> (CPS.CExp, Int)
+glueCoreToCPS k m e c0 s0 =
+    let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
+        (CPS.Fix defs exp,s2) = closureConv c1 s1
+        c2 = CPS.Fix (CPS.Fun m [] exp:defs) CPS.Halt
+    in (c2,s2)
+
+glueToCPS :: Identifier -> ModuleServer -> Either [ImportError] CPS.CExp
+glueToCPS main ms = do
+    abis <- fmap snd <$> sortDependencies (fmap (\x -> (moduleABIPath x,moduleABIReqs x,x)) (abis ms))
+    let core = glueLExp ms abis []
+    let ops = fst $ glueCoreToCPS (fmap (mainFn . moduleABIPath) abis) main ms core 0
+    pure ops
+
 glue :: Identifier -> Int -> ModuleServer -> Either [ImportError] [Operator]
 glue main regs ms = do
     abis <- fmap snd <$> sortDependencies (fmap (\x -> (moduleABIPath x,moduleABIReqs x,x)) (abis ms))

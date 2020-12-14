@@ -1,66 +1,46 @@
 module Test where
 
-import Types.CPS
-import Types.Prim
-import Types.Ident
-
-import CPS.Spill
-
 import Modules.Glue
+import Types.Build
+import Types.Ident
 import Types.Module
-
-import Types.Type
-import Data.Set (fromList)
-
-import qualified Types.Syntax as Syn
-import Elaborate.Elaborate
-import Elaborate.Elaborator
-
-import qualified Types.Core as Core
-import Text.Parsec.Pos
-
-import qualified Types.Graph as Graph
-
+import Parser.Parser
+import Types.CPS
+import Modules.Module
+import Data.List
+import Control.Monad.IO.Class
 import Control.Monad.Errors
+import Types.Pretty
+import CPS.Interpreter
+import Build.Load
 
-testPos :: SourcePos
-testPos = initialPos "hjahaha"
+compile :: Int -> Int -> Identifier -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,CExp)] -> Build ()
+compile index num mainLabel ms ((p,Right (pr,s)):fs) done = do
+    liftIO . putStrLn $ "compiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
+    (w,api,abi,ops,t) <- liftEither $ parsedToCPS p ms [] (mainFn p) s pr
+    liftIO $ prettyPrint t (0::Int)
+    liftIO $ mapM_ putStrLn w
+    compile (index+1) num mainLabel (loadModule abi api ms) fs ((p,ops):done)
+compile _ _ mainLabel ms [] done = do
+    g <- liftEither . mapLeft (fmap show) $ glueToCPS mainLabel ms
+    liftIO $ print g
+    liftIO $ putStr "\n"
+    liftIO $ interpret mainLabel (([],g):done)
 
-fixTest :: ErrorsResult ([ElabError], [ElabWarning]) (Core.Core SourcePos, [GADT], [Name], Int, [ElabWarning])
-fixTest = elaborate 0 emptyServer emptyEnv [] [tl] 
-    where
-        tl = Syn.Group testPos [f]
-        f = Syn.FunDef testPos Nothing "f" ["x"] (Graph.App testPos
-            (Graph.Node testPos $ Syn.Var (LocalIdentifier "f"))
-            (Graph.Node testPos $ Syn.Var (LocalIdentifier "x")))
+wordsWhen :: (Char -> Bool) -> String -> [String]
+wordsWhen p s = case dropWhile p s of
+    "" -> []
+    s' -> w : wordsWhen p s''
+        where (w, s'') = break p s'
 
-spillTest :: CExp
-spillTest = fst $ spill 15 20 testExp
-    where
-        testExp = Fix [
-            __start,
-            k16,
-            split_k16,
-            k15] Halt
-        
-        __start = Fun (LocalIdentifier "__start") []
-            $ Record [(Label (LocalIdentifier "split_k16"),NoPath)] (LocalIdentifier "c20")
-            $ App (Label (ExternalIdentifier ["Comb"] "main")) [Lit (Int 0), Var (LocalIdentifier "c20")]
-        
-        k16 = Fun (LocalIdentifier "k16") [LocalIdentifier "v17"]
-            $ App (Label (LocalIdentifier "k15")) [Var (LocalIdentifier "v17")]
-        
-        split_k16 = Fun (LocalIdentifier "split_k16") [LocalIdentifier "c19", LocalIdentifier "c20"]
-            $ App (Label (LocalIdentifier "k16")) [Var (LocalIdentifier "c19")]
-        
-        k15 = Fun (LocalIdentifier "k15") [ExternalIdentifier ["Comb"] "mod"] Halt
+build :: String -> [ModulePath] -> Build ()
+build root paths = do
+    fs <- load root paths
+    compile 0 (length paths) (LocalIdentifier "start") emptyServer fs []
 
-ms = ModuleServer [abi] [api] []
-    where
-        abi = ModuleABI ["Comb"] (mainFn ["Comb"]) [] [2,1]
-
-        api = ModuleAPI ["Comb"] [("s",Forall (fromList ["x","y","z"])
-            $ (tv "x" --> tv "y" --> tv "z") --> (tv "x" --> tv "y") --> tv "x" --> tv "z"
-            )] [] [] []
-
-glueTest = glue (LocalIdentifier "__start") 15 ms
+main :: String -> [String] -> IO ()
+main root args = do
+    x <- fmap toEither . runErrorsT $ build root (fmap (wordsWhen (=='.')) args)
+    case x of
+        Left e -> mapM_ putStrLn e
+        Right _ -> putStr "\n"

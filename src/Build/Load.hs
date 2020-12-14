@@ -21,14 +21,14 @@ import Data.List
 getFilePath :: String -> ModulePath -> String
 getFilePath s p = s ++ intercalate "/" p ++ ".mi"
 
-getFile :: BuildConfig -> ModulePath -> Build (Either CachedFile (ParseResult,Stream))
-getFile (BuildConfig root _ _ _) p = do
+getFile :: String -> ModulePath -> Build (Either CachedFile (ParseResult,Stream))
+getFile root p = do
     s <- liftIO $ readFile (getFilePath root p)
     case parse p s of
         Right x -> pure (Right (x,s))
         Left e -> err (Right (emptyResult,"")) e
 
-load :: BuildConfig -> [ModulePath] -> Build [(ModulePath,Either CachedFile (ParseResult,Stream))]
+load :: String -> [ModulePath] -> Build [(ModulePath,Either CachedFile (ParseResult,Stream))]
 load cfg ps = do
     ps' <- forM ps $ \p -> do
         r <- getFile cfg p

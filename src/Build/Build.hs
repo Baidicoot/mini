@@ -9,5 +9,5 @@ import Types.Module
 
 build :: BuildConfig -> [ModulePath] -> Build String
 build cfg mods = do
-    ld <- load cfg mods
+    ld <- load (root cfg) mods
     compile 1 (length mods) cfg emptyServer ld []

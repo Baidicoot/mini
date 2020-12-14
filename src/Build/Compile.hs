@@ -29,4 +29,5 @@ compile index num cfg ms ((p,Right (pr,s)):fs) done = do
 compile index num cfg ms ((p,Left c):fs) done = compile (index+1) num cfg (loadModule (abi c) (api c) ms) fs ((p,Left c):done)
 compile _ _ cfg ms [] done = do
     g <- liftEither . mapLeft (fmap show) $ glue (mainLabel $ backend cfg) (registers $ backend cfg) ms
+    liftIO $ mapM_ print g
     assemble (backend cfg) cfg (reverse done) g

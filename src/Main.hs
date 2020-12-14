@@ -8,6 +8,8 @@ import Backend.C
 import Control.Monad.Errors
 import System.Environment
 
+import qualified Test as T
+
 wordsWhen :: (Char -> Bool) -> String -> [String]
 wordsWhen p s = case dropWhile p s of
     "" -> []
@@ -17,7 +19,4 @@ wordsWhen p s = case dropWhile p s of
 main :: IO ()
 main = do
     (root:args) <- getArgs
-    r <- runErrorsT $ build (BuildConfig root cbackend "c" []) (fmap (wordsWhen (=='.')) args)
-    case toEither r of
-        Left e -> mapM_ putStrLn e
-        Right e -> putStrLn ("main file is: " ++ e)
+    T.main root args

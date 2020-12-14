@@ -47,19 +47,21 @@ translate d p (Table t xs) = "void* " ++ mangle p t ++ "[] = {"  ++ intercalate 
     EmitLit l -> showLit l
     EmitLabel l 0 -> "&&" ++ mangle p l
     EmitLabel l o -> "&&" ++ mangle p l ++ " + " ++ show o) xs) ++ "};\n"
-translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered " ++ show l ++ "\\n\");\n" else ""
+translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered " ++ mangle p l ++ "\\n\");\n" else ""
 translate d p (Comment s) = if d then  "/* " ++ s ++ " */\n" else ""
 translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
 translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\n"
     ++ (if d then "printf(\"jumping to %x\\n\",reg_arith);\n" else "")
     ++ "goto *reg_arith" ++ ";\n"
-translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloca(sizeof(void*)*" ++ show (length ps) ++ ");\n"
+translate d p (Record ps r) = showOp True p (Reg r) ++ " = malloc(sizeof(void*)*" ++ show (length ps) ++ ");\n"
     ++ "data_ptr -= sizeof(void*)*" ++ show (length ps) ++ ";\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
-    ++ case (ps,d) of
-        ((ImmLabel l,_):_,True) -> "printf(\"allocated closure to " ++ show l ++ " (%x) at %x\\n\",&&" ++ mangle p l ++ "," ++ showOp True p (Reg r) ++ ");\n"
-        _ -> ""
-translate d p (Select i o r) = showOp True p (Reg r) ++ " = " ++ translateOp True p o (POff $ SelPath i NoPath) ++ ";\n"
+    ++ "nallocs++;"
+    ++ (if d then "printf(\"allocated at %x, %ith alloc\\n\"," ++ showOp True p (Reg r) ++ ",nallocs);\n" else "")
+    ++ if d then concatMap (\(_,i) -> "printf(\"%x, \"," ++ translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ ");") (zip ps [0..]) ++ "printf(\"\\n\");\n" else ""
+translate d p (Select i o r) =
+    (if d then "printf(\"selected %x from %x["++ show i ++"]\\n\"," ++ translateOp True p o (POff $ SelPath i NoPath) ++ "," ++ translateOp True p o (POff NoPath) ++ ");\n" else "")
+    ++ showOp True p (Reg r) ++ " = " ++ translateOp True p o (POff $ SelPath i NoPath) ++ ";\n"
 translate d p (Fetch r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ translateOp False p o1 (OOff o2) ++ ";\n"
     ++ if d then "printf(\"%x\\n\", " ++ showOp True p (Reg r) ++ ");\n" else ""
@@ -79,6 +81,7 @@ preheader = unlines
     , "void* data_start;"
     , "void* data_ptr;"
     , "void* data_lim;"
+    , "int nallocs = 0;"
     , "int main() {"
     ]
 
@@ -103,7 +106,7 @@ cgen :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator]
 cgen cfg fs glue = do
     let (a,b) = unzip $ fmap (\(p,ops) -> let (static,ins) = moveStatic ops in ((p,static),(p,ins))) (([],glue):fmap (\(p,Right ops)->(p,ops)) fs)
     let statics = concatMap (\(p,s)->concatMap (translate False p) s) a
-    let ins = concatMap (\(p,o)->concatMap (translate False p) o) b
+    let ins = concatMap (\(p,o)->concatMap (translate True p) o) b
     liftIO $ writeFile (root cfg ++ "main.c") (preheader ++ statics ++ postheader ++ ins ++ footer)
     pure (root cfg ++ "main.c")
 

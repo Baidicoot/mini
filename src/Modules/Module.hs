@@ -1,4 +1,4 @@
-module Modules.Module (parsedToCore, coreToAbst, parsedToAbst) where
+module Modules.Module (parsedToCore, coreToAbst, parsedToAbst, coreToCPS, parsedToCPS) where
 
 import Parser.Parser
 
@@ -12,6 +12,7 @@ import CPS.Meta
 import Backend.AbstGen
 
 import Types.Core
+import qualified Types.CPS as CPS
 import Types.Ident
 import Types.Type
 import Types.Module
@@ -45,8 +46,19 @@ coreToAbst k m e r c0 s0 =
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) m c3 r
     in (ops,l,s3)
 
+coreToCPS :: [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int -> (CPS.CExp,Int)
+coreToCPS k m e c0 s0 =
+    let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
+    in closureConv c1 s1
+
 parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
 parsedToAbst p ms k m r s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
     let (o,[(_,l)],_) = coreToAbst k [m] (loadAPI a ms) r t s0
     pure (w,a,ModuleABI p m (fmap fst i) l,o, t)
+
+parsedToCPS :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, Core Type)
+parsedToCPS p ms k m s pr@(i,_) = do
+    (w,a,t,s0) <- parsedToCore p ms 0 s pr
+    let (c,_) = coreToCPS k [m] (loadAPI a ms) t s0
+    pure (w,a,ModuleABI p m (fmap fst i) [],c,t)

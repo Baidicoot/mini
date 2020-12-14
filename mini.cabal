@@ -58,7 +58,8 @@ executable mini
     Build.Compile,
     Build.Build,
     Test,
-    Backend.C
+    Backend.C,
+    CPS.Interpreter
   -- other-extensions:    
   build-depends:
     base >=4.9,

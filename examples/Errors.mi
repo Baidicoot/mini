@@ -19,5 +19,7 @@
     (Z -> putchr 'z'))
 
 (let (one S Z))
+(let (two S one))
+(let (three S two))
 
-(let (test putnat one))
+(let (test putnat (add three three)))
