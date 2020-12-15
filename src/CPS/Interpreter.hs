@@ -13,6 +13,7 @@ import Types.Build
 
 import qualified Data.Map as Map
 import Data.List
+import Data.Char
 
 type GlobalIdent = (ModulePath,Identifier)
 
@@ -116,6 +117,11 @@ getIOOp PutChr (CLit (Char c)) = liftIO $ putChar c
 getIOOp PutInt (CLit (Int i)) = liftIO $ putStr (show i)
 getIOOp p v = fatal $ "tried to " ++ show p ++ " " ++ show v
 
+getCoerceOp :: Primop -> CVal -> Interpreter CVal
+getCoerceOp IntToChar (CLit (Int i)) = pure (CLit . Char $ chr i)
+getCoerceOp CharToInt (CLit (Char c)) = pure (CLit . Int $ ord c)
+getCoerceOp p v = fatal ("tried to " ++ show p ++ " " ++ show v) >> undefined
+
 interpretExp :: CExp -> Interpreter ()
 interpretExp (App v vs) = do
     v' <- convVal v
@@ -143,5 +149,16 @@ interpretExp (Primop p [v] n [c]) | effectOp p = do
     v' <- convVal v
     getIOOp p v'
     withVars [(n,CLit (Int 0))] (interpretExp c)
+interpretExp (Primop p [v] n [c]) | coerceOp p = do
+    v' <- getCoerceOp p =<< convVal v
+    withVars [(n,v')] (interpretExp c)
+interpretExp (Primop CmpInt [a,b] _ [c,d,e]) = do
+    a' <- convVal a
+    b' <- convVal b
+    case (a',b') of
+        (CLit (Int av),CLit (Int bv)) | av == bv -> interpretExp c
+        (CLit (Int av),CLit (Int bv)) | av > bv -> interpretExp d
+        (CLit (Int av),CLit (Int bv)) | av < bv -> interpretExp e
+        _ -> fatal $ "tried to integer compare " ++ show (a',b')
 interpretExp (Error s) = liftIO . putStr $ "ERROR: " ++ s
 interpretExp Halt = pure ()

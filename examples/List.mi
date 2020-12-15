@@ -1,11 +1,9 @@
-(import-as Comb C)
-
 (ind List
     (cons :: a -> (List a) -> List a)
     (nil :: List a))
 
 (putstr x match x
-    (cons c xs -> C.seq (putchr c) (putstr xs))
+    (cons c xs -> let (_ putchr c) (putstr xs))
     (nil -> {}))
 
 (concat (x y) match x

@@ -262,18 +262,18 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (x', tau)
     -- PRIM
     infer m (Node p (Prim op vs)) = do
-        t1 <- mapM generalize (argTys (opTy op))
-        let t2 = resTy  (opTy op)
+        ty <- instantiate =<< generalize (opTy op)
+        let t1 = fmap unqualified (argTys ty)
+        let t2 = resTy ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
         mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Prim op vs), t2)
     -- CONS
     infer m (Node p (Cons i vs)) = do
-        sc <- lookupCons i p
-        ty <- instantiate sc
-        t1 <- mapM generalize (argTys ty)
-        let t2 = resTy  ty
+        ty <- instantiate =<< lookupCons i p
+        let t1 = fmap unqualified (argTys ty)
+        let t2 = resTy ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
         mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)

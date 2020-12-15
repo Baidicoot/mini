@@ -57,17 +57,23 @@ keyword :: Parser String
 keyword
   =   try (reserved "let")
   <|> try (reserved "ind")
-  <|> reserved "lam"
-  <|> reserved "match"
-  <|> reserved "fix"
-  <|> reserved "import-as"
+  <|> try (reserved "lam")
+  <|> try (reserved "match")
+  <|> try (reserved "fix")
+  <|> try (reserved "import-as")
+  <|> try (reserved "include")
 
 primop :: Parser Primop
 primop
   =   try (reserved "+")      $> AAdd
   <|> try (reserved "-")      $> ASub
+  <|> try (reserved "*")      $> AMul
+  <|> try (reserved "/")      $> ADiv
   <|> try (reserved "putint") $> PutInt
   <|> try (reserved "putchr") $> PutChr
+  <|> try (reserved "cmp")    $> CmpInt
+  <|> try (reserved "ord")    $> CharToInt
+  <|> try (reserved "chr")    $> IntToChar
 
 ident :: Parser Identifier
 ident = do

@@ -8,16 +8,11 @@ import Types.Type
 import Types.Graph (NoTag)
 import qualified Types.Graph as Graph
 import qualified Types.Core as Core
-import qualified Types.Graph as Graph
 
 import Control.Monad.State
-import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Arrow
-import Control.Monad
-import Data.Maybe (listToMaybe, fromMaybe)
-import Data.List (partition)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust,isNothing)
 
 import qualified Data.Map as Map
 
@@ -143,11 +138,19 @@ convertNode (Core.Match (Just ty, p) n cs) c | isJust (constructor ty) = do
                 let bindings = foldr (\(i,v) f -> Select i (Var n) (LocalIdentifier v) . f) id (zip [1..] ns)
                 in fmap bindings (convert cse c)
     pure . Select 0 (Var n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
-convertNode (Core.Prim p vs) c = do
+convertNode (Core.Prim p vs) c | isNothing (branchesOp p) = do
     x <- fresh
     vs' <- mapM convVal vs
     convC <- c (Var $ LocalIdentifier x)
     pure $ Primop p vs' (LocalIdentifier x) [convC]
+convertNode (Core.Prim CmpInt [a,b,c,d,e]) k = do
+    x <- fresh
+    a' <- convVal a
+    b' <- convVal b
+    c' <- k =<< convVal c
+    d' <- k =<< convVal d
+    e' <- k =<< convVal e
+    pure $ Primop CmpInt [a',b'] (LocalIdentifier x) [c',d',e']
 convertNode x _ = error (show x)
 
 selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])

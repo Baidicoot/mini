@@ -40,6 +40,9 @@ opTy ADiv = intty --> intty --> intty
 opTy AMul = intty --> intty --> intty
 opTy PutChr = charty --> unitty
 opTy PutInt = intty --> unitty
+opTy IntToChar = intty --> charty
+opTy CharToInt = charty --> intty
+opTy CmpInt = intty --> intty --> tv "a" --> tv "a" --> tv "a" --> tv "a"
 
 type SourceType = SourceGraph (TypeNode SourcePos)
 
