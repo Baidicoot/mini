@@ -38,7 +38,7 @@ getReg :: Register -> String
 getReg = ('%':) . regName
 
 emitConst :: X86ConstOp -> X86 ()
-emitConst (Label l i) = emitStr ("(" ++ show l ++ " + " ++ show i ++ ")")
+emitConst (Label l) = emitStr (show l)
 emitConst (Int i) = emitStr (show i)
 emitConst (Char c) = emitStr (show c)
 emitConst (Str s) = emitStr (show s)
@@ -67,7 +67,7 @@ emitX86 (Global l) = emitStr (".global " ++ show l) >> endl
 abstToTexutalX86 :: [Operator] -> String
 abstToTexutalX86 = (\(X86 (_,s))->s) . mapM emitX86 . concatMap translate
 
-assembleX86 :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build String
+assembleX86 :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
 assembleX86 cfg files glue = do
     paths <- forM files $ \case
         (p,Right ops) ->
@@ -78,7 +78,7 @@ assembleX86 cfg files glue = do
     liftIO $ writeFile
         (root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
         (abstToTexutalX86 glue)
-    pure (root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
+    liftIO $ putStrLn ("main-is: " ++ root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
 
 x86_64_linuxTextualBackend :: Backend
 x86_64_linuxTextualBackend = Backend assembleX86 nregs (LocalIdentifier "__start")

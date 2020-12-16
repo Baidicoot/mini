@@ -11,14 +11,14 @@ import qualified Types.Prim as Prim
 -- primops, jumps and switches take the 'direct' (actual values) of their operands
 translateOpDirect :: Operand -> X86Operand
 translateOpDirect (Reg r) = Register (Direct r)
-translateOpDirect (ImmLabel l) = Const (Label l 0)
+translateOpDirect (ImmLabel l) = Const (Label l)
 translateOpDirect (ImmLit (Prim.Int i)) = Const (Int i)
 translateOpDirect (ImmLit (Prim.Char c)) = Const (Char c)
 
 -- most other things take the 'indirect' (pointed-to value) of their operands
 translateOp :: Operand -> X86Operand
 translateOp (Reg r) = Register (Indirect r)
-translateOp (ImmLabel l) = Const (Label l 0)
+translateOp (ImmLabel l) = Const (Label l)
 translateOp (ImmLit (Prim.Int i)) = Const (Int i)
 translateOp (ImmLit (Prim.Char c)) = Const (Char c)
 
@@ -44,9 +44,9 @@ restoreExcept rs =
 
 translate :: Operator -> [X86Instruction]
 translate (Table t xs) = DefLabel t:fmap (\case
-    EmitLit (Prim.Int i) -> Long (Int i)
-    EmitLit (Prim.Char c) -> DB (Char c)
-    EmitLabel l o -> Long (Label l o)) xs
+    ImmLit (Prim.Int i) -> Long (Int i)
+    ImmLit (Prim.Char c) -> DB (Char c)
+    ImmLabel l -> Long (Label l)) xs
 translate (Define l) = [DefLabel l]
 translate (Comment s) = [PPC s]
 translate (Jmp o) = [Jmpq (translateOpDirect o)]

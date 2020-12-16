@@ -116,6 +116,7 @@ instance Pretty CExp Int where
     pretty (Primop op vs id [exp]) n
         | isLet exp = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ pretty exp n
         | otherwise = "\n" ++ replicate n ' ' ++ "let " ++ show id ++ " = " ++ show op ++ concatMap ((' ':) . show) vs ++ "\n" ++ replicate n ' ' ++ "in " ++ pretty exp (n+4)
+    pretty (Primop op vs _ exps) n = "\n" ++ replicate n ' ' ++ show op ++ "{" ++ concatMap ((++",") . show) vs ++ "}{" ++ concatMap ((++",") . (`pretty` (n+4))) exps ++ "}"
 
 -- get whether the variable is called
 calledIn :: CExp -> Identifier -> Bool

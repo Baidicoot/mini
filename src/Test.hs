@@ -34,6 +34,7 @@ compile _ _ mainLabel ms [] done = do
     -- liftIO $ print g
     liftIO $ putStr "\n"
     liftIO $ interpret mainLabel (([],g):done)
+    pure ()
 
 wordsWhen :: (Char -> Bool) -> String -> [String]
 wordsWhen p s = case dropWhile p s of

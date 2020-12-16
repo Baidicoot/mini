@@ -44,9 +44,8 @@ translateOp b mp op1 (OOff op2) = "((void**)(" ++ showOp b mp op1 ++ "))[(long i
 
 translate :: Bool -> ModulePath -> Operator -> String
 translate d p (Table t xs) = "void* " ++ mangle p t ++ "[] = {"  ++ intercalate "," (fmap (\case
-    EmitLit l -> showLit l
-    EmitLabel l 0 -> "&&" ++ mangle p l
-    EmitLabel l o -> "&&" ++ mangle p l ++ " + " ++ show o) xs) ++ "};\n"
+    ImmLit l -> showLit l
+    ImmLabel l -> "&&" ++ mangle p l) xs) ++ "};\n"
 translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered " ++ mangle p l ++ "\\n\");\n" else ""
 translate d p (Comment s) = if d then  "/* " ++ s ++ " */\n" else ""
 translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
@@ -102,13 +101,13 @@ moveStatic = partition (\case
     Table _ _ -> True
     _ -> False)
 
-cgen :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build String
+cgen :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
 cgen cfg fs glue = do
     let (a,b) = unzip $ fmap (\(p,ops) -> let (static,ins) = moveStatic ops in ((p,static),(p,ins))) (([],glue):fmap (\(p,Right ops)->(p,ops)) fs)
     let statics = concatMap (\(p,s)->concatMap (translate False p) s) a
     let ins = concatMap (\(p,o)->concatMap (translate True p) o) b
     liftIO $ writeFile (root cfg ++ "main.c") (preheader ++ statics ++ postheader ++ ins ++ footer)
-    pure (root cfg ++ "main.c")
+    liftIO $ putStrLn ("main-is: " ++ root cfg ++ "main.c")
 
 cbackend :: Backend
 cbackend = Backend cgen 100 (LocalIdentifier "start")

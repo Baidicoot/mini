@@ -7,7 +7,7 @@ import Build.Load
 import Types.Ident
 import Types.Module
 
-build :: BuildConfig -> [ModulePath] -> Build String
+build :: BuildConfig -> [ModulePath] -> Build ()
 build cfg mods = do
     ld <- load (root cfg) mods
     compile 1 (length mods) cfg emptyServer ld []

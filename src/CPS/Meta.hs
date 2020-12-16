@@ -49,7 +49,7 @@ binds ids f = f
     { bound = bound f `mappend` Set.fromList ids }
 
 nests :: Map.Map Identifier PerFunction -> PerFunction -> PerFunction
-nests m = mappend mempty {bound = mconcat $ fmap bound fns, free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, nested = Set.fromList $ Map.keys m}
+nests m = mappend mempty {bound = mconcat $ fmap bound fns, free = mconcat $ fmap free fns, knownCalls = mconcat $ fmap knownCalls fns, knownEsc = mconcat $ fmap knownEsc fns, nested = Set.fromList $ Map.keys m}
     where
         fns = Map.elems m
 
@@ -70,7 +70,7 @@ collectPerFunctionMeta (Fix defs e) =
         nested' = Map.fromList nested
     in (mconcat metanests <> trailing <> nested', nests nested' self)
 collectPerFunctionMeta (Record vs n e) =
-    second (uses (extractIdents $ fmap fst vs) . binds [n]) (collectPerFunctionMeta e)
+    second (passes (extractLabels $ fmap fst vs) . uses (extractIdents $ fmap fst vs) . binds [n]) (collectPerFunctionMeta e)
 collectPerFunctionMeta (Select i v n e) =
     second (uses (extractIdents [v]) . binds [n]) (collectPerFunctionMeta e)
 collectPerFunctionMeta (Switch v es) =

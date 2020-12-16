@@ -11,7 +11,7 @@ import Prelude hiding(drop)
 import Control.Monad
 import Control.Arrow
 import Control.Monad.RWS hiding(fix)
-import Data.List (find, uncons, nub, intercalate)
+import Data.List (find, uncons, nub, intercalate, partition, (\\))
 
 import CPS.Meta
 
@@ -47,6 +47,12 @@ unused = do
     (env,_,_) <- get
     let (Just a) = find (not . flip Inj.memberInv env) [0..]
     pure a
+
+allUnused :: AbstGen [GPR]
+allUnused = do
+    (env,_,_) <- get
+    (_,n) <- ask
+    pure $ filter (not . flip Inj.memberInv env) [0..n-1]
 
 cull :: Set.Set Identifier -> AbstGen ()
 cull free = modify (\(a,b,c) -> (Inj.filterFst (`Set.member` free) a, b, c))
@@ -88,7 +94,7 @@ record ps n exp = do
     ps' <- mapM (\(a,b) -> fmap (flip (,) b) (getOp a)) ps
     a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents $ fmap fst ps))
     assoc n a
-    emit (Comment $ "let " ++ show n ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) ps) ++ "}")
+    emit (Comment $ "let " ++ show n ++ " = {" ++ intercalate "," (fmap (\(v,a) -> show v ++ show a) ps) ++ "} (in r" ++ show a ++ ")")
     emit (Record ps' (r a))
     generate exp
 
@@ -107,13 +113,31 @@ primop op vs@[o] n [exp] | effectOp op = do
     emit (EffectOp op o)
     emit (Move (GPR a) (ImmLit (Int 0)))
     generate exp
+primop op vs@[o] n [exp] | coerceOp op = do
+    o <- getOp o
+    a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
+    assoc n a
+    emit (CoerceOp op (GPR a) o)
+    generate exp
+primop op vs _ exps | switchOp op = do
+    vs' <- mapM getOp vs
+    -- using the placeholder register
+    a <- getReg (mconcat (fmap CPS.fv exps) `mappend` Set.fromList (CPS.extractIdents vs))
+    lbls <- mapM (fmap (LocalIdentifier . ("switch_"++) . show) . const caseLabel) exps
+    emit (SwitchOp op (GPR a) vs' (fmap ImmLabel lbls))
+    emit (Jmp (r a))
+    (regs,_,_) <- get
+    mapM_ (\(lbl,exp) -> do
+        modify (\(_,b,c) -> (regs,b,c))
+        emit (Define lbl)
+        generate exp) (zip lbls exps)
 
 select :: Int -> Value -> Identifier -> CExp -> AbstGen ()
 select i v n exp = do
     o <- getOp v
     a <- getReg (CPS.fv exp)
     assoc n a
-    emit (Comment $ "let " ++ show n ++ " = " ++ show v ++ "[" ++ show i ++ "]")
+    emit (Comment $ "let " ++ show n ++ " = " ++ show v ++ "[" ++ show i ++ "] (in r"++ show a ++ ")")
     emit (Select i o (r a))
     generate exp
 
@@ -163,53 +187,31 @@ switch v exps = do
     table <- fmap (LocalIdentifier . ("table_"++) . show) caseLabel
     emit (Fetch ar (ImmLabel table) o)
     emit (Jmp ar)
-    emit (Table table (fmap (`EmitLabel` 0) lbls))
+    emit (Table table (fmap ImmLabel lbls))
     (regs,_,_) <- get
     mapM_ (\(lbl,exp) -> do
         modify (\(_,b,c) -> (regs,b,c))
         emit (Define lbl)
         generate exp) (zip lbls exps)
 
--- technically should use a bijection, can't be bothered
-getMovable :: [(GPR, GPR)] -> Maybe ((GPR, GPR), [(GPR, GPR)])
-getMovable xs = internal xs
-    where
-        occupied = fmap fst xs
-        internal ((a,b):xs)
-            | b `notElem` occupied = Just ((a,b), xs)
-            | otherwise = fmap (second ((a,b):)) (internal xs)
-        internal [] = Nothing
+orderMoveable :: [(GPR,GPR)] -> ([(GPR,GPR)],[(GPR,GPR)])
+orderMoveable [] = ([],[])
+orderMoveable xs =
+    let srcs = fmap fst xs
+        (moveable,rem) = partition ((`notElem` srcs) . snd) xs
+    in case moveable of
+        []  -> ([],rem)
+        _   -> first (moveable++) (orderMoveable rem)
 
--- make simple, one-step moves
-simpleMoves :: [(GPR, GPR)] -> AbstGen [(GPR, GPR)]
-simpleMoves xs = let xs' = filterDone xs in
-    case getMovable xs' of
-        Just ((a,b), rem) -> do
-            move a b
-            simpleMoves rem
-        Nothing -> pure xs'
-
-filterDone :: [(GPR,GPR)] -> [(GPR,GPR)]
-filterDone = filter (uncurry (/=))
-
-displace :: [(GPR,GPR)] -> Maybe ((GPR,GPR), [(GPR, GPR)])
-displace = uncons . filterDone
-
--- expects that all unused registers have been 'cleared'
-permute :: [(GPR, GPR)] -> AbstGen ()
-permute rs = do
-    rs' <- simpleMoves rs
-    case displace rs' of
-        Just ((a,b), rs) -> do
-            assoca <- getAssoc a
-            desoc a
-            emit (Move ar (r a))
-            simpleMoves rs
-            emit (Move (r b) ar)
-            case assoca of
-                Just av -> assoc av b
-                Nothing -> pure ()
-        Nothing -> pure ()
+permute :: [(GPR,GPR)] -> AbstGen ()
+permute xs | all (`notElem` fmap snd xs) (fmap fst xs) = mapM_ (uncurry move) xs
+permute xs = do
+        let ((s,d):xs') = xs
+        emit (Move Arith (r s))
+        let (m,nm) = orderMoveable xs'
+        mapM_ (uncurry move) m
+        emit (Move (r d) ar)
+        permute nm
 
 duplicate :: [(GPR, GPR)] -> AbstGen ()
 duplicate = mapM_ (uncurry copy)
@@ -229,7 +231,7 @@ fill :: [(Operand, GPR)] -> AbstGen ()
 fill = mapM_ (\(a,b) -> emit (Move (r b) a))
 
 organizeMoves :: [(Value, GPR)] -> AbstGen ([(GPR, GPR)], [(GPR, GPR)], [(Operand, GPR)])
-organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates (filterDone (nub a)) in (x,y,b)) . splitLits
+organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates (filter (uncurry (/=)) (nub a)) in (x,y,b)) . splitLits
     where
         findLast :: (a -> Bool) -> [a] -> Maybe a
         findLast f (x:xs) = case findLast f xs of
@@ -254,7 +256,12 @@ organizeMoves = fmap (\(a,b) -> let (x,y) = splitDuplicates (filterDone (nub a))
 
 doMoves :: [(Value, GPR)] -> AbstGen ()
 doMoves xs = do
+    cull (Set.fromList . CPS.extractIdents $ fmap fst xs)
     (moves, dups, fills) <- organizeMoves xs
+    freeregs <- allUnused
+    emit (Comment $ "moves:" ++ concatMap (\(i,o)->" (r" ++ show i ++ " -> r" ++ show o ++ ")") moves)
+    emit (Comment $ "dups:" ++ concatMap (\(i,o)->" (r" ++ show i ++ " -> r" ++ show o ++ ")") dups)
+    emit (Comment $ "free:" ++ concatMap ((' ':) . ('r':) . show) freeregs)
     permute moves
     duplicate dups
     fill fills
@@ -306,6 +313,7 @@ call val@(Var v) args = do
 call (Label v) args = do
     rmap <- getLayout v args
     doMoves rmap
+    emit (Comment (show (Label v) ++ concatMap (\(v,i) -> ' ':show v++":r"++show i) rmap))
     emit (Jmp (ImmLabel v))
 
 clearRegs :: AbstGen ()

@@ -19,15 +19,14 @@ import Data.List
 
 import Types.Pretty
 
-compile :: Int -> Int -> BuildConfig -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,Either CachedFile [Operator])] -> Build String
+compile :: Int -> Int -> BuildConfig -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,Either CachedFile [Operator])] -> Build ()
 compile index num cfg ms ((p,Right (pr,s)):fs) done = do
-    liftIO . putStrLn $ "compiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
-    (w,api,abi,ops,t) <- liftEither $ parsedToAbst p ms [] (mainFn p) (registers $ backend cfg) s pr
-    liftIO $ prettyPrint t (0::Int)
+    liftIO . putStrLn $ "\ncompiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
+    (w,api,abi,ops,_) <- liftEither $ parsedToAbst p ms [] (mainFn p) (registers $ backend cfg) s pr
     liftIO $ mapM_ putStrLn w
+    liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ n ++ " : " ++ show s)
     compile (index+1) num cfg (loadModule abi api ms) fs ((p,Right ops):done)
 compile index num cfg ms ((p,Left c):fs) done = compile (index+1) num cfg (loadModule (abi c) (api c) ms) fs ((p,Left c):done)
 compile _ _ cfg ms [] done = do
     g <- liftEither . mapLeft (fmap show) $ glue (mainLabel $ backend cfg) (registers $ backend cfg) ms
-    liftIO $ mapM_ print g
     assemble (backend cfg) cfg (reverse done) g

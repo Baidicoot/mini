@@ -38,16 +38,6 @@ instance Show Register where
 
 type Label = Identifier
 
-data Emit
-    = EmitLit UnboxedLit
-    | EmitLabel Label Int
-    deriving(Eq)
-
-instance Show Emit where
-    show (EmitLit l) = show l
-    show (EmitLabel l 0) = '%':show l
-    show (EmitLabel l o) = '%':show l ++ " + " ++ show o
-
 data Operand
     = Reg Register
     | ImmLabel Label
@@ -64,10 +54,12 @@ data Operator
     | Comment String
     | Exports Label
     | Imports Label
-    | Table Label [Emit]
+    | Table Label [Operand]
     -- end of pseudoops
     | ArithOp Primop Register Operand Operand
     | EffectOp Primop Operand
+    | CoerceOp Primop Register Operand
+    | SwitchOp Primop Register [Operand] [Operand]
     | CheckLim Int
     | Jmp Operand
     | Record [(Operand,AccessPath)] Register
@@ -87,6 +79,8 @@ instance Show Operator where
     show (Record p r) = "record " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
     show (ArithOp p r o1 o2) = show r ++ " <- " ++ show o1 ++ show p ++ show o2
     show (EffectOp p o) = show p ++ " " ++ show o
+    show (SwitchOp p r c s) = show r ++ " <- " ++ show p ++ "{" ++ concatMap ((++",") . show) c ++ "}{" ++ concatMap ((++",") . show) s ++ "}"
+    show (CoerceOp p r o) = "coerce " ++ show p ++ ", " ++ show r ++ ", " ++ show o
     show (Select i o r) = "select " ++ show i ++ ", " ++ show o ++ ", " ++ show r
     show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " ++ show o0 ++ ", " ++ show o1
     show (Move a b) = "move " ++ show a ++ ", " ++ show b

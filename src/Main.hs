@@ -3,6 +3,7 @@ module Main where
 import Build.Build
 import Types.Build
 
+import Backend.Interpreter
 import Backend.C
 
 import Control.Monad.Errors
@@ -18,5 +19,14 @@ wordsWhen p s = case dropWhile p s of
 
 main :: IO ()
 main = do
-    (root:args) <- getArgs
-    T.main root args
+    (mode:root:args) <- getArgs
+    case mode of
+        "cps" -> T.main root args
+        _ -> do
+            let cfg = case mode of
+                    "c" -> BuildConfig root cbackend "c" []
+                    "abst" -> BuildConfig root (interpreter 20) "interpret" []
+            r <- runErrorsT $ build cfg (fmap (wordsWhen (=='.')) args)
+            case toEither r of
+                Left e -> mapM_ putStrLn e
+                Right _ -> putStr "\n"

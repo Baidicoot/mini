@@ -60,7 +60,7 @@ data AddrMode
     | Direct Register
 
 data X86ConstOp
-    = Label Label Int
+    = Label Label
     | Int Int
     | Char Char
     | Str String

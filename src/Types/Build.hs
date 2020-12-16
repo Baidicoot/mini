@@ -12,7 +12,7 @@ data CachedFile = CachedFile { api :: ModuleAPI, abi :: ModuleABI, filepath :: S
 type Build = ErrorsT [String] IO
 
 data Backend = Backend
-    { assemble :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build String
+    { assemble :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
     , registers :: Int
     , mainLabel :: Identifier
     }

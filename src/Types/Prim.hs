@@ -55,9 +55,9 @@ coerceOp IntToChar = True
 coerceOp CharToInt = True
 coerceOp _ = False
 
-cmpOp :: Primop -> Bool
-cmpOp CmpInt = True
-cmpOp _ = False
+switchOp :: Primop -> Bool
+switchOp CmpInt = True
+switchOp _ = False
 
 branchesOp :: Primop -> Maybe Int
 branchesOp CmpInt = Just 3

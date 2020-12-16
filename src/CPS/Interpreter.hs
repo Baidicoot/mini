@@ -1,6 +1,5 @@
 module CPS.Interpreter (interpret) where
 
-import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad
 import Control.Exception
@@ -18,9 +17,9 @@ import Data.Char
 type GlobalIdent = (ModulePath,Identifier)
 
 data CVal
-    = CRecord [CVal]
-    | CLit UnboxedLit
-    | CPtr GlobalIdent
+    = CRecord [CVal] [GlobalIdent]
+    | CLit UnboxedLit [GlobalIdent]
+    | CPtr GlobalIdent [GlobalIdent]
     deriving(Show)
 
 type CPSEnv = (ModulePath, [GlobalIdent], Map.Map GlobalIdent ([Identifier], CExp), Map.Map GlobalIdent CVal)
@@ -43,7 +42,7 @@ type Interpreter = ReaderT CPSEnv IO
 runInterpreter :: Interpreter a -> CPSEnv -> IO a
 runInterpreter = runReaderT
 
-interpret :: Identifier -> [(ModulePath,CExp)] -> IO ()
+interpret :: Identifier -> [(ModulePath,CExp)] -> IO (Map.Map GlobalIdent CVal)
 interpret i es = runInterpreter (interpretExp (App (Label i) [])) (toEnv [] es)
 
 toEnv :: ModulePath -> [(ModulePath,CExp)] -> CPSEnv
@@ -59,20 +58,30 @@ getGlobal i = do
     (p,_,_,_) <- ask
     pure (p,i)
 
+addTr :: GlobalIdent -> CVal -> CVal
+addTr g (CRecord vs p) = CRecord vs (g:p)
+addTr g (CLit l p) = CLit l (g:p)
+addTr g (CPtr l p) = CPtr l (g:p)
+
 lookupVar :: GlobalIdent -> Interpreter CVal
 lookupVar i = do
     (_,_,_,vs) <- ask
     case Map.lookup i vs of
-        Just v -> pure v
+        Just v -> pure (addTr i v)
         Nothing -> do
             fatal $ "value " ++ show i ++ " not found"
             undefined
 
 convVal :: Value -> Interpreter CVal
-convVal (Label i@(ExternalIdentifier m _)) = pure (CPtr (m,i))
-convVal (Label i) = CPtr <$> getGlobal i
+convVal (Label i@(ExternalIdentifier m _)) = pure (CPtr (m,i) [])
+convVal (Label i) = (`CPtr` []) <$> getGlobal i
 convVal (Var i) = lookupVar =<< getGlobal i
-convVal (Lit l) = pure (CLit l)
+convVal (Lit l) = pure (CLit l [])
+
+isVal :: CVal -> Bool
+isVal (CRecord [CLit (Int 0) _] _) = True
+isVal (CRecord xs _) = any isVal xs
+isVal _ = False
 
 enterModule :: ModulePath -> Interpreter a -> Interpreter a
 enterModule p = local (\(_,t,a,b)->(p,t,a,b))
@@ -85,7 +94,7 @@ withVars vs c = do
 withTrace :: GlobalIdent -> Interpreter a -> Interpreter a
 withTrace i = local (\(p,t,a,b)->(p,i:t,a,b))
 
-execGlobal :: GlobalIdent -> [CVal] -> Interpreter ()
+execGlobal :: GlobalIdent -> [CVal] -> Interpreter (Map.Map GlobalIdent CVal)
 execGlobal g@(m,_) vs = do
     (_,_,fns,_) <- ask
     case Map.lookup g fns of
@@ -98,7 +107,7 @@ execGlobal g@(m,_) vs = do
 
 access :: CVal -> AccessPath -> CVal
 access v NoPath = v
-access (CRecord vs) (SelPath i p) = access (vs !! i) p
+access (CRecord vs tr) (SelPath i p) = access (vs !! i) p
 
 getArithOp :: Primop -> Int -> Int -> Int
 getArithOp AAdd = (+)
@@ -106,49 +115,51 @@ getArithOp ASub = (-)
 getArithOp AMul = (*)
 getArithOp ADiv = div
 
-fatal :: String -> Interpreter ()
+fatal :: String -> Interpreter a
 fatal s = do
     printEnv
     liftIO $ putStrLn s
-    pure ()
+    pure undefined
 
 getIOOp :: Primop -> CVal -> Interpreter ()
-getIOOp PutChr (CLit (Char c)) = liftIO $ putChar c
-getIOOp PutInt (CLit (Int i)) = liftIO $ putStr (show i)
+getIOOp PutChr (CLit (Char c) _) = liftIO $ putChar c
+getIOOp PutInt (CLit (Int i) _) = liftIO $ putStr (show i)
 getIOOp p v = fatal $ "tried to " ++ show p ++ " " ++ show v
 
 getCoerceOp :: Primop -> CVal -> Interpreter CVal
-getCoerceOp IntToChar (CLit (Int i)) = pure (CLit . Char $ chr i)
-getCoerceOp CharToInt (CLit (Char c)) = pure (CLit . Int $ ord c)
+getCoerceOp IntToChar (CLit (Int i) tr) = pure (CLit (Char (chr i)) tr)
+getCoerceOp CharToInt (CLit (Char c) tr) = pure (CLit (Int (ord c)) tr)
 getCoerceOp p v = fatal ("tried to " ++ show p ++ " " ++ show v) >> undefined
 
-interpretExp :: CExp -> Interpreter ()
+interpretExp :: CExp -> Interpreter (Map.Map GlobalIdent CVal)
 interpretExp (App v vs) = do
     v' <- convVal v
     case v' of
-        CPtr g -> execGlobal g =<< mapM convVal vs
+        (CPtr g _) -> execGlobal g =<< mapM convVal vs
         _ -> fatal $ "tried to jump to " ++ show v'
 interpretExp (Record vp n c) = do
     vs <- mapM (\(v,p) -> access <$> convVal v <*> pure p) vp
-    withVars [(n,CRecord vs)] (interpretExp c)
+    n' <- getGlobal n
+    withVars [(n,CRecord vs [n'])] (interpretExp c)
 interpretExp (Select i v n c) = do
     v' <- convVal v
     withVars [(n,access v' (SelPath i NoPath))] (interpretExp c)
 interpretExp (Switch v cs) = do
     v' <- convVal v
     case v' of
-        CLit (Int i) -> interpretExp (cs !! i)
+        (CLit (Int i) _) -> interpretExp (cs !! i)
         _ -> fatal $ "tried to switch on " ++ show v'
 interpretExp (Primop p [a,b] n [c]) | arithOp p = do
     a' <- convVal a
     b' <- convVal b
     case (a',b') of
-        (CLit (Int a),CLit (Int b)) -> withVars [(n,CLit (Int (getArithOp p a b)))] (interpretExp c)
+        (CLit (Int a) tr,CLit (Int b) _) -> withVars [(n,CLit (Int (getArithOp p a b)) tr)] (interpretExp c)
         _ -> fatal $ "tried to " ++ show p ++ " " ++ show (a',b')
 interpretExp (Primop p [v] n [c]) | effectOp p = do
     v' <- convVal v
     getIOOp p v'
-    withVars [(n,CLit (Int 0))] (interpretExp c)
+    n' <- getGlobal n
+    withVars [(n,CLit (Int 0) [n'])] (interpretExp c)
 interpretExp (Primop p [v] n [c]) | coerceOp p = do
     v' <- getCoerceOp p =<< convVal v
     withVars [(n,v')] (interpretExp c)
@@ -156,9 +167,9 @@ interpretExp (Primop CmpInt [a,b] _ [c,d,e]) = do
     a' <- convVal a
     b' <- convVal b
     case (a',b') of
-        (CLit (Int av),CLit (Int bv)) | av == bv -> interpretExp c
-        (CLit (Int av),CLit (Int bv)) | av > bv -> interpretExp d
-        (CLit (Int av),CLit (Int bv)) | av < bv -> interpretExp e
+        (CLit (Int av) _,CLit (Int bv) _) | av == bv -> interpretExp c
+        (CLit (Int av) _,CLit (Int bv) _) | av > bv -> interpretExp d
+        (CLit (Int av) _,CLit (Int bv) _) | av < bv -> interpretExp e
         _ -> fatal $ "tried to integer compare " ++ show (a',b')
-interpretExp (Error s) = liftIO . putStr $ "ERROR: " ++ s
-interpretExp Halt = pure ()
+interpretExp (Error s) = liftIO (putStr ("ERROR: " ++ s)) >> asks (\(_,_,_,e)->e)
+interpretExp Halt = asks (\(_,_,_,e)->e)
