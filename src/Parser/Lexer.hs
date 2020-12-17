@@ -43,6 +43,12 @@ charLit = do
   char '\''
   pure c
 
+comment :: Parser ()
+comment = whiteSep $ do
+  string "(."
+  manyTill anyChar (try (string ".)"))
+  pure ()
+
 literal :: Parser UnboxedLit
 literal
   =   Int   <$> int
@@ -98,7 +104,7 @@ record p = do
 
 rpnccTok :: Parser SyntaxNode
 rpnccTok
-  =   SynLit              <$> try literal
+  = SynLit              <$> try literal
   <|> LitTy               <$> try literalTy
   <|> Keyword             <$> try keyword
   <|> try (reserved "->")  $> Arr

@@ -1,0 +1,28 @@
+(. dynamic typing .)
+
+(ind Dyn
+    (int :: Int -> Dyn Int)
+    (char :: Char -> Dyn Char))
+
+((extract :: (Dyn a) -> a)
+    x
+    match x
+        (int i -> i)
+        (char c -> c))
+
+((print :: (Dyn a) -> {})
+    x
+    match x
+        (int i -> putint i)
+        (char c -> putchr c))
+
+((add :: (Dyn a) -> (Dyn b) -> Dyn Int)
+    (x y)
+    match x
+        (int a -> match y
+            (int b -> int (+ a b))))
+
+(let
+    (_ print (add (int 7) (int 9)))
+    (_ print (char (chr 10)))
+    (_ print (add (int 3) (char '7'))))

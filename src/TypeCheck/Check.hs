@@ -390,19 +390,18 @@ pcon W m tp st (ConsPattern c v,s,t) = do
     let pres = resTy p
     immedMatch s pargs v
     matches s pres (unqualified tp)
-    let env = fmap (\(v,t)->(LocalIdentifier v,W,unqualified t)) $ zip v pargs
+    let env = (\(v,t)->(LocalIdentifier v,W,unqualified t)) <$> zip v pargs
     t' <- withEnv env (check m t st)
     pure (ConsPattern c v,pres,t')
 -- PCON-R
-pcon R m tp st (ConsPattern c v,s,t) = do
+pcon R m tp (Forall _ st) (ConsPattern c v,s,t) = do
     p <- instantiate =<< lookupCons c s
     let pargs = argTys p
     let pres = resTy p
     immedMatch s pargs v
     theta <- unifier s pres tp
-    let env = fmap (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) $ zip v pargs
-    tt <- instantiate st
-    st <- generalize (apply theta tt)
+    let env = (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) <$> zip v pargs
+    st <- generalize (apply theta st)
     t' <- withEnv env (check m t st)
     pure (ConsPattern c v,pres,t')
 -- PWILD

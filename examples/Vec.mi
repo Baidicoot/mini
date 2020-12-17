@@ -1,0 +1,17 @@
+(. type-level nats .)
+
+(ind (S :: Ty -> Ty))
+(ind (Z :: Ty))
+
+(. list constrained by a length .)
+
+(ind Vec
+    (vempty :: Vec Z a)
+    (vcons :: a -> (Vec n a) -> Vec (S n) a))
+
+(. extract the components of a vector of length 3 .)
+
+((testfn :: (Vec (S (S (S Z))) a) -> {a a a})
+    x
+    match x
+        (vcons a (vcons b (vcons c vempty)) -> {a b c}))

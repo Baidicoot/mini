@@ -19,7 +19,8 @@ sourcePos = statePos `liftM` getParserState
 
 sexpr :: Parser a -> Parser (SExpr a)
 sexpr n
-    =   sexp
+    =   try (comment >> sexpr n)
+    <|> sexp
     <|> rcrd
     <|> node
     where
