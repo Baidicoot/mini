@@ -59,3 +59,5 @@ This demonstrates some of Mini's key features;
 - top-level expressions are executed when the module is called
 
 The `(let (_ putint (fac 6)))` top-level expression shows how anonymized - hence the `_` - let-expressions can be used to perform side-effecting operations without having to use sequencing operators like `(seq (a b) b)`.
+
+\* - provided my garbage collector works!
