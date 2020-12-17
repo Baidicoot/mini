@@ -1,6 +1,5 @@
 (import-as List L)
-
-(nl x putchr (chr 10))
+(import-as IO IO)
 
 (let (hello L.cons 'h' (L.cons 'e' (L.cons 'l' (L.cons 'l' (L.cons 'o' L.nil))))))
 (let (world L.cons 'w' (L.cons 'o' (L.cons 'r' (L.cons 'l' (L.cons 'd' L.nil))))))
@@ -8,8 +7,8 @@
 (unwords2 (x y) L.concat x (L.cons ' ' y))
 
 (let
-    (_ L.putstr (unwords2 hello world))
-    (_ nl {}))
+    (_ IO.putstr (unwords2 hello world))
+    (_ IO.nl {}))
 
 ((swap :: {a b} -> {b a})
     x
@@ -27,7 +26,7 @@
 
 (let
     (_ putcoord (swap {4 5}))
-    (_ nl {}))
+    (_ IO.nl {}))
 
 (ind Bool
     (true :: Bool)
@@ -41,4 +40,4 @@
 
 (let
     (_ putint (fac 6))
-    (_ nl {}))
+    (_ IO.nl {}))

@@ -1,1 +1,13 @@
+(import-as List L)
+
 (putchar x putchr x)
+
+(putstr x match x
+    (L.cons c xs -> let (_ putchr c) (putstr xs))
+    (L.nil -> {}))
+
+(nl x putchr (chr 10))
+
+(putstrln x match x
+    (L.cons c xs -> let (_ putchr c) (putstr xs))
+    (L.nil -> nl {}))

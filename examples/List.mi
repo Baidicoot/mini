@@ -2,10 +2,6 @@
     (cons :: a -> (List a) -> List a)
     (nil :: List a))
 
-(putstr x match x
-    (cons c xs -> let (_ putchr c) (putstr xs))
-    (nil -> {}))
-
 (concat (x y) match x
     (cons xe xs -> cons xe (concat xs y))
     (nil -> y))
