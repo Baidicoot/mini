@@ -16,6 +16,7 @@ Spill-Old.hs
 Meta-Old.hs
 cache-x86_64-linux-textual
 *.out
-*.c
+examples/*.c
+examples/*.h
 scheme-test
 test.*
