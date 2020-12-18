@@ -5,3 +5,15 @@
 (concat (x y) match x
     (cons xe xs -> cons xe (concat xs y))
     (nil -> y))
+
+(map (f l) match l
+    (cons x xs -> cons (f x) (map f xs))
+    (nil -> nil))
+
+(reverse l match l
+    (cons x xs -> concat (reverse xs) (cons x nil))
+    (nil -> nil))
+
+(foldl (f a l) match l
+    (cons x xs -> foldl f (f a x) xs)
+    (nil -> a))

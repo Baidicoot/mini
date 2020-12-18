@@ -138,6 +138,16 @@ convertNode (Core.Match (Just ty, p) n cs) c | isJust (constructor ty) = do
                 let bindings = foldr (\(i,v) f -> Select i (Var n) (LocalIdentifier v) . f) id (zip [1..] ns)
                 in fmap bindings (convert cse c)
     pure . Select 0 (Var n) (LocalIdentifier t) $ Switch (Var $ LocalIdentifier t) cs''
+convertNode (Core.Match (Just (Graph.Node Graph.NoTag (Builtin t)), p) n cs) c = do
+    let eq = eqOp t
+    let (dflt, cs') = selectDefault cs
+    fallback <- case dflt of
+        Just fallback -> convert fallback c
+        Nothing -> pure $ Error ("pattern match fail at: " ++ show p)
+    foldM (\b (Core.LiteralPattern l,_,exp) -> do
+        br <- convert exp c
+        x <- fresh
+        pure (Primop eq [Var n,Lit l] (LocalIdentifier x) [br,b])) fallback cs'
 convertNode (Core.Prim p vs) c | isNothing (branchesOp p) = do
     x <- fresh
     vs' <- mapM convVal vs

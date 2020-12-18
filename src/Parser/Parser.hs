@@ -184,10 +184,16 @@ toplevelexpr = many toplevel
 
 importdecl :: SourcePos -> Parser [ExprS] (ModulePath,ImportAction)
 importdecl _ [SNode _ (Keyword "import-as"),p,p'] = liftM2 (flip (,) . ImportAs) (path p') (path p)
+importdecl _ [SNode _ (Keyword "include"),p] = flip (,) Include <$> path p
 importdecl t x = Left [Expecting "import" (display $ SExpr t x) t]
 
+importkey :: String -> Bool
+importkey "import-as" = True
+importkey "include" = True
+importkey _ = False
+
 program :: Parser [ExprS] ([(ModulePath,ImportAction)],[TopLevel])
-program (SExpr _ x@(SNode t (Keyword "import-as"):_):xs) = liftM2 (first . (:)) (importdecl t x) (program xs)
+program (SExpr _ x@(SNode t (Keyword k):_):xs) | importkey k = liftM2 (first . (:)) (importdecl t x) (program xs)
 program xs = (,) [] <$> toplevelexpr xs
 
 type ParseResult = ([(ModulePath,ImportAction)],Program)

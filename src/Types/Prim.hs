@@ -25,6 +25,9 @@ data Primop
     | CharToInt
     | IntToChar
     | CmpInt
+    | CmpChar
+    | EqInt
+    | EqChar
     deriving(Eq, Ord)
 
 data Value
@@ -57,10 +60,16 @@ coerceOp _ = False
 
 switchOp :: Primop -> Bool
 switchOp CmpInt = True
+switchOp CmpChar = True
+switchOp EqInt = True
+switchOp EqChar = True
 switchOp _ = False
 
 branchesOp :: Primop -> Maybe Int
 branchesOp CmpInt = Just 3
+branchesOp CmpChar = Just 3
+branchesOp EqInt = Just 2
+branchesOp EqChar = Just 2
 branchesOp _ = Nothing
 
 arityOp :: Primop -> Int
@@ -73,10 +82,21 @@ arityOp PutInt = 1
 arityOp IntToChar = 1
 arityOp CharToInt = 1
 arityOp CmpInt = 5
+arityOp CmpChar = 5
+arityOp EqInt = 4
+arityOp EqChar = 4
 
 litPrimTy :: UnboxedLit -> LitType
 litPrimTy (Int _) = IntTy
 litPrimTy (Char _) = CharTy
+
+cmpOp :: LitType -> Primop
+cmpOp IntTy = CmpInt
+cmpOp CharTy = CmpChar
+
+eqOp :: LitType -> Primop
+eqOp IntTy = EqInt
+eqOp CharTy = EqChar
 
 instance Show Primop where
     show AAdd = "#+"
@@ -87,7 +107,10 @@ instance Show Primop where
     show PutInt = "#putint"
     show IntToChar = "#chr"
     show CharToInt = "#ord"
-    show CmpInt = "#cmp"
+    show CmpInt = "#cmpint"
+    show CmpChar = "#cmpchr"
+    show EqInt = "#eqint"
+    show EqChar = "#eqchr"
 
 instance Show UnboxedLit where
     show (Int i) = '$':show i

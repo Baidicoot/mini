@@ -1,6 +1,5 @@
 module TypeCheck.Meta (gatherExterns) where
 
-import Types.Env
 import Types.Ident
 import Types.Core
 import Types.Type

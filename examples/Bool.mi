@@ -1,0 +1,15 @@
+(ind Bool
+    (true :: Bool)
+    (false :: Bool))
+
+(|| (x y) match x
+    (true -> true)
+    (false -> y))
+
+(&& (x y) match x
+    (false -> false)
+    (true -> y))
+
+(not x match x
+    (false -> true)
+    (true -> false))

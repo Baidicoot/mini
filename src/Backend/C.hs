@@ -15,9 +15,19 @@ import Types.Prim (Primop(..))
 
 import Control.Arrow
 
+sanitize :: String -> String
+sanitize = concatMap (\case
+    '=' -> "_eq_"
+    '|' -> "_pipe_"
+    '&' -> "_amp_"
+    '_' -> "_under_"
+    '>' -> "_gt_"
+    '<' -> "_lt_"
+    c -> [c])
+
 mangle :: ModulePath -> Label -> String
-mangle p (LocalIdentifier l) = concatMap (++"_") p ++ l
-mangle p (ExternalIdentifier m l) = concatMap (++"_") m ++ l
+mangle p (LocalIdentifier l) = concatMap (++"_") p ++ sanitize l
+mangle p (ExternalIdentifier m l) = concatMap (++"_") m ++ sanitize l
 
 data Offset
     = POff AccessPath
@@ -58,10 +68,10 @@ translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
 translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\n"
     ++ (if d then "printf(\"jumping to %x\\n\",reg_arith);\n" else "")
     ++ "goto *reg_arith" ++ ";\n"
-translate d p (Record ps r) = showOp True p (Reg r) ++ " = malloc(sizeof(void*)*" ++ show (length ps) ++ ");\n"
+translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloca(sizeof(void*)*" ++ show (length ps) ++ ");\n"
     ++ "data_ptr -= sizeof(void*)*" ++ show (length ps) ++ ";\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
-    ++ "nallocs++;"
+    ++ "nallocs++;\n"
     ++ (if d then "printf(\"allocated at %x, %ith alloc\\n\"," ++ showOp True p (Reg r) ++ ",nallocs);\n" else "")
     ++ if d then concatMap (\(_,i) -> "printf(\"%x, \"," ++ translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ ");") (zip ps [0..]) ++ "printf(\"\\n\");\n" else ""
 translate d p (Select i o r) =
@@ -71,7 +81,7 @@ translate d p (Fetch r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ translateOp False p o1 (OOff o2) ++ ";\n"
     ++ if d then "printf(\"%x\\n\", " ++ showOp True p (Reg r) ++ ");\n" else ""
 translate d p Halt = "return 0;\n"
-translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");return 1;\n"
+translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");\nreturn 1;\n"
 translate d p (Move r op) = showOp True p (Reg r) ++ " = " ++ showOp True p op ++ ";\n"
 translate d _ (Exports _) = ""
 translate d _ (Imports _) = ""
@@ -79,11 +89,14 @@ translate d p (EffectOp PutChr o) = "putchar(" ++ showOp True p o ++ ");\n"
 translate d p (EffectOp PutInt o) = "printf(\"%i\"," ++ showOp True p o ++ ");\n"
 translate d p (CoerceOp IntToChar r o) = showOp True p (Reg r) ++ " = (char)" ++ showOp True p o ++ ";\n"
 translate d p (CoerceOp CharToInt r o) = showOp True p (Reg r) ++ " = (long int)" ++ showOp True p o ++ ";\n"
-translate d p (SwitchOp CmpInt r [o1,o2] [eq,gt,lt]) =
+translate d p (SwitchOp op r [o1,o2] [eq,gt,lt]) | op == CmpInt || op == CmpChar =
     showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
     ++ showOp True p eq ++ " : (" ++
         showOp True p o1 ++ " > " ++ showOp True p o2 ++ " ? " ++ showOp True p gt ++ " : " ++ showOp True p lt
     ++ ");\n"
+translate d p (SwitchOp op r [o1,o2] [eq,ne]) | op == EqInt || op == EqChar =
+    showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
+    ++ showOp True p eq ++ " : " ++ showOp True p ne ++ ";\n"
 translate d p (ArithOp op r o1 o2) =
     showOp True p (Reg r) ++ " = (long int)" ++ showOp True p o1 ++ showArith op ++ "(long int)" ++ showOp True p o2 ++ ";\n"
 translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"

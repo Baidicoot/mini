@@ -1,10 +1,10 @@
-(import-as List L)
+(include List)
 (import-as IO IO)
 
-(let (hello L.cons 'h' (L.cons 'e' (L.cons 'l' (L.cons 'l' (L.cons 'o' L.nil))))))
-(let (world L.cons 'w' (L.cons 'o' (L.cons 'r' (L.cons 'l' (L.cons 'd' L.nil))))))
+(let (hello cons 'h' (cons 'e' (cons 'l' (cons 'l' (cons 'o' nil))))))
+(let (world cons 'w' (cons 'o' (cons 'r' (cons 'l' (cons 'd' nil))))))
 
-(unwords2 (x y) L.concat x (L.cons ' ' y))
+(unwords2 (x y) concat x (cons ' ' y))
 
 (let
     (_ IO.putstr (unwords2 hello world))
@@ -32,11 +32,9 @@
     (true :: Bool)
     (false :: Bool))
 
-(eq (x y) cmp x y true false false)
-
-(fac x match (eq x 0)
-    (true -> 1)
-    (false -> * x (fac (- x 1))))
+(fac x match x
+    (0 -> 1)
+    (_ -> * x (fac (- x 1))))
 
 (let
     (_ putint (fac 6))

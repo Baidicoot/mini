@@ -106,6 +106,7 @@ indexGADT g i = snd <$> find ((==i) . fst . fst) (zip (gadtCons g) [0..])
 
 data ImportAction
     = ImportAs ModulePath
+    | Include
     deriving(Eq, Show)
 
 data Env = Env
@@ -151,6 +152,14 @@ importWithAction (ModuleAPI p mtr mco mty _) (ImportAs p') (Env tr ty co) =
     let rtr = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mtr]
         rty = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mty]
         rco = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mco]
+        tr' = checkRenames p tr rtr
+        ty' = checkRenames p ty rty
+        co' = checkRenames p co rco
+    in liftM3 Env tr' ty' co'
+importWithAction (ModuleAPI p mtr mco mty _) Include (Env tr ty co) =
+    let rtr = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mtr]
+        rty = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mty]
+        rco = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mco]
         tr' = checkRenames p tr rtr
         ty' = checkRenames p ty rty
         co' = checkRenames p co rco

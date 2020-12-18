@@ -41,7 +41,6 @@ executable mini
     Control.Monad.Errors,
     Elaborate.Elaborator,
     Types.CPS,
-    Types.Env,
     Types.Module,
     Types.Injection,
     Types.Pretty,
