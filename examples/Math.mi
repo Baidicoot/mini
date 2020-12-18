@@ -1,10 +1,10 @@
 (include Bool)
 
-(== (x y) cmp x y true false false)
-(> (x y) cmp x y false true false)
-(< (x y) cmp x y false false true)
-(>= (x y) cmp x y true true false)
-(<= (x y) cmp x y true false true)
+(== (x y) eqint x y true false)
+(> (x y) cmpint x y false true false)
+(< (x y) cmpint x y false false true)
+(>= (x y) cmpint x y true true false)
+(<= (x y) cmpint x y true false true)
 
 (pow (b e) match e
     (0 -> 1)

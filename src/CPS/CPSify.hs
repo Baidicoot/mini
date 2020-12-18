@@ -153,14 +153,14 @@ convertNode (Core.Prim p vs) c | isNothing (branchesOp p) = do
     vs' <- mapM convVal vs
     convC <- c (Var $ LocalIdentifier x)
     pure $ Primop p vs' (LocalIdentifier x) [convC]
-convertNode (Core.Prim CmpInt [a,b,c,d,e]) k = do
+convertNode (Core.Prim op ls) c | switchOp op && Just (length ls) >= branchesOp op = do
     x <- fresh
-    a' <- convVal a
-    b' <- convVal b
-    c' <- k =<< convVal c
-    d' <- k =<< convVal d
-    e' <- k =<< convVal e
-    pure $ Primop CmpInt [a',b'] (LocalIdentifier x) [c',d',e']
+    let (Just n) = branchesOp op
+    let args = take (length ls - n) ls
+    let cases = drop (length ls - n) ls
+    args' <- mapM convVal args
+    cases' <- mapM (c <=< convVal) cases
+    pure $ Primop op args' (LocalIdentifier x) cases'
 convertNode x _ = error (show x)
 
 selectDefault :: [(Core.PatternBinding, NoTag, Core.Core NoTag)] -> (Maybe (Core.Core NoTag), [(Core.PatternBinding, NoTag, Core.Core NoTag)])

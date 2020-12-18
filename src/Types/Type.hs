@@ -43,6 +43,9 @@ opTy PutInt = intty --> unitty
 opTy IntToChar = intty --> charty
 opTy CharToInt = charty --> intty
 opTy CmpInt = intty --> intty --> tv "a" --> tv "a" --> tv "a" --> tv "a"
+opTy CmpChar = charty --> charty --> tv "a" --> tv "a" --> tv "a" --> tv "a"
+opTy EqInt = intty --> intty --> tv "a" --> tv "a" --> tv "a"
+opTy EqChar = charty --> charty --> tv "a" --> tv "a" --> tv "a"
 
 type SourceType = SourceGraph (TypeNode SourcePos)
 

@@ -77,7 +77,10 @@ primop
   <|> try (reserved "/")      $> ADiv
   <|> try (reserved "putint") $> PutInt
   <|> try (reserved "putchr") $> PutChr
-  <|> try (reserved "cmp")    $> CmpInt
+  <|> try (reserved "cmpint") $> CmpInt
+  <|> try (reserved "cmpchr") $> CmpChar
+  <|> try (reserved "eqint")  $> EqInt
+  <|> try (reserved "eqchr")  $> EqChar
   <|> try (reserved "ord")    $> CharToInt
   <|> try (reserved "chr")    $> IntToChar
 
