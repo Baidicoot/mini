@@ -23,10 +23,15 @@ main = do
     case mode of
         "cps" -> T.main root args
         _ -> do
-            let cfg = case mode of
-                    "c" -> BuildConfig root cbackend "c" []
-                    "abst" -> BuildConfig root (interpreter 20) "interpret" []
-            r <- runErrorsT $ build cfg (fmap (wordsWhen (=='.')) args)
-            case toEither r of
-                Left e -> mapM_ putStrLn e
-                Right _ -> putStr "\n"
+            case mode of
+                "c" -> do
+                    r <- runErrorsT $ build (BuildConfig root cbackend "c" []) (fmap (wordsWhen (=='.')) args)
+                    case toEither r of
+                        Left e -> mapM_ putStrLn e
+                        Right _ -> putStr "\n"
+                "abst" -> do
+                    r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" []) (fmap (wordsWhen (=='.')) args)
+                    case toEither r of
+                        Left e -> mapM_ putStrLn e
+                        Right _ -> putStr "\n"
+                _ -> putStrLn "please specify a mode-of-operation"

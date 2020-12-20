@@ -48,20 +48,20 @@ showOp b p (ImmLabel l) = (if b then "&&" else "") ++ mangle p l
 showOp b p (ImmLit l) = showLit l
 
 showArith :: Primop -> String
-showArith AAdd = " + "
-showArith ASub = " - "
-showArith AMul = " * "
-showArith ADiv = " / "
+showArith AAdd = "+"
+showArith ASub = "-"
+showArith AMul = "*"
+showArith ADiv = "/"
 
 translateOp :: Bool -> ModulePath -> Operand -> Offset -> String
 translateOp b mp op (POff p) = showPath p
     where
-        showPath (SelPath i x) = "((void**)(" ++ showPath x ++ "))[" ++ show i ++ "]"
+        showPath (SelPath i x) = "((uintptr_t**)(" ++ showPath x ++ "))[" ++ show i ++ "]"
         showPath NoPath = showOp b mp op
-translateOp b mp op1 (OOff op2) = "((void**)(" ++ showOp b mp op1 ++ "))[(long int)" ++ showOp b mp op2 ++ "]"
+translateOp b mp op1 (OOff op2) = "((uintptr_t**)(" ++ showOp b mp op1 ++ "))[(uintptr_t)" ++ showOp b mp op2 ++ "]"
 
 translate :: Bool -> ModulePath -> Operator -> String
-translate d p (Table t xs) = "void* " ++ mangle p t ++ "[] = {"  ++ intercalate "," (fmap (\case
+translate d p (Table t xs) = "uintptr_t* " ++ mangle p t ++ "[] = {"  ++ intercalate "," (fmap (\case
     ImmLit l -> showLit l
     ImmLabel l -> "&&" ++ mangle p l) xs) ++ "};\n"
 translate d p (Define l) = mangle p l ++ ": ;\n" ++ if d then "printf(\"entered " ++ mangle p l ++ "\\n\");\n" else ""
@@ -70,7 +70,7 @@ translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
 translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\n"
     ++ (if d then "printf(\"jumping to %x\\n\",reg_arith);\n" else "")
     ++ "goto *reg_arith" ++ ";\n"
-translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloc_in_arena(heap, sizeof(void*)*" ++ show (length ps) ++ ");\n"
+translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloc_in_arena(&heap, sizeof(void*)*" ++ show (length ps) ++ ");\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
     ++ if d then concatMap (\(_,i) -> "printf(\"%x, \"," ++ translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ ");") (zip ps [0..]) ++ "printf(\"\\n\");\n" else ""
 translate d p (Select i o r) =
@@ -87,7 +87,7 @@ translate d _ (Imports _) = ""
 translate d p (EffectOp PutChr o) = "putchar(" ++ showOp True p o ++ ");\n"
 translate d p (EffectOp PutInt o) = "printf(\"%i\"," ++ showOp True p o ++ ");\n"
 translate d p (CoerceOp IntToChar r o) = showOp True p (Reg r) ++ " = (char)" ++ showOp True p o ++ ";\n"
-translate d p (CoerceOp CharToInt r o) = showOp True p (Reg r) ++ " = (long int)" ++ showOp True p o ++ ";\n"
+translate d p (CoerceOp CharToInt r o) = showOp True p (Reg r) ++ " = (uintptr_t)" ++ showOp True p o ++ ";\n"
 translate d p (SwitchOp op r [o1,o2] [eq,gt,lt]) | op == CmpInt || op == CmpChar =
     showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
     ++ showOp True p eq ++ " : (" ++
@@ -97,7 +97,7 @@ translate d p (SwitchOp op r [o1,o2] [eq,ne]) | op == EqInt || op == EqChar =
     showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
     ++ showOp True p eq ++ " : " ++ showOp True p ne ++ ";\n"
 translate d p (ArithOp op r o1 o2) =
-    showOp True p (Reg r) ++ " = (long int)" ++ showOp True p o1 ++ showArith op ++ "(long int)" ++ showOp True p o2 ++ ";\n"
+    showOp True p (Reg r) ++ " = (uintptr_t)" ++ showOp True p o1 ++ " " ++ showArith op ++ " (uintptr_t)" ++ showOp True p o2 ++ ";\n"
 translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"
 
 preheader :: String
@@ -108,7 +108,7 @@ preheader = unlines
 
 postheader :: String
 postheader = unlines
-    [ "heap = alloc_arena(1024);"
+    [ "heap = alloc_arena(MIN_SIZE,MAJ_SIZE);"
     , "goto start;"
     ]
 

@@ -20,3 +20,4 @@ examples/*.c
 examples/*.h
 scheme-test
 test.*
+c-build/main.c
