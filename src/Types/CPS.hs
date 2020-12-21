@@ -4,6 +4,7 @@ module Types.CPS where
 import Types.Ident
 import Types.Prim
 import Types.Pretty
+import Types.Type
 
 import Data.List (intercalate)
 import Data.Maybe (maybeToList, mapMaybe)
@@ -22,6 +23,69 @@ data AccessPath
     | SelPath Int AccessPath
     deriving(Eq)
 
+{-
+CPS 'Boxity' Options:
+- all forms of 'boxing' (i.e. tagging for chars, ints, etc., boxing for vectors, refs, etc.) represented similarly in CPS
+
+Option 1:
+- Explicit boxing/unboxing, by introducing to CExp:
+    + Enbox Value LitType Identifier CExp
+    + Unbox Value LitType Identifier CExp
+- more register usage, so more spills
+- unboxing is a 'cached' operation
+
+Option 2:
+- Values are boxed/unboxed as needed, by introducing as CValue:
+    + Enbox Value LitType
+    + Unbox Value LitType
+    + Value Value CType
+- less register useage, fewer spills
+- unboxing is not cached
+- somtimes improbable to be able to unbox inline (i.e. with vectors)
+
+Option 3:
+- Both! - opportunity for best-of-both-worlds
+
+Option 4:
+- None! - will take this approach currently
+
+- need to look into expensiveness of boxing/unboxing - see ocaml?
+
+Expressing variadics with CType:
+- `Switch` also quantifies over variadic being `Switch`d and the type of that variadic.
+- `CExp` alternatives are zipped with their respective `[CType]` alternative.
+-}
+
+data CType
+    = Unboxed LitType
+    | Boxed LitType
+    | TuplePtr [CType]
+    | VariantPtr [[CType]]
+    | Address
+    | Undefined
+    deriving(Eq)
+
+selectTy :: Int -> CType -> CType
+selectTy 0 (VariantPtr _) = Boxed IntTy
+selectTy 0 (TuplePtr (x:_)) = x
+selectTy n (TuplePtr (_:xs)) = selectTy (n-1) (TuplePtr xs)
+selectTy i x = error $ "cannot select type at index " ++ show i ++ " from " ++ show x
+
+instance Show CType where
+    show (Unboxed t) = '#':show t
+    show (Boxed t) = show t
+    show (TuplePtr xs) = "{" ++ concatMap ((++",") . show) xs ++ "}"
+    show (VariantPtr xss) = "(" ++ intercalate " | " (fmap (("{"++) . (++"}") . concatMap ((++",") . show)) xss)
+    show Undefined = "Undefined"
+    show Address = "Addr"
+
+data CValue
+    = CValue Value CType
+    deriving(Eq)
+
+instance Show CValue where
+    show (CValue v t) = show v ++ " :: " ++ show t
+
 data CExp
     = App Value [Value]
     | Fix [CFun] CExp
@@ -33,18 +97,6 @@ data CExp
     | Primop Primop [Value] Identifier [CExp]
     deriving(Eq)
 
-{-
-extractNames :: [Value] -> [Name]
-extractNames (Var (LocalIdentifier n):ns) = n:extractNames ns
-extractNames (_:xs) = extractNames xs
-extractNames [] = []
--}
-{-
-extractExterns :: [Value] -> [Identifier]
-extractExterns (Var (LocalIdentifier _):ns) = extractExterns ns
-extractExterns (Var i:ns) = i:extractExterns ns
-extractExterns [] = []
--}
 getEscaping :: CExp -> Set.Set Identifier
 getEscaping (App _ vs) = Set.fromList $ extractLabels vs
 getEscaping (Fix fs e) = mconcat (getEscaping e:fmap (\(Fun _ _ e) -> getEscaping e) fs)

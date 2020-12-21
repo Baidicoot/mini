@@ -4,35 +4,35 @@
 
 #define NREGS 100
 
-#define MIN_SIZE 1024
+#define MIN_SIZE 2048
 #define MAJ_SIZE 2048
 
-#define TO_INT(val) ((uintptr_t)val & ~0x1) >> 1
-#define FROM_INT(i) ((i << 1) | 0x1)
+#define UNTAG(val) ((uintptr_t)val - 1) >> 1
+#define TAG(i) ((i << 1) | 1)
 
 struct arena {
-    uintptr_t* major;
+    uintptr_t major;
     size_t major_size;
-    uintptr_t* major_ptr;
-    uintptr_t* minor;
+    uintptr_t major_ptr;
+    uintptr_t minor;
     size_t minor_size;
-    uintptr_t* minor_ptr;
+    uintptr_t minor_ptr;
     struct arena* next;
 };
 
 struct arena* alloc_arena(size_t maj_size, size_t min_size);
-uintptr_t* alloc_in_arena(struct arena** arena, size_t size);
+uintptr_t alloc_in_arena(struct arena** arena, size_t size);
 void free_arena(struct arena* arena);
 
-uintptr_t* reg_gpr[NREGS];
-uintptr_t* reg_arith;
+uintptr_t reg_gpr[NREGS];
+uintptr_t reg_arith;
 
 struct arena* heap;
 
 struct arena* alloc_arena(size_t maj_size, size_t min_size) {
     struct arena* arena = malloc(sizeof(struct arena)+maj_size+min_size);
-    arena->major = (uintptr_t*)(arena)+sizeof(struct arena);
-    arena->minor = (uintptr_t*)(arena)+sizeof(struct arena);
+    arena->major = ((uintptr_t)arena)+sizeof(struct arena);
+    arena->minor = ((uintptr_t)arena)+sizeof(struct arena);
     arena->major_ptr = arena->major;
     arena->minor_ptr = arena->minor;
     arena->major_size = maj_size;
@@ -88,14 +88,19 @@ uintptr_t* alloc_in_arena(struct arena** arena, size_t size) {
     return loc;
 }
 */
-
+/*
 uintptr_t* alloc_in_arena(struct arena** arena, size_t size) {
-    while ((*arena)->minor_size-(size_t)((*arena)->minor_ptr-(*arena)->minor) < size) {
-        struct arena* next = alloc_arena(MIN_SIZE,MAJ_SIZE);
+    return malloc(size);
+}
+*/
+
+uintptr_t alloc_in_arena(struct arena** arena, size_t size) {
+    if ((*arena)->minor_size-((*arena)->minor_ptr-(*arena)->minor) < size) {
+        struct arena* next = alloc_arena(MAJ_SIZE,MIN_SIZE);
         next->next = *arena;
         *arena = next;
     }
-    uintptr_t* loc = (*arena)->minor_ptr;
+    uintptr_t loc = (*arena)->minor_ptr;
     (*arena)->minor_ptr += size;
     return loc;
 }
