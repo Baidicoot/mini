@@ -1,6 +1,0 @@
-{
-    "files.associations": {
-        "*.att": "coq",
-        "stdint.h": "c"
-    }
-}
