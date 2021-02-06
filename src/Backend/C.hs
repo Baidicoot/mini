@@ -13,7 +13,7 @@ import Control.Monad.IO.Class
 import Types.Build
 import Types.Prim (Primop(..))
 
-import Control.Arrow
+import Control.Monad.Errors
 
 import System.Directory (copyFile)
 
@@ -70,7 +70,7 @@ translate d p (Jmp (ImmLabel l)) = "goto " ++ mangle p l ++ ";\n"
 translate d p (Jmp o) = "reg_arith = " ++ showOp True p o ++ ";\n"
     ++ (if d then "printf(\"jumping to %x\\n\",reg_arith);\n" else "")
     ++ "goto *reg_arith" ++ ";\n"
-translate d p (Record ps r) = showOp True p (Reg r) ++ " = alloc_in_arena(&heap, sizeof(uintptr_t*)*" ++ show (length ps) ++ ");\n"
+translate d p (Record ps r) = showOp True p (Reg r) ++ " = (uintptr_t)GC_MALLOC(sizeof(uintptr_t*)*" ++ show (length ps) ++ ");\n"
     ++ concatMap (\((o,pa),i)->translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ " = " ++ translateOp True p o (POff pa) ++ ";\n") (zip ps [0..])
     ++ if d then concatMap (\(_,i) -> "printf(\"%x, \"," ++ translateOp True p (Reg r) (POff $ SelPath i NoPath) ++ ");") (zip ps [0..]) ++ "printf(\"\\n\");\n" else ""
 translate d p (Select i o r) =
@@ -79,8 +79,8 @@ translate d p (Select i o r) =
 translate d p (Fetch r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ translateOp False p o1 (OOff o2) ++ ";\n"
     ++ if d then "printf(\"%x\\n\", " ++ showOp True p (Reg r) ++ ");\n" else ""
-translate d p Halt = "free_arena(heap);\nreturn 0;\n"
-translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");\nfree_arena(heap);\nreturn 1;\n"
+translate d p Halt = "return 0;\n"
+translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");\nreturn 1;\n"
 translate d p (Move r op) = showOp True p (Reg r) ++ " = " ++ showOp True p op ++ ";\n"
 translate d _ (Exports _) = ""
 translate d _ (Imports _) = ""
@@ -100,16 +100,16 @@ translate d p (ArithOp op r o1 o2) =
     showOp True p (Reg r) ++ " = " ++ showArith op ("(uintptr_t)" ++ showOp True p o1) ("(uintptr_t)" ++ showOp True p o2) ++ ";\n"
 translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"
 
-preheader :: String
-preheader = unlines
-    [ "#include \"gc.c\""
+preheader :: Bool -> String
+preheader b = unlines
+    [ if b then "#define GC_MALLOC malloc" else "#include \"gc.h\""
+    , "#include \"mem.h\""
     , "int main() {"
     ]
 
 postheader :: String
 postheader = unlines
-    [ "heap = alloc_arena(MAJ_SIZE,MIN_SIZE);"
-    , "goto start;"
+    [ "goto start;"
     ]
 
 footer :: String
@@ -120,12 +120,20 @@ moveStatic = partition (\case
     Table _ _ -> True
     _ -> False)
 
+data CConfig = CConfig {nogc :: Bool}
+
+parseArgs :: [String] -> CConfig
+parseArgs [] = CConfig False
+parseArgs ("--nogc":xs) = (parseArgs xs) {nogc = True}
+parseArgs (_:xs) = parseArgs xs
+
 cgen :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
 cgen cfg fs glue = do
+    let ccfg = parseArgs (flags cfg)
     let (a,b) = unzip $ fmap (\(p,ops) -> let (static,ins) = moveStatic ops in ((p,static),(p,ins))) (([],glue):fmap (\(p,Right ops)->(p,ops)) fs)
     let statics = concatMap (\(p,s)->concatMap (translate False p) s) a
     let ins = concatMap (\(p,o)->concatMap (translate False p) o) b
-    liftIO $ writeFile "c-build/main.c" (preheader ++ statics ++ postheader ++ ins ++ footer)
+    liftIO $ writeFile "c-build/main.c" (preheader (nogc ccfg) ++ statics ++ postheader ++ ins ++ footer)
     liftIO $ putStrLn "main is: c-build/main.c"
 
 cbackend :: Backend
