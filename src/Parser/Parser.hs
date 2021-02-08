@@ -207,7 +207,14 @@ mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f (Left x) = Left (f x)
 mapLeft _ (Right x) = Right x
 
+isComment :: ExprS -> Bool
+isComment (SCmnt _ _) = True
+isComment _ = False
+
+filterComments :: [ExprS] -> [ExprS]
+filterComments = filter (not . isComment)
+
 parse :: ModulePath -> Stream -> Either [String] ParseResult
 parse p s = do
-    sexpr <- mapLeft ((:[]) . show) (Parsec.parse rpncc (intercalate "." p) s)
+    sexpr <- filterComments <$> mapLeft ((:[]) . show) (Parsec.parse rpncc (intercalate "." p) s)
     mapLeft (fmap (render s)) (program sexpr) 

@@ -147,7 +147,7 @@ convertExp (App (Label k) args) = flip (foldr makeCls) args $ do
         extra <- fmap (fmap Var) . mapM renaming =<< freeVars k
         args' <- mapM arg args
         pure (App (Label k) (args' ++ extra))
-convertExp (App (Var u) args) = flip (foldr makeCls) args $ do
+convertExp (App (Var u) args) = flip (foldr makeCls) args $ extractPtr u $ do
     args' <- mapM arg args
     vp <- fnPtr u
     case vp of
@@ -163,8 +163,7 @@ convertExp (Fix fns e) = do
             n' <- fresh
             pure (n, n')) =<< freeVars i
         let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id extra
-        let extracts = foldr ((.) . extractPtr) id $ filter (calledIn e) (fmap fst extra ++ args)
-        e' <- renamings . extracts $ convertExp e
+        e' <- renamings (convertExp e)
         pure (Fun i (args ++ fmap (LocalIdentifier . snd) extra) e')) fns
     splits <- mapM (\(Fun i args _) -> splitFn i (length args) . length =<< freeVars i)
         =<< filterM (\(Fun i _ _) -> escapingFn i) fns

@@ -1,4 +1,4 @@
-module Test where
+module CPSMachine where
 
 import Modules.Glue
 import Types.Build
@@ -18,23 +18,17 @@ import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-compile :: Int -> Int -> Identifier -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,CExp)] -> Build ()
+compile :: Int -> Int -> Identifier -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,CExp)] -> Build [(ModulePath,CExp)]
 compile index num mainLabel ms ((p,Right (pr,s)):fs) done = do
     liftIO . putStrLn $ "\ncompiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
     (w,api,abi,ops,(ucc,t)) <- liftEither $ parsedToCPS p ms [] (mainFn p) s pr
-    -- liftIO $ prettyPrint ops (0::Int)
-    -- liftIO . forM_ (Map.toList (getCaptured ucc)) $ \(i,b) -> putStrLn (show i ++ ":" ++ concatMap ((' ':) . show) (Set.toList b))
-    -- liftIO . forM_ (Map.toList (getBound ucc)) $ \(i,b) -> putStrLn (show i ++ ":" ++ concatMap ((' ':) . show) (Set.toList b))
-    -- liftIO $ prettyPrint t (0::Int)
     liftIO $ mapM_ putStrLn w
     liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ n ++ " : " ++ show s)
     compile (index+1) num mainLabel (loadModule abi api ms) fs ((p,ops):done)
 compile _ _ mainLabel ms [] done = do
     g <- liftEither . mapLeft (fmap show) $ glueToCPS mainLabel ms
-    -- liftIO $ print g
     liftIO $ putStr "\n"
-    liftIO $ interpret mainLabel (([],g):done)
-    pure ()
+    pure (([],g):done)
 
 wordsWhen :: (Char -> Bool) -> String -> [String]
 wordsWhen p s = case dropWhile p s of
@@ -42,14 +36,23 @@ wordsWhen p s = case dropWhile p s of
     s' -> w : wordsWhen p s''
         where (w, s'') = break p s'
 
-build :: String -> [ModulePath] -> Build ()
+build :: String -> [ModulePath] -> Build [(ModulePath,CExp)]
 build root paths = do
     fs <- load root paths
     compile 1 (length paths) (LocalIdentifier "start") emptyServer fs []
 
-main :: String -> [String] -> IO ()
-main root args = do
-    x <- fmap toEither . runErrorsT $ build root (fmap (wordsWhen (=='.')) args)
+mainBuild :: String -> [[String]] -> [String] -> Build ()
+mainBuild root paths args = do
+    fs <- build root paths
+    if "--dump" `elem` args then
+        liftIO $ mapM_ (\(n,p) -> print n >> prettyPrint p (0::Int)) fs
+    else pure ()
+    liftIO $ interpret (LocalIdentifier "start") fs
+    pure ()
+
+main :: String -> [[String]] -> [String] -> IO ()
+main root paths args = do
+    x <- fmap toEither . runErrorsT $ mainBuild root paths args
     case x of
         Left e -> mapM_ putStrLn e
         Right _ -> putStr "\n"

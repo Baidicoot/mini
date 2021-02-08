@@ -56,7 +56,7 @@ executable mini
     Build.Load,
     Build.Compile,
     Build.Build,
-    Test,
+    CPSMachine,
     Backend.C,
     CPS.Interpreter,
     Backend.Interpreter

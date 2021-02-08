@@ -43,11 +43,12 @@ charLit = do
   char '\''
   pure c
 
-comment :: Parser ()
+comment :: Parser String
 comment = whiteSep $ do
   string "(."
-  manyTill anyChar (try (string ".)"))
-  pure ()
+  concat <$> manyTill
+    ((\x->"(. "++x++" .)") <$> try comment <|> (:[]) <$> anyChar)
+    (string ".)")
 
 literal :: Parser UnboxedLit
 literal

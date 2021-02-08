@@ -25,6 +25,18 @@
 
 (let
     (_ putint (fib 30))
+    (_ putchr (chr 10))
     (v delay 30 fib)
     (_ putint (force v))
-    (_ putint (force v)))
+    (_ putchr (chr 10))
+    (_ putint (force v))
+    (_ putchr (chr 10)))
+
+(side_effecting_operation x let (_ putint x) (_ putchr (chr 10)) (* x 2))
+
+(let
+    (v delay 20 side_effecting_operation)
+    (_ putint (force v))
+    (_ putchr (chr 10))
+    (_ putint (force v))
+    (_ putchr (chr 10)))

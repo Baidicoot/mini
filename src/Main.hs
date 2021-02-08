@@ -12,7 +12,7 @@ import System.Environment
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath
 
-import qualified Test as T
+import qualified CPSMachine as M
 
 partitionM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
 partitionM f [] = pure ([], [])
@@ -56,17 +56,15 @@ main = do
     --print paths
     let paths = parsePaths args
     case mode of
-        "cps" -> T.main root args
-        _ -> do
-            case mode of
-                "c" -> do
-                    r <- runErrorsT $ build (BuildConfig root cbackend "c" args) paths
-                    case toEither r of
-                        Left e -> mapM_ putStrLn e
-                        Right _ -> putStr "\n"
-                "abst" -> do
-                    r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" args) paths
-                    case toEither r of
-                        Left e -> mapM_ putStrLn e
-                        Right _ -> putStr "\n"
-                _ -> putStrLn "please specify a mode-of-operation"
+        "cps" -> M.main root paths args
+        "c" -> do
+            r <- runErrorsT $ build (BuildConfig root cbackend "c" args) paths
+            case toEither r of
+                Left e -> mapM_ putStrLn e
+                Right _ -> putStr "\n"
+        "abst" -> do
+            r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" args) paths
+            case toEither r of
+                Left e -> mapM_ putStrLn e
+                Right _ -> putStr "\n"
+        _ -> putStrLn "please specify a mode-of-operation"

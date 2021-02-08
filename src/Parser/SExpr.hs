@@ -19,14 +19,15 @@ sourcePos = statePos `liftM` getParserState
 
 sexpr :: Parser a -> Parser (SExpr a)
 sexpr n
-    =   try (comment >> sexpr n)
-    <|> sexp
+    =   try cmnt
     <|> rcrd
+    <|> sexp
     <|> node
     where
         node = liftA2 SNode sourcePos (whiteSep n)
         sexp = liftA2 SExpr sourcePos (whiteSep . parens . many . sexpr $ n)
         rcrd = liftA2 SRcrd sourcePos (whiteSep . record . many . sexpr $ n)
+        cmnt = liftA2 SCmnt sourcePos (whiteSep comment)
 
 rpncc :: Parser [ExprS]
 rpncc = many (sexpr rpnccTok)
