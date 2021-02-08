@@ -1,0 +1,12 @@
+(ind Bool
+    (tt :: Bool)
+    (ff :: Bool))
+
+(putbool x match x
+    (tt -> let (_ putchr 't') (_ putchr 't') (_ putchr (chr 10)) {})
+    (ff -> let (_ putchr 'f') (_ putchr 'f') (_ putchr (chr 10)) {}))
+
+(let (test newref tt)
+    (_ putbool (getref test))
+    (_ setref test ff)
+    (_ putbool (getref test)))

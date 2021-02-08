@@ -9,11 +9,13 @@ data UnboxedLit
 data LitType
     = IntTy
     | CharTy
+    | RefTy
     deriving(Eq, Ord)
 
 instance Show LitType where
     show IntTy = "Int"
     show CharTy = "Char"
+    show RefTy = "Ref"
 
 data Primop
     = AAdd
@@ -28,6 +30,9 @@ data Primop
     | CmpChar
     | EqInt
     | EqChar
+    | SetRef
+    | NewRef
+    | GetRef
     deriving(Eq, Ord)
 
 data Value
@@ -41,22 +46,22 @@ instance Show Value where
     show (Label id) = '<':show id++">"
     show (Lit u) = show u
 
-arithOp :: Primop -> Bool
-arithOp AAdd = True
-arithOp ASub = True
-arithOp ADiv = True
-arithOp AMul = True
-arithOp _ = False
-
 effectOp :: Primop -> Bool
 effectOp PutChr = True
 effectOp PutInt = True
+effectOp SetRef = True
 effectOp _ = False
 
-coerceOp :: Primop -> Bool
-coerceOp IntToChar = True
-coerceOp CharToInt = True
-coerceOp _ = False
+dataOp :: Primop -> Bool
+dataOp IntToChar = True
+dataOp CharToInt = True
+dataOp AAdd = True
+dataOp ASub = True
+dataOp ADiv = True
+dataOp AMul = True
+dataOp NewRef = True
+dataOp GetRef = True
+dataOp _ = False
 
 switchOp :: Primop -> Bool
 switchOp CmpInt = True
@@ -85,10 +90,9 @@ arityOp CmpInt = 5
 arityOp CmpChar = 5
 arityOp EqInt = 4
 arityOp EqChar = 4
-
-litPrimTy :: UnboxedLit -> LitType
-litPrimTy (Int _) = IntTy
-litPrimTy (Char _) = CharTy
+arityOp SetRef = 2
+arityOp NewRef = 1
+arityOp GetRef = 1
 
 cmpOp :: LitType -> Primop
 cmpOp IntTy = CmpInt
@@ -111,6 +115,9 @@ instance Show Primop where
     show CmpChar = "#cmpchr"
     show EqInt = "#eqint"
     show EqChar = "#eqchr"
+    show SetRef = "#setref"
+    show NewRef = "#newref"
+    show GetRef = "#getref"
 
 instance Show UnboxedLit where
     show (Int i) = '$':show i

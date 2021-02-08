@@ -58,6 +58,7 @@ literalTy :: Parser LitType
 literalTy
   =   reserved "Int"  $>  IntTy
   <|> reserved "Char" $>  CharTy
+  <|> reserved "Ref"  $>  RefTy
 
 keyword :: Parser String
 keyword
@@ -83,6 +84,9 @@ primop
   <|> try (reserved "eqchr")  $> EqChar
   <|> try (reserved "ord")    $> CharToInt
   <|> try (reserved "chr")    $> IntToChar
+  <|> try (reserved "setref") $> SetRef
+  <|> try (reserved "newref") $> NewRef
+  <|> try (reserved "getref") $> GetRef
 
 ident :: Parser Identifier
 ident = do

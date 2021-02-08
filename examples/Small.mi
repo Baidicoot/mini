@@ -6,5 +6,6 @@
     (cons xe xs -> cons xe (concat xs y))
     (nil -> y))
 
-(let (xs concat (cons 'a' nil) (cons 'b' nil))
-    (putstr xs))
+(let
+    (xs concat (cons 'a' nil) (cons 'b' nil))
+    (_ putstr xs))

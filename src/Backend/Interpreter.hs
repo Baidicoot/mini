@@ -135,15 +135,15 @@ execGlobal g@(m,_) = do
         Nothing -> fatal $ "function " ++ show g ++ " not found"
 
 interpretOps :: [Operator] -> Interpreter ()
-interpretOps (ArithOp p r o1 o2:k) = do
+interpretOps (DataOp p r [o1,o2]:k) = do
     a' <- convOper o1
     b' <- convOper o2
     case (a',b') of
         (CLit (Int a),CLit (Int b)) -> withReg r (CLit . Int $ getArithOp p a b) (interpretOps k)
-interpretOps (EffectOp p o:k) = do
+interpretOps (EffectOp p [o]:k) = do
     getIOOp p =<< convOper o
     interpretOps k
-interpretOps (CoerceOp p r o:k) = do
+interpretOps (DataOp p r [o]:k) = do
     v <- getCoerceOp p =<< convOper o
     withReg r v (interpretOps k)
 interpretOps (SwitchOp CmpInt r [a,b] [eq,gt,lt]:k) = do

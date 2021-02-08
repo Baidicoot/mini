@@ -84,10 +84,11 @@ translate d p (Error s) = "printf(" ++ show (s++"\n") ++ ");\nreturn 1;\n"
 translate d p (Move r op) = showOp True p (Reg r) ++ " = " ++ showOp True p op ++ ";\n"
 translate d _ (Exports _) = ""
 translate d _ (Imports _) = ""
-translate d p (EffectOp PutChr o) = "putchar(UNTAG(" ++ showOp True p o ++ "));\n"
-translate d p (EffectOp PutInt o) = "printf(\"%li\",UNTAG(" ++ showOp True p o ++ "));\n"
-translate d p (CoerceOp IntToChar r o) = showOp True p (Reg r) ++ " = (char)" ++ showOp True p o ++ ";\n"
-translate d p (CoerceOp CharToInt r o) = showOp True p (Reg r) ++ " = (uintptr_t)" ++ showOp True p o ++ ";\n"
+translate d p (EffectOp PutChr [o]) = "putchar(UNTAG(" ++ showOp True p o ++ "));\n"
+translate d p (EffectOp PutInt [o]) = "printf(\"%li\",UNTAG(" ++ showOp True p o ++ "));\n"
+translate d p (EffectOp SetRef [r,v]) = "*((uintptr_t*)" ++ showOp True p r ++ ") = " ++ showOp True p v ++ ";\n"
+translate d p (DataOp IntToChar r [o]) = showOp True p (Reg r) ++ " = (char)" ++ showOp True p o ++ ";\n"
+translate d p (DataOp CharToInt r [o]) = showOp True p (Reg r) ++ " = (uintptr_t)" ++ showOp True p o ++ ";\n"
 translate d p (SwitchOp op r [o1,o2] [eq,gt,lt]) | op == CmpInt || op == CmpChar =
     showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
     ++ showOp True p eq ++ " : (" ++
@@ -96,7 +97,12 @@ translate d p (SwitchOp op r [o1,o2] [eq,gt,lt]) | op == CmpInt || op == CmpChar
 translate d p (SwitchOp op r [o1,o2] [eq,ne]) | op == EqInt || op == EqChar =
     showOp True p (Reg r) ++ " = " ++ showOp True p o1 ++ " == " ++ showOp True p o2 ++ " ? "
     ++ showOp True p eq ++ " : " ++ showOp True p ne ++ ";\n"
-translate d p (ArithOp op r o1 o2) =
+translate d p (DataOp NewRef r [o]) =
+    showOp True p (Reg r) ++ " = (uintptr_t)GC_MALLOC(sizeof(uintptr_t));\n"
+    ++ "*((uintptr_t*)" ++ showOp True p (Reg r) ++ ") = " ++ showOp True p o ++ ";\n"
+translate d p (DataOp GetRef r [o]) =
+    showOp True p (Reg r) ++ " = *((uintptr_t*)" ++ showOp True p o ++ ");\n"
+translate d p (DataOp op r [o1,o2]) =
     showOp True p (Reg r) ++ " = " ++ showArith op ("(uintptr_t)" ++ showOp True p o1) ("(uintptr_t)" ++ showOp True p o2) ++ ";\n"
 translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"
 

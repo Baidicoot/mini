@@ -30,8 +30,12 @@ charty = Node NoTag (Builtin CharTy)
 unitty :: Type
 unitty = Node NoTag (Product [])
 
-litTy :: UnboxedLit -> Type
-litTy = Node NoTag . Builtin . litPrimTy
+litTy :: UnboxedLit -> Scheme
+litTy (Int _) = unqualified intty
+litTy (Char _) = unqualified charty
+
+refty :: Type -> Type
+refty = App NoTag (Node NoTag (Builtin RefTy))
 
 opTy :: Primop -> Type
 opTy AAdd = intty --> intty --> intty
@@ -46,6 +50,9 @@ opTy CmpInt = intty --> intty --> tv "a" --> tv "a" --> tv "a" --> tv "a"
 opTy CmpChar = charty --> charty --> tv "a" --> tv "a" --> tv "a" --> tv "a"
 opTy EqInt = intty --> intty --> tv "a" --> tv "a" --> tv "a"
 opTy EqChar = charty --> charty --> tv "a" --> tv "a" --> tv "a"
+opTy SetRef = refty (tv "a") --> tv "a" --> unitty
+opTy NewRef = tv "a" --> refty (tv "a")
+opTy GetRef = refty (tv "a") --> tv "a"
 
 type SourceType = SourceGraph (TypeNode SourcePos)
 

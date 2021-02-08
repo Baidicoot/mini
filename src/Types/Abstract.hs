@@ -56,9 +56,8 @@ data Operator
     | Imports Label
     | Table Label [Operand]
     -- end of pseudoops
-    | ArithOp Primop Register Operand Operand
-    | EffectOp Primop Operand
-    | CoerceOp Primop Register Operand
+    | EffectOp Primop [Operand]
+    | DataOp Primop Register [Operand]
     | SwitchOp Primop Register [Operand] [Operand]
     | CheckLim Int
     | Jmp Operand
@@ -77,10 +76,9 @@ instance Show Operator where
     show (CheckLim i) = "check " ++ show i
     show (Jmp o) = "jmp " ++ show o
     show (Record p r) = "record " ++ concatMap (\(o,p) -> show o ++ show p ++ ", ") p ++ show r
-    show (ArithOp p r o1 o2) = show r ++ " <- " ++ show o1 ++ show p ++ show o2
-    show (EffectOp p o) = show p ++ " " ++ show o
+    show (EffectOp p o) = show p ++ " " ++ concatMap ((++",") . show) o
     show (SwitchOp p r c s) = show r ++ " <- " ++ show p ++ "{" ++ concatMap ((++",") . show) c ++ "}{" ++ concatMap ((++",") . show) s ++ "}"
-    show (CoerceOp p r o) = "coerce " ++ show p ++ ", " ++ show r ++ ", " ++ show o
+    show (DataOp p r o) = "data " ++ show r ++ " <- " ++ show p ++ " " ++ concatMap ((++",") . show) o
     show (Select i o r) = "select " ++ show i ++ ", " ++ show o ++ ", " ++ show r
     show (Fetch r o0 o1) = "fetch " ++ show r ++ ", " ++ show o0 ++ ", " ++ show o1
     show (Move a b) = "move " ++ show a ++ ", " ++ show b

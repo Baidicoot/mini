@@ -99,25 +99,18 @@ record ps n exp = do
     generate exp
 
 primop :: Primop -> [Value] -> Identifier -> [CExp] -> AbstGen ()
-primop op vs@[o1,o2] n [exp] | arithOp op = do
-    o1 <- getOp o1
-    o2 <- getOp o2
+primop op vs n [exp] | effectOp op = do
+    os <- mapM getOp vs
     a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
     assoc n a
-    emit (ArithOp op (GPR a) o1 o2)
-    generate exp
-primop op vs@[o] n [exp] | effectOp op = do
-    o <- getOp o
-    a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
-    assoc n a
-    emit (EffectOp op o)
+    emit (EffectOp op os)
     emit (Move (GPR a) (ImmLit (Int 0)))
     generate exp
-primop op vs@[o] n [exp] | coerceOp op = do
-    o <- getOp o
+primop op vs n [exp] | dataOp op = do
+    os <- mapM getOp vs
     a <- getReg (CPS.fv exp `mappend` Set.fromList (CPS.extractIdents vs))
     assoc n a
-    emit (CoerceOp op (GPR a) o)
+    emit (DataOp op (GPR a) os)
     generate exp
 primop op vs _ exps | switchOp op = do
     vs' <- mapM getOp vs

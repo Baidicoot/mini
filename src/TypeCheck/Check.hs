@@ -238,7 +238,10 @@ instance Inferable (Core SourcePos) (Core Type) where
         t <- instantiate s
         pure (Node t . Val $ Var i, t)
     -- LIT
-    infer m (Node p (Val (Lit l))) = pure (Node (litTy l) . Val $ Lit l, litTy l)
+    infer m (Node p (Val (Lit l))) = do
+        let s = litTy l
+        t <- instantiate s
+        pure (Node t . Val $ Lit l, t)
     -- ERROR
     infer m (Node p (Error s)) = do
         t <- freshTV
@@ -321,7 +324,8 @@ instance Inferable (Core SourcePos) (Core Type) where
                 pure (ConsPattern c v,tt',t')
             -- PLIT-INFER
             (LiteralPattern l,s,t) -> do
-                unify s (litTy l) tp
+                lt <- instantiate (litTy l)
+                unify s lt tp
                 (t',tt') <- infer m t
                 unify s tt tt'
                 pure (LiteralPattern l,tt',t')
@@ -410,6 +414,7 @@ pcon _ m tp st (WildcardPattern,s,t) = do
     pure (WildcardPattern,tp,t')
 -- PLIT
 pcon _ m tp st (LiteralPattern l,s,t) = do
-    matches s (litTy l) (unqualified tp)
+    lt <- instantiate (litTy l)
+    matches s lt (unqualified tp)
     t' <- check m t st
-    pure (LiteralPattern l,litTy l,t')
+    pure (LiteralPattern l,lt,t')

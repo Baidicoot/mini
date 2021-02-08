@@ -149,7 +149,7 @@ interpretExp (Switch v cs) = do
     case v' of
         (CLit (Int i) _) -> interpretExp (cs !! i)
         _ -> fatal $ "tried to switch on " ++ show v'
-interpretExp (Primop p [a,b] n [c]) | arithOp p = do
+interpretExp (Primop p [a,b] n [c]) | dataOp p = do
     a' <- convVal a
     b' <- convVal b
     case (a',b') of
@@ -160,7 +160,7 @@ interpretExp (Primop p [v] n [c]) | effectOp p = do
     getIOOp p v'
     n' <- getGlobal n
     withVars [(n,CLit (Int 0) [n'])] (interpretExp c)
-interpretExp (Primop p [v] n [c]) | coerceOp p = do
+interpretExp (Primop p [v] n [c]) | dataOp p = do
     v' <- getCoerceOp p =<< convVal v
     withVars [(n,v')] (interpretExp c)
 interpretExp (Primop CmpInt [a,b] _ [c,d,e]) = do
