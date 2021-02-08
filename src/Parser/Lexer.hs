@@ -111,7 +111,7 @@ record p = do
 
 rpnccTok :: Parser SyntaxNode
 rpnccTok
-  = SynLit              <$> try literal
+  = SynLit                <$> try literal
   <|> LitTy               <$> try literalTy
   <|> Keyword             <$> try keyword
   <|> try (reserved "->")  $> Arr

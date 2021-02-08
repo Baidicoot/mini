@@ -1,0 +1,30 @@
+(ind Either
+    (left :: a -> Either a b)
+    (right :: b -> Either a b))
+
+(ind Thunk
+    (mkThunk :: a -> (a -> b) -> Thunk b))
+
+(ind Lazy
+    (memoThunk :: (Ref (Either (Thunk a) a)) -> Lazy a))
+
+(force x match x
+    (memoThunk r -> match (getref r)
+        (left (mkThunk x f) -> let
+            (v f x)
+            (_ setref r (right v))
+            v)
+        (right t -> t)))
+
+(delay (x f) memoThunk (newref (left (mkThunk x f))))
+
+(fib x match x
+    (0 -> 1)
+    (1 -> 1)
+    (_ -> + (fib (- x 1)) (fib (- x 2))))
+
+(let
+    (_ putint (fib 30))
+    (v delay 30 fib)
+    (_ putint (force v))
+    (_ putint (force v)))

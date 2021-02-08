@@ -34,12 +34,12 @@ minR _ _ = W
 
 data UnifyAction
     = UnifyAct Type Type
-    | MatchAct Type Scheme
+    | MatchAct Type Type
     deriving(Eq)
 
 instance Show UnifyAction where
     show (UnifyAct t1 t2) = "unifying '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
-    show (MatchAct t1 s2) = "matching '" ++ show t1 ++ "' with '" ++ show s2 ++ "'"
+    show (MatchAct t1 t2) = "matching '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
 
 data TypeError
     = UnifyError SourcePos UnifyError UnifyAction
@@ -66,7 +66,11 @@ instance RenderableError TypeError where
     errCont (SelectErr _ t i) = ["cannot extract the " ++ show i ++ "th element from " ++ show t]
     errCont (Debug _ s) = [s]
 
-newtype Gamma = Gamma (Map.Map Identifier Scheme, Map.Map Identifier Rigidity, Map.Map Identifier Scheme, Set.Set Name)
+newtype Gamma = Gamma
+    ( Map.Map Identifier Scheme
+    , Map.Map Identifier Rigidity
+    , Map.Map Identifier Scheme
+    , Set.Set Name)
 
 instance Substitutable Gamma where
     apply s (Gamma (a, b, c, d)) = Gamma (apply s a, b, c, d)
@@ -101,10 +105,11 @@ getSubst = gets snd
 extSubst :: Subst -> Checker ()
 extSubst s' = modify (second (s' @@))
 
-matches :: SourcePos -> Type -> Scheme -> Checker ()
+matches :: SourcePos -> Type -> Type -> Checker ()
 matches t a b = do
+    (Gamma (_,_,_,r)) <- ask
     s  <- getSubst
-    s' <- liftUE t (MatchAct (apply s a) (apply s b)) mempty (match (apply s a) (apply s b))
+    s' <- liftUE t (MatchAct (apply s a) (apply s b)) mempty (match r (apply s a) (apply s b))
     extSubst s'
 
 unify :: SourcePos -> Type -> Type -> Checker ()
@@ -190,7 +195,7 @@ withRigidity rs = local (\(Gamma (a,b,c,d)) -> Gamma (a,Map.fromList rs `mappend
 withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker a -> Checker a
 withEnv rts = withRigidity (fmap (\(a,b,c)->(a,b)) rts) . withTypes (fmap (\(a,b,c)->(a,c)) rts)
 
-splitArr :: SourcePos -> Scheme -> Checker (Type, Type)
+splitArr :: SourcePos -> Type -> Checker (Type, Type)
 splitArr p t = do
     t1 <- freshTV
     t2 <- freshTV
@@ -201,7 +206,7 @@ splitArr p t = do
 
 class Inferable t w | t -> w where
     -- bidirectional typechecking augmented with inferred substitutions
-    check :: Rigidity -> t -> Scheme -> Checker w
+    check :: Rigidity -> t -> Type -> Checker w
     infer :: Rigidity -> t -> Checker (w, Type)
     rigid :: t -> Checker Rigidity
 
@@ -216,11 +221,11 @@ infFixDefs fs = do
             t <- freshTV
             pure (i,m,unqualified t,x,False)
     withEnv (fmap (\(a,b,c,_,_)->(a,b,c)) fenv) . forM fenv $ \case
-        (i,_,sc,x,True) -> do
-            x' <- check R x sc
+        (i,_,sc@(Forall q t),x,True) -> do
+            x' <- withFV q $ check R x t
             pure (i,R,sc,x')
         (i,m,Forall _ t,x,False) -> do
-            x' <- check m x (unqualified t)
+            x' <- check m x t
             sc <- generalize t
             pure (i,m,sc,x')
 
@@ -249,8 +254,8 @@ instance Inferable (Core SourcePos) (Core Type) where
     -- APP
     infer m (App p f x) = do
         (f',ft) <- infer W f
-        (t1,t2) <- splitArr p (unqualified ft)
-        x'      <- check W x (unqualified t1)
+        (t1,t2) <- splitArr p ft
+        x'      <- check W x t1
         pure (App t2 f' x', t2)
     -- ABS-INFER
     infer m (Node p (Lam x t)) = do
@@ -259,27 +264,27 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node (t1 --> t2) (Lam x t'), t1 --> t2)
     -- ANN
     infer m (Node p (Annot x t)) = do
-        sigma <- generalize t
-        x'    <- withFV (qualified sigma) (check R x sigma)
-        tau   <- instantiate sigma
+        (Forall q t)    <- generalize t
+        x'              <- withFV q (check R x t)
+        tau             <- instantiate (Forall q t)
         pure (x', tau)
     -- PRIM
     infer m (Node p (Prim op vs)) = do
         ty <- instantiate =<< generalize (opTy op)
-        let t1 = fmap unqualified (argTys ty)
+        let t1 = argTys ty
         let t2 = resTy ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: Core SourcePos -> Type -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Prim op vs), t2)
     -- CONS
     infer m (Node p (Cons i vs)) = do
         ty <- instantiate =<< lookupCons i p
-        let t1 = fmap unqualified (argTys ty)
+        let t1 = argTys ty
         let t2 = resTy ty
         immedMatch p vs t1
         let vs' = fmap (Node p . Val) vs
-        mapM_ (uncurry (check m :: Core SourcePos -> Scheme -> Checker (Core Type))) (zip vs' t1)
+        mapM_ (uncurry (check m :: Core SourcePos -> Type -> Checker (Core Type))) (zip vs' t1)
         pure (Node t2 (Cons i vs), t2)
     -- TUPLE
     infer m (Node p (Tuple vs)) = do
@@ -337,27 +342,27 @@ instance Inferable (Core SourcePos) (Core Type) where
         pure (Node tt (Match (Just tp,p) n cs'), tt)
 
     -- ABS-CHECK
-    check m (Node p (Lam x t)) s@(Forall a _) = do
+    check m (Node p (Lam x t)) s = do
         (t1,t2) <- splitArr p s
-        t' <- withEnv [(x,m,Forall mempty t1)] (check m t (Forall a t2))
+        t' <- withEnv [(x,m,Forall mempty t1)] (check m t t2)
         pure (Node (t1 --> t2) (Lam x t'))
     -- LET-CHECK
-    check m (Node p (Let x u t)) (Forall a t2) = do
+    check m (Node p (Let x u t)) t2 = do
         (x',m1,s1,u') <- infLetDef x u
-        t' <- withEnv [(x',m1,s1)] (check m t (Forall a t2))
+        t' <- withEnv [(x',m1,s1)] (check m t t2)
         pure (Node t2 (Let x u' t'))
     -- FIX-CHECK
-    check m (Node p (Fix fs t)) (Forall a t1) = do
+    check m (Node p (Fix fs t)) t1 = do
         imtxs <- infFixDefs fs
         let tenv = fmap (\(a,b,c,d)->(a,b,c)) imtxs
         let fs' = fmap (\(a,b,c,d)->(a,d)) imtxs
-        t' <- withEnv tenv (check m t (Forall a t1))
+        t' <- withEnv tenv (check m t t1)
         pure (Node t1 (Fix fs' t'))
     -- MATCH-CHECK
-    check m (Node p (Match _ n cs)) (Forall a ts) = do
+    check m (Node p (Match _ n cs)) ts = do
         m1 <- lookupRigidity n
         tp <- instantiate =<< lookupLocal n p
-        cs' <- mapM (pcon m1 m tp (Forall a ts)) cs
+        cs' <- mapM (pcon m1 m tp ts) cs
         pure (Node ts (Match (Just tp,p) n cs'))
     -- CHECK-INFER
     check m t t1 = do
@@ -384,7 +389,7 @@ instance Inferable (Core SourcePos) (Core Type) where
     rigid t = pure W
 
 -- need to check matching of types: seems to match expression type to pattern type
-pcon :: Rigidity -> Rigidity -> Type -> Scheme
+pcon :: Rigidity -> Rigidity -> Type -> Type
     -> (PatternBinding, SourcePos, Core SourcePos)
     -> Checker (PatternBinding, Type, Core Type)
 -- PCON-W
@@ -392,21 +397,23 @@ pcon W m tp st (ConsPattern c v,s,t) = do
     p <- instantiate =<< lookupCons c s
     let pargs = argTys p
     let pres = resTy p
+    let locally = ftv p `Set.difference` ftv pres
     immedMatch s pargs v
-    matches s pres (unqualified tp)
+    matches s pres tp
     let env = (\(v,t)->(LocalIdentifier v,W,unqualified t)) <$> zip v pargs
-    t' <- withEnv env (check m t st)
+    t' <- withFV locally $ withEnv env (check m t st)
     pure (ConsPattern c v,pres,t')
 -- PCON-R
-pcon R m tp (Forall _ st) (ConsPattern c v,s,t) = do
+pcon R m tp st (ConsPattern c v,s,t) = do
     p <- instantiate =<< lookupCons c s
     let pargs = argTys p
     let pres = resTy p
+    let locally = ftv p `Set.difference` ftv pres
     immedMatch s pargs v
     theta <- unifier s pres tp
     let env = (\(v,t)->(LocalIdentifier v,R,unqualified (apply theta t))) <$> zip v pargs
-    st <- generalize (apply theta st)
-    t' <- withEnv env (check m t st)
+    let st' = apply theta st
+    t' <- withFV locally $ withEnv env (check m t st')
     pure (ConsPattern c v,pres,t')
 -- PWILD
 pcon _ m tp st (WildcardPattern,s,t) = do
@@ -415,6 +422,6 @@ pcon _ m tp st (WildcardPattern,s,t) = do
 -- PLIT
 pcon _ m tp st (LiteralPattern l,s,t) = do
     lt <- instantiate (litTy l)
-    matches s lt (unqualified tp)
+    matches s lt tp
     t' <- check m t st
     pure (LiteralPattern l,lt,t')

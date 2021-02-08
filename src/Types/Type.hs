@@ -145,7 +145,7 @@ instance Substitutable NoTag where
 
 data UnifyError
     = OccursUE Name Type
-    | MatchUE Type Scheme
+    | MatchUE (Set.Set Name) Type Type
     | UnifyUE Type Type
     | RigidUE Name Type
     | ProdUE [Type] [Type]
@@ -153,7 +153,7 @@ data UnifyError
 
 instance Show UnifyError where
     show (OccursUE n t) = "the metavariable '" ++ n ++ "' occurs in '" ++ show t ++ "'"
-    show (MatchUE t s) = "could not match '" ++ show t ++ "' with '" ++ show s ++ "'"
+    show (MatchUE _ t1 t2) = "could not match '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
     show (UnifyUE t1 t2) = "could not unify '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
     show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ n ++ "'"
     show (ProdUE as bs) = "could not match the variables " ++ show as ++ "with the variables " ++ show bs
@@ -194,26 +194,26 @@ mgu a b = Left (UnifyUE a b)
 matchMany :: Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
 matchMany q _ [] = Right mempty
 matchMany q (a:as) (b:bs) = do
-    s1 <- match a (Forall q b)
+    s1 <- match q a b
     s2 <- matchMany q (fmap (apply s1) as) (fmap (apply s1) bs)
     Right (s1 @@ s2)
 matchMany q as bs = Left (ProdUE as bs)
 
-match :: Type -> Scheme -> Either UnifyError Subst
-match (App _ w x) (Forall a (App _ y z)) = do
-    s1 <- match w (Forall a y)
-    s2 <- match (apply s1 x) (Forall a $ apply s1 z)
+match :: Set.Set Name -> Type -> Type -> Either UnifyError Subst
+match q (App _ w x) (App _ y z) = do
+    s1 <- match q w y
+    s2 <- match q (apply s1 x) (apply s1 z)
     Right (s1 @@ s2)
-match (Node _ (Product as)) (Forall a (Node _ (Product bs))) = matchMany a as bs
-match x (Forall a y)
+match q (Node _ (Product as)) (Node _ (Product bs)) = matchMany q as bs
+match q x y
     | x == y = Right mempty
-match (Node _ (TypeVar u)) (Forall a t)
-    | not (u `Set.member` a) = varBind u t
+match q (Node _ (TypeVar u)) t
+    | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match t (Forall a (Node _ (TypeVar u)))
-    | not (u `Set.member` a) = varBind u t
+match q t (Node _ (TypeVar u))
+    | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match a b = Left (MatchUE a b)
+match q a b = Left (MatchUE q a b)
 
 constructor :: Type -> Maybe Identifier
 constructor (App _ a _) = constructor a
