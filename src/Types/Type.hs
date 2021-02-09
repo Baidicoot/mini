@@ -158,6 +158,33 @@ instance Show UnifyError where
     show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ n ++ "'"
     show (ProdUE as bs) = "could not match the variables " ++ show as ++ "with the variables " ++ show bs
 
+data Eqtn = Eqtn Type Type
+
+instance Show Eqtn where
+    show (Eqtn i o) = "(eqtn (" ++ show i ++ ") " ++ show o ++ ")"
+
+appEqtn :: Eqtn -> Set.Set Name -> Type -> Maybe (Type,Subst)
+appEqtn (Eqtn i o) q t = case match' [] q i t of
+    Right s -> Just (apply s o,Map.filterWithKey (\k _ -> k `Set.member` ftv t) s)
+    Left _ -> Nothing
+
+match :: [Eqtn] -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
+match e q a b = case match' e q a b of
+    Right s -> Right s
+    Left er -> searchReductions er e e
+    where
+        searchReductions er (eq:ea) eb = case appEqtn eq q a of
+            Just (a',s1) -> case match e q a' (apply s1 b) of
+                Left _ -> searchReductions er ea eb
+                Right s2 -> Right (s1 @@ s2)
+            Nothing -> searchReductions er ea eb
+        searchReductions er ea (eq:eb) = case appEqtn eq q b of
+            Just (b',s1) -> case match e q (apply s1 a) b' of
+                Left _ -> searchReductions er ea eb
+                Right s2 -> Right (s1 @@ s2)
+            Nothing -> searchReductions er ea eb
+        searchReductions er [] [] = Left er
+
 infixr 4 @@
 (@@) :: Subst -> Subst -> Subst
 a @@ b = Map.fromList [(u, apply a t) | (u, t) <- Map.toList b] `mappend` a
@@ -171,49 +198,36 @@ varBind u t
     | u `Set.member` ftv t = Left (OccursUE u t)
     | otherwise = Right (u `mapsTo` t)
 
-mguMany :: [Type] -> [Type] -> Either UnifyError Subst
-mguMany [] [] = Right mempty
-mguMany (a:as) (b:bs) = do
-    s1 <- mgu a b
-    s2 <- mguMany (fmap (apply s1) as) (fmap (apply s1) bs)
-    Right (s1 @@ s2)
-mguMany as bs = Left (ProdUE as bs)
+mgu :: [Eqtn] -> Type -> Type -> Either UnifyError Subst
+mgu eq = match eq Set.empty
 
-mgu :: Type -> Type -> Either UnifyError Subst
-mgu (App _ a b) (App _ c d) = do
-    s1 <- mgu a c
-    s2 <- mgu (apply s1 b) (apply s1 d)
+matchMany :: [Eqtn] -> Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
+matchMany e q _ [] = Right mempty
+matchMany e q (a:as) (b:bs) = do
+    s1 <- match e q a b
+    s2 <- matchMany e q (fmap (apply s1) as) (fmap (apply s1) bs)
     Right (s1 @@ s2)
-mgu (Node _ (Product as)) (Node _ (Product bs)) = mguMany as bs
-mgu (Node _ (TypeVar u)) t = varBind u t
-mgu t (Node _ (TypeVar u)) = varBind u t
-mgu a b
-    | a == b = Right mempty
-mgu a b = Left (UnifyUE a b)
+matchMany e q as bs = Left (ProdUE as bs)
 
-matchMany :: Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
-matchMany q _ [] = Right mempty
-matchMany q (a:as) (b:bs) = do
-    s1 <- match q a b
-    s2 <- matchMany q (fmap (apply s1) as) (fmap (apply s1) bs)
+match' :: [Eqtn] -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
+match' e q (App _ w x) (App _ y z) = do
+    s1 <- match e q w y
+    s2 <- match e q (apply s1 x) (apply s1 z)
     Right (s1 @@ s2)
-matchMany q as bs = Left (ProdUE as bs)
-
-match :: Set.Set Name -> Type -> Type -> Either UnifyError Subst
-match q (App _ w x) (App _ y z) = do
-    s1 <- match q w y
-    s2 <- match q (apply s1 x) (apply s1 z)
-    Right (s1 @@ s2)
-match q (Node _ (Product as)) (Node _ (Product bs)) = matchMany q as bs
-match q x y
+match' e q (Node _ (Product as)) (Node _ (Product bs)) = matchMany e q as bs
+match' e q x y
     | x == y = Right mempty
-match q (Node _ (TypeVar u)) t
+match' e q (Node _ (TypeVar m)) (Node _ (TypeVar n))
+    | not (m `Set.member` q) = varBind m (Node NoTag (TypeVar n))
+    | not (n `Set.member` q) = varBind n (Node NoTag (TypeVar m))
+    | otherwise = Left (RigidUE m (Node NoTag (TypeVar n)))
+match' e q (Node _ (TypeVar u)) t
     | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match q t (Node _ (TypeVar u))
+match' e q t (Node _ (TypeVar u))
     | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match q a b = Left (MatchUE q a b)
+match' e q a b = Left (MatchUE q a b)
 
 constructor :: Type -> Maybe Identifier
 constructor (App _ a _) = constructor a

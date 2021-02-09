@@ -29,15 +29,15 @@ import Types.Pretty
 parsedToCore :: ModulePath -> ModuleServer -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, Core Type, Int)
 parsedToCore p ser s0 s (imports,parsed) = do
     env <- mapLeft (fmap show) . toEither . runErrors $ doImports ser imports
-    (untyped,gadts,exports,s1,w0) <- mapLeft
+    (untyped,gadts,eqtns,exports,s1,w0) <- mapLeft
         (\(as, bs) -> fmap (render s) as ++ fmap (render s) bs)
         . toEither $ elaborate s0 ser env p parsed
-    let ser' = let (ModuleServer abis apis gadts') = ser in ModuleServer abis apis (gadts ++ gadts')
+    let ser' = let (ModuleServer abis apis gadts' eqtns') = ser in ModuleServer abis apis (gadts ++ gadts') (eqtns ++ eqtns')
     (typed, types, s2) <- mapLeft (fmap (render s)) . toEither $ typecheck s1 ser' untyped
     imports <- mapLeft (fmap show) (getAPIs ser imports)
     let (s3, defunc) = defunctorize (mainFn p) (fmap fst imports) s2 typed
     let exportSchemes = zip exports types
-    pure (fmap (render s) w0, constructAPI p exportSchemes gadts, defunc, s3)
+    pure (fmap (render s) w0, constructAPI p exportSchemes gadts eqtns, defunc, s3)
 
 coreToAbst :: [Identifier] -> [Identifier] -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], [(Identifier,[GPR])], Int)
 coreToAbst k m e r c0 s0 =

@@ -27,6 +27,7 @@ data ModuleAPI = ModuleAPI
     , moduleAPICons :: [(Name,Scheme)]
     , moduleAPITypes :: [(Name, Kind)]
     , moduleAPIGADTs :: [GADT]
+    , moduleAPIEqtns :: [Eqtn]
     } deriving(Show)
 
 data GADT = GADT
@@ -39,22 +40,23 @@ data ModuleServer = ModuleServer
     { abis :: [ModuleABI]
     , apis :: [ModuleAPI]
     , gadts :: [GADT]
+    , eqtns :: [Eqtn]
     } deriving(Show)
 
-constructAPI :: ModulePath -> [(Name, Scheme)] -> [GADT] -> ModuleAPI
-constructAPI p ns gs =
+constructAPI :: ModulePath -> [(Name, Scheme)] -> [GADT] -> [Eqtn] -> ModuleAPI
+constructAPI p ns gs eq =
     let gadtkinds = fmap (discardPath . gadtName &&& gadtKind) gs
         constypes = concatMap (fmap (first discardPath) . gadtCons) gs
-    in ModuleAPI p ns constypes gadtkinds gs
+    in ModuleAPI p ns constypes gadtkinds gs eq
 
 emptyServer :: ModuleServer
-emptyServer = ModuleServer mempty mempty mempty
+emptyServer = ModuleServer mempty mempty mempty mempty
 
 termTypes :: ModuleServer -> [(Identifier, Scheme)]
-termTypes (ModuleServer _ apis _) = concatMap (\(ModuleAPI p t c _ _) -> fmap (first (ExternalIdentifier p)) (t++c)) apis
+termTypes (ModuleServer _ apis _ _) = concatMap (\(ModuleAPI p t c _ _ _) -> fmap (first (ExternalIdentifier p)) (t++c)) apis
 
 typeKinds :: ModuleServer -> [(Identifier, Kind)]
-typeKinds (ModuleServer _ apis _) = concatMap (\(ModuleAPI p _ _ t _) -> fmap (first (ExternalIdentifier p)) t) apis
+typeKinds (ModuleServer _ apis _ _) = concatMap (\(ModuleAPI p _ _ t _ _) -> fmap (first (ExternalIdentifier p)) t) apis
 
 consTypes :: ModuleServer -> [(Identifier,Scheme)]
 consTypes = concatMap gadtCons . gadts
@@ -79,13 +81,13 @@ getAPI m i = internal i (apis m)
         internal i [] = Nothing
 
 loadModule :: ModuleABI -> ModuleAPI -> ModuleServer -> ModuleServer
-loadModule abi api@(ModuleAPI _ _ _ _ g) (ModuleServer abs aps as) = ModuleServer (abi:abs) (api:aps) (g ++ as)
+loadModule abi api@(ModuleAPI _ _ _ _ g e) (ModuleServer abs aps as eq) = ModuleServer (abi:abs) (api:aps) (g ++ as) (e ++ eq)
 
 loadAPI :: ModuleAPI -> ModuleServer -> ModuleServer
-loadAPI api@(ModuleAPI _ _ _ _ g) (ModuleServer abs aps as) = ModuleServer abs (api:aps) (g ++ as)
+loadAPI api@(ModuleAPI _ _ _ _ g e) (ModuleServer abs aps as eq) = ModuleServer abs (api:aps) (g ++ as) (e ++ eq)
 
 getSignature :: ModuleAPI -> Type
-getSignature (ModuleAPI _ t _ _ _) =
+getSignature (ModuleAPI _ t _ _ _ _) =
     let --a = mconcat $ fmap (\(_,Forall a _) -> a) ts
         sig = Node NoTag . Product $ fmap (\(_,Forall _ t) -> t) t
     in sig
@@ -148,7 +150,7 @@ checkRenames path p p' = case partition ((`elem` fmap fst p) . fst) p' of
     (err,_) -> throw $ fmap (\(a,b) -> let (Just c) = lookup a p in NameCollision path a (b,c)) err
 
 importWithAction :: ModuleAPI -> ImportAction -> Env -> Errors [ImportError] Env
-importWithAction (ModuleAPI p mtr mco mty _) (ImportAs p') (Env tr ty co) =
+importWithAction (ModuleAPI p mtr mco mty _ _) (ImportAs p') (Env tr ty co) =
     let rtr = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mtr]
         rty = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mty]
         rco = [(ExternalIdentifier p' n, ExternalIdentifier p n) | n <- fmap fst mco]
@@ -156,7 +158,7 @@ importWithAction (ModuleAPI p mtr mco mty _) (ImportAs p') (Env tr ty co) =
         ty' = checkRenames p ty rty
         co' = checkRenames p co rco
     in liftM3 Env tr' ty' co'
-importWithAction (ModuleAPI p mtr mco mty _) Include (Env tr ty co) =
+importWithAction (ModuleAPI p mtr mco mty _ _) Include (Env tr ty co) =
     let rtr = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mtr]
         rty = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mty]
         rco = [(LocalIdentifier n, ExternalIdentifier p n) | n <- fmap fst mco]

@@ -70,6 +70,7 @@ keyword
   <|> try (reserved "fix")
   <|> try (reserved "import-as")
   <|> try (reserved "include")
+  <|> try (reserved "eqtn")
 
 primop :: Parser Primop
 primop

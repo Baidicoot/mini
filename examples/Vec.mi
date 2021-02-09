@@ -11,7 +11,17 @@
 
 (. extract the components of a vector of length 3 .)
 
-((testfn :: (Vec (S (S (S Z))) a) -> {a a a})
+((extract3 :: (Vec (S (S (S Z))) a) -> {a a a})
     x
     match x
         (vcons a (vcons b (vcons c vempty)) -> {a b c}))
+
+(ind Add)
+(eqtn (Add (S a) b)
+    S (Add a b))
+(eqtn (Add Z b) b)
+
+((vconcat :: (Vec a t) -> (Vec b t) -> Vec (Add a b) t) (x y)
+    match x
+        (vcons x xs -> vcons x (vconcat xs y))
+        (vempty -> y))
