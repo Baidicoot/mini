@@ -1,26 +1,27 @@
+(. type-level programming example .)
+
 (. type-level nats .)
+(type (S :: Ty -> Ty))
+(type (Z :: Ty))
 
-(ind (S :: Ty -> Ty))
-(ind (Z :: Ty))
-
-(. list constrained by a length .)
-
+(. list parametized by a length .)
 (ind Vec
     (vempty :: Vec Z a)
     (vcons :: a -> (Vec n a) -> Vec (S n) a))
 
 (. extract the components of a vector of length 3 .)
-
 ((extract3 :: (Vec (S (S (S Z))) a) -> {a a a})
     x
     match x
         (vcons a (vcons b (vcons c vempty)) -> {a b c}))
 
-(ind Add)
+(. type-level addition .)
+(type (Add :: Ty -> Ty -> Ty))
 (eqtn (Add (S a) b)
     S (Add a b))
 (eqtn (Add Z b) b)
 
+(. typesafe vector concatination .)
 ((vconcat :: (Vec a t) -> (Vec b t) -> Vec (Add a b) t) (x y)
     match x
         (vcons x xs -> vcons x (vconcat xs y))

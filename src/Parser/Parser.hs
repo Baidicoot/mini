@@ -175,9 +175,10 @@ annotation s _ x = Left [Expecting ("annotated " ++ s) (display x) (getPos x)]
 
 toplevel :: Parser ExprS TopLevel
 toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data p <$> indexp p xs
+toplevel (SExpr _ (SNode p (Keyword "type"):xs)) = Data p <$> indexp p xs
 toplevel (SExpr _ (SNode p (Keyword "fix"):xs)) = Group p <$> mapM fundef xs
 toplevel (SExpr _ (SNode p (Keyword "let"):xs)) = Vals p <$> mapM valdef xs
-toplevel (SExpr _ (SNode p (Keyword "eqtn"):i:o)) = liftM2 Family (typeexp i) (typeexp (SExpr p o))
+toplevel (SExpr _ (SNode p (Keyword "eqtn"):i:o)) = liftM2 (Family p) (typeexp i) (typeexp (SExpr p o))
 toplevel x = Group (getPos x) . (:[]) <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]

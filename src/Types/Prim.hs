@@ -12,6 +12,11 @@ data LitType
     | RefTy
     deriving(Eq, Ord)
 
+matchableLit :: LitType -> Bool
+matchableLit IntTy = True
+matchableLit CharTy = True
+matchableLit _ = False
+
 instance Show LitType where
     show IntTy = "Int"
     show CharTy = "Char"

@@ -88,5 +88,5 @@ data TopLevel
     = Group SourcePos [FunDef]
     | Vals SourcePos [ValDef]
     | Data SourcePos Data
-    | Family SourceType SourceType
+    | Family SourcePos SourceType SourceType
     deriving(Eq, Show)

@@ -239,7 +239,7 @@ getInd (_:xs) = getInd xs
 getInd [] = []
 
 getEqtns :: [Syn.TopLevel] -> [(SourceType,SourceType)]
-getEqtns (Syn.Family a b:xs) = (a,b):getEqtns xs
+getEqtns (Syn.Family _ a b:xs) = (a,b):getEqtns xs
 getEqtns (_:xs) = getEqtns xs
 getEqtns [] = []
 

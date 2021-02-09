@@ -70,12 +70,13 @@ newtype Gamma = Gamma
     ( Map.Map Identifier Scheme
     , Map.Map Identifier Rigidity
     , Map.Map Identifier Scheme
+    , Set.Set Identifier
     , Set.Set Name
     , [Eqtn])
 
 instance Substitutable Gamma where
-    apply s (Gamma (a, b, c, d, e)) = Gamma (apply s a, b, c, d, e)
-    ftv (Gamma (a, _, _, d, _)) = ftv a `mappend` d
+    apply s (Gamma (a, b, c, d, e, f)) = Gamma (apply s a, b, c, d, e, f)
+    ftv (Gamma (a, _, _, _, e, _)) = ftv a `mappend` e
 
 type Checker = ErrorsT [TypeError] (ReaderT Gamma (State (Int, Subst)))
 
@@ -85,7 +86,7 @@ liftUE t ac a (Left e) = err a [UnifyError t e ac]
 
 typecheck :: Int -> ModuleServer -> Core SourcePos -> ErrorsResult [TypeError] (Core Type, [Scheme], Int)
 typecheck i e c =
-    let env = Gamma (Map.fromList (termTypes e), mempty, Map.fromList (consTypes e), mempty, eqtns e)
+    let env = Gamma (Map.fromList (termTypes e), mempty, Map.fromList (consTypes e), Set.fromList (abstTypes e), mempty, eqtns e)
         (r,i',s) = runChecker
             env
             (i,mempty)
@@ -108,23 +109,31 @@ extSubst s' = modify (second (s' @@))
 
 matches :: SourcePos -> Type -> Type -> Checker ()
 matches t a b = do
-    Gamma (_,_,_,r,e) <- ask
+    Gamma (_,_,_,c,r,e) <- ask
     s  <- getSubst
-    s' <- liftUE t (MatchAct (apply s a) (apply s b)) mempty (match e r (apply s a) (apply s b))
+    s' <- liftUE t (MatchAct (apply s a) (apply s b)) mempty (match e c r (apply s a) (apply s b))
     extSubst s'
+
+makeMatchable :: SourcePos -> Type -> Checker Type
+makeMatchable p t = do
+    Gamma (_,_,_,c,r,e) <- ask
+    t <- newest t
+    case toMatchable e c r t of
+        Just t -> pure t
+        Nothing -> pure t
 
 unify :: SourcePos -> Type -> Type -> Checker ()
 unify t a b = do
-    Gamma (_,_,_,_,e) <- ask
+    Gamma (_,_,_,c,_,e) <- ask
     s  <- getSubst
-    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu e (apply s a) (apply s b))
+    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu e c (apply s a) (apply s b))
     extSubst s'
 
 unifier :: SourcePos -> Type -> Type -> Checker Subst
 unifier t a b = do
-    Gamma (_,_,_,_,e) <- ask
+    Gamma (_,_,_,c,_,e) <- ask
     s <- getSubst
-    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu e (apply s a) (apply s b))
+    s' <- liftUE t (UnifyAct (apply s a) (apply s b)) mempty (mgu e c (apply s a) (apply s b))
     pure (s @@ s')
 
 immedMatch :: SourcePos -> [a] -> [b] -> Checker ()
@@ -163,7 +172,7 @@ instantiate (Forall a t) = do
 
 lookupLocal :: Identifier -> SourcePos -> Checker Scheme
 lookupLocal i t = do
-    Gamma (a,_,_,_,_) <- ask
+    Gamma (a,_,_,_,_,_) <- ask
     case Map.lookup i a of
         Just sc -> newest sc
         Nothing -> do
@@ -172,7 +181,7 @@ lookupLocal i t = do
 
 lookupCons :: Identifier -> SourcePos -> Checker Scheme
 lookupCons i t = do
-    Gamma (_,_,a,_,_) <- ask
+    Gamma (_,_,a,_,_,_) <- ask
     case Map.lookup i a of
         Just sc -> pure sc
         Nothing -> do
@@ -181,19 +190,19 @@ lookupCons i t = do
 
 lookupRigidity :: Identifier -> Checker Rigidity
 lookupRigidity i = do
-    Gamma (_,a,_,_,_) <- ask
+    Gamma (_,a,_,_,_,_) <- ask
     case Map.lookup i a of
         Just r  -> pure r
         Nothing -> pure W
 
 withTypes :: [(Identifier, Scheme)] -> Checker a -> Checker a
-withTypes ts = local (\(Gamma (a,b,c,d,e)) -> Gamma (Map.fromList ts `mappend` a,b,c,d,e))
+withTypes ts = local (\(Gamma (a,b,c,d,e,f)) -> Gamma (Map.fromList ts `mappend` a,b,c,d,e,f))
 
 withFV :: Set.Set Name -> Checker a -> Checker a
-withFV v = local (\(Gamma (a,b,c,d,e)) -> Gamma (a,b,c,d `mappend` v,e))
+withFV v = local (\(Gamma (a,b,c,d,e,f)) -> Gamma (a,b,c,d,e `mappend` v,f))
 
 withRigidity :: [(Identifier, Rigidity)] -> Checker a -> Checker a
-withRigidity rs = local (\(Gamma (a,b,c,d,e)) -> Gamma (a,Map.fromList rs `mappend` b,c,d,e))
+withRigidity rs = local (\(Gamma (a,b,c,d,e,f)) -> Gamma (a,Map.fromList rs `mappend` b,c,d,e,f))
 
 withEnv :: [(Identifier, Rigidity, Scheme)] -> Checker a -> Checker a
 withEnv rts = withRigidity (fmap (\(a,b,c)->(a,b)) rts) . withTypes (fmap (\(a,b,c)->(a,c)) rts)
@@ -342,6 +351,7 @@ instance Inferable (Core SourcePos) (Core Type) where
                 (t',tt') <- infer m t
                 unify s tt tt'
                 pure (WildcardPattern,tt',t')) cs
+        tt <- makeMatchable p tt
         pure (Node tt (Match (Just tp,p) n cs'), tt)
 
     -- ABS-CHECK
@@ -366,6 +376,7 @@ instance Inferable (Core SourcePos) (Core Type) where
         m1 <- lookupRigidity n
         tp <- instantiate =<< lookupLocal n p
         cs' <- mapM (pcon m1 m tp ts) cs
+        tp <- makeMatchable p tp
         pure (Node ts (Match (Just tp,p) n cs'))
     -- CHECK-INFER
     check m t t1 = do

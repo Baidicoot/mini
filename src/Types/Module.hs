@@ -61,6 +61,9 @@ typeKinds (ModuleServer _ apis _ _) = concatMap (\(ModuleAPI p _ _ t _ _) -> fma
 consTypes :: ModuleServer -> [(Identifier,Scheme)]
 consTypes = concatMap gadtCons . gadts
 
+abstTypes :: ModuleServer -> [Identifier]
+abstTypes = fmap (\(GADT i _ _)->i) . filter (\(GADT _ _ xs)->null xs) . gadts
+
 regLayouts :: ModuleServer -> [(Identifier,[GPR])]
 regLayouts = fmap (\(ModuleABI p i _ l) -> (i, l)) . abis
 

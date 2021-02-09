@@ -48,7 +48,7 @@ comment = whiteSep $ do
   string "(."
   concat <$> manyTill
     ((\x->"(. "++x++" .)") <$> try comment <|> (:[]) <$> anyChar)
-    (string ".)")
+    (try (string ".)"))
 
 literal :: Parser UnboxedLit
 literal
@@ -71,6 +71,7 @@ keyword
   <|> try (reserved "import-as")
   <|> try (reserved "include")
   <|> try (reserved "eqtn")
+  <|> try (reserved "type")
 
 primop :: Parser Primop
 primop

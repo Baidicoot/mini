@@ -7,6 +7,7 @@ import Types.Graph
 import Types.Prim
 
 import Data.List (intercalate)
+import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
@@ -163,27 +164,55 @@ data Eqtn = Eqtn Type Type
 instance Show Eqtn where
     show (Eqtn i o) = "(eqtn (" ++ show i ++ ") " ++ show o ++ ")"
 
-appEqtn :: Eqtn -> Set.Set Name -> Type -> Maybe (Type,Subst)
-appEqtn (Eqtn i o) q t = case match' [] q i t of
-    Right s -> Just (apply s o,Map.filterWithKey (\k _ -> k `Set.member` ftv t) s)
+validCoercion :: Set.Set Identifier -> Set.Set Name -> Type -> Type -> Bool
+validCoercion c q i o = go (leftmost i) && go (leftmost o)
+    where
+        go (NamedType n) = n `Set.member` c
+        go (TypeVar n) = n `Set.member` q
+        go _ = False
+
+appEqtn :: Eqtn -> Set.Set Identifier -> Set.Set Name -> Type -> Maybe (Type,Subst)
+appEqtn (Eqtn i o) c q t = case match' [] Set.empty q i t of
+    Right s ->
+        let o' = apply s o
+            i' = apply s i
+            s' = Map.filterWithKey (\k _ -> k `Set.member` ftv t) s
+        in if validCoercion c q i' o' then Just (o',s') else Nothing
     Left _ -> Nothing
 
-match :: [Eqtn] -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
-match e q a b = case match' e q a b of
+match :: [Eqtn] -> Set.Set Identifier -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
+match e c q a b = case match' e c q a b of
     Right s -> Right s
     Left er -> searchReductions er e e
     where
-        searchReductions er (eq:ea) eb = case appEqtn eq q a of
-            Just (a',s1) -> case match e q a' (apply s1 b) of
+        searchReductions er (eq:ea) eb = case appEqtn eq c q a of
+            Just (a',s1) -> case match e c q a' (apply s1 b) of
                 Left _ -> searchReductions er ea eb
                 Right s2 -> Right (s1 @@ s2)
             Nothing -> searchReductions er ea eb
-        searchReductions er ea (eq:eb) = case appEqtn eq q b of
-            Just (b',s1) -> case match e q (apply s1 a) b' of
+        searchReductions er ea (eq:eb) = case appEqtn eq c q b of
+            Just (b',s1) -> case match e c q (apply s1 a) b' of
                 Left _ -> searchReductions er ea eb
                 Right s2 -> Right (s1 @@ s2)
             Nothing -> searchReductions er ea eb
         searchReductions er [] [] = Left er
+
+matchable :: Set.Set Identifier -> Type -> Bool
+matchable c t = case leftmost t of
+    NamedType n -> not (n `Set.member` c)
+    Builtin t -> matchableLit t
+    _ -> False
+
+toMatchable :: [Eqtn] -> Set.Set Identifier -> Set.Set Name -> Type -> Maybe Type
+toMatchable _ c _ t | matchable c t = pure t
+toMatchable e c q t = searchReductions e t
+    where
+        searchReductions (eq:e) t = case appEqtn eq c q t of
+            Just (t,_) -> case toMatchable e c q t of
+                Nothing -> searchReductions e t
+                Just t' -> pure t'
+            Nothing -> searchReductions e t
+        searchReductions [] _ = Nothing
 
 infixr 4 @@
 (@@) :: Subst -> Subst -> Subst
@@ -198,41 +227,45 @@ varBind u t
     | u `Set.member` ftv t = Left (OccursUE u t)
     | otherwise = Right (u `mapsTo` t)
 
-mgu :: [Eqtn] -> Type -> Type -> Either UnifyError Subst
-mgu eq = match eq Set.empty
+mgu :: [Eqtn] -> Set.Set Identifier -> Type -> Type -> Either UnifyError Subst
+mgu eq c = match eq c Set.empty
 
-matchMany :: [Eqtn] -> Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
-matchMany e q _ [] = Right mempty
-matchMany e q (a:as) (b:bs) = do
-    s1 <- match e q a b
-    s2 <- matchMany e q (fmap (apply s1) as) (fmap (apply s1) bs)
+matchMany :: [Eqtn] -> Set.Set Identifier -> Set.Set Name -> [Type] -> [Type] -> Either UnifyError Subst
+matchMany e c q _ [] = Right mempty
+matchMany e c q (a:as) (b:bs) = do
+    s1 <- match e c q a b
+    s2 <- matchMany e c q (fmap (apply s1) as) (fmap (apply s1) bs)
     Right (s1 @@ s2)
-matchMany e q as bs = Left (ProdUE as bs)
+matchMany e c q as bs = Left (ProdUE as bs)
 
-match' :: [Eqtn] -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
-match' e q (App _ w x) (App _ y z) = do
-    s1 <- match e q w y
-    s2 <- match e q (apply s1 x) (apply s1 z)
+match' :: [Eqtn] -> Set.Set Identifier -> Set.Set Name -> Type -> Type -> Either UnifyError Subst
+match' e c q (App _ w x) (App _ y z) = do
+    s1 <- match e c q w y
+    s2 <- match e c q (apply s1 x) (apply s1 z)
     Right (s1 @@ s2)
-match' e q (Node _ (Product as)) (Node _ (Product bs)) = matchMany e q as bs
-match' e q x y
+match' e c q (Node _ (Product as)) (Node _ (Product bs)) = matchMany e c q as bs
+match' e c q x y
     | x == y = Right mempty
-match' e q (Node _ (TypeVar m)) (Node _ (TypeVar n))
+match' e c q (Node _ (TypeVar m)) (Node _ (TypeVar n))
     | not (m `Set.member` q) = varBind m (Node NoTag (TypeVar n))
     | not (n `Set.member` q) = varBind n (Node NoTag (TypeVar m))
     | otherwise = Left (RigidUE m (Node NoTag (TypeVar n)))
-match' e q (Node _ (TypeVar u)) t
+match' e c q (Node _ (TypeVar u)) t
     | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match' e q t (Node _ (TypeVar u))
+match' e c q t (Node _ (TypeVar u))
     | not (u `Set.member` q) = varBind u t
     | otherwise = Left (RigidUE u t)
-match' e q a b = Left (MatchUE q a b)
+match' e c q a b = Left (MatchUE q a b)
 
 constructor :: Type -> Maybe Identifier
 constructor (App _ a _) = constructor a
 constructor (Node _ (NamedType i)) = Just i
 constructor _ = Nothing
+
+leftmost :: Type -> TypeNode NoTag
+leftmost (App _ a _) = leftmost a
+leftmost (Node _ n) = n
 
 infixr 9 -->
 (-->) :: Type -> Type -> Type
