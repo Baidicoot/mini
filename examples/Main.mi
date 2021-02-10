@@ -28,7 +28,7 @@
     (_ putcoord (swap {4 5}))
     (_ IO.nl {}))
 
-(ind Bool
+(type Bool
     (true :: Bool)
     (false :: Bool))
 

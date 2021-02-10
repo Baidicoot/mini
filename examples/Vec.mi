@@ -5,7 +5,7 @@
 (type (Z :: Ty))
 
 (. list parametized by a length .)
-(ind Vec
+(type Vec
     (vempty :: Vec Z a)
     (vcons :: a -> (Vec n a) -> Vec (S n) a))
 
@@ -17,9 +17,8 @@
 
 (. type-level addition .)
 (type (Add :: Ty -> Ty -> Ty))
-(eqtn (Add (S a) b)
-    S (Add a b))
-(eqtn (Add Z b) b)
+(equiv Add (S a) b ~ S (Add a b))
+(equiv Add Z b ~ b)
 
 (. typesafe vector concatination .)
 ((vconcat :: (Vec a t) -> (Vec b t) -> Vec (Add a b) t) (x y)

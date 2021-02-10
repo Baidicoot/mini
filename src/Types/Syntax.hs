@@ -16,6 +16,7 @@ data SyntaxNode
     | Sel Int
     | Prim Primop
     | Arr
+    | Equiv
     | Ann
     | Star
     | Hole

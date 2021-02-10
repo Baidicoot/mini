@@ -174,11 +174,16 @@ annotation _ p (SExpr _ (x:SNode pos Ann:xs)) = annot p (x, SExpr pos xs)
 annotation s _ x = Left [Expecting ("annotated " ++ s) (display x) (getPos x)]
 
 toplevel :: Parser ExprS TopLevel
-toplevel (SExpr _ (SNode p (Keyword "ind"):xs)) = Data p <$> indexp p xs
 toplevel (SExpr _ (SNode p (Keyword "type"):xs)) = Data p <$> indexp p xs
 toplevel (SExpr _ (SNode p (Keyword "fix"):xs)) = Group p <$> mapM fundef xs
 toplevel (SExpr _ (SNode p (Keyword "let"):xs)) = Vals p <$> mapM valdef xs
-toplevel (SExpr _ (SNode p (Keyword "eqtn"):i:o)) = liftM2 (Family p) (typeexp i) (typeexp (SExpr p o))
+toplevel (SExpr _ (SNode p (Keyword "equiv"):eq)) = do
+    (i,o,ep) <- splitEquiv p eq
+    liftM2 (Family p) (typeexp (SExpr p i)) (typeexp (SExpr ep o))
+    where
+        splitEquiv _ ((SNode ep Equiv):xs) = Right ([], xs,ep)
+        splitEquiv _ (x:xs) = (\(p,e,ep) -> (x:p,e,ep)) <$> splitEquiv (getPos x) xs
+        splitEquiv p _ = Left [Expecting "~" "nothing" p]
 toplevel x = Group (getPos x) . (:[]) <$> fundef x
 
 toplevelexpr :: Parser [ExprS] [TopLevel]

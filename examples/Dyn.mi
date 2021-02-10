@@ -1,6 +1,6 @@
 (. dynamic typing .)
 
-(ind Dyn
+(type Dyn
     (int :: Int -> Dyn Int)
     (char :: Char -> Dyn Char))
 

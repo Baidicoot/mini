@@ -1,11 +1,11 @@
-(ind Either
+(type Either
     (left :: a -> Either a b)
     (right :: b -> Either a b))
 
-(ind Thunk
+(type Thunk
     (mkThunk :: a -> (a -> b) -> Thunk b))
 
-(ind Lazy
+(type Lazy
     (memoThunk :: (Ref (Either (Thunk a) a)) -> Lazy a))
 
 (force x match x

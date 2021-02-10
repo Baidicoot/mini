@@ -1,4 +1,4 @@
-(ind Nat
+(type Nat
     (Z :: Nat)
     (S :: Nat -> Nat))
 

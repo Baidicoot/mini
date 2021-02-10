@@ -1,4 +1,4 @@
-(ind List
+(type List
     (cons :: a -> (List a) -> List a)
     (nil :: List a))
 

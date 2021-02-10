@@ -70,7 +70,7 @@ keyword
   <|> try (reserved "fix")
   <|> try (reserved "import-as")
   <|> try (reserved "include")
-  <|> try (reserved "eqtn")
+  <|> try (reserved "equiv")
   <|> try (reserved "type")
 
 primop :: Parser Primop
@@ -121,6 +121,7 @@ rpnccTok
   <|> try (reserved "::")  $> Ann
   <|> try (reserved "Ty")  $> Star
   <|> try (reserved "_")   $> Hole
+  <|> try (reserved "~")   $> Equiv
   <|> Sel                 <$> sel
   <|> Prim                <$> try primop
   <|> Ident               <$> ident

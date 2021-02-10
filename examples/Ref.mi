@@ -1,4 +1,4 @@
-(ind Bool
+(type Bool
     (tt :: Bool)
     (ff :: Bool))
 
