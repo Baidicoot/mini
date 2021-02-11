@@ -18,15 +18,15 @@ import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-compile :: Int -> Int -> Identifier -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,CExp)] -> Build [(ModulePath,CExp)]
-compile index num mainLabel ms ((p,Right (pr,s)):fs) done = do
+compile :: OptFlags -> Int -> Int -> Identifier -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,CExp)] -> Build [(ModulePath,CExp)]
+compile f index num mainLabel ms ((p,Right (pr,s)):fs) done = do
     liftIO . putStrLn $ "\ncompiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
-    (w,api,abi,ops,(ucc,t)) <- liftEither $ parsedToCPS p ms [] (mainFn p) s pr
+    (w,api,abi,ops,(ucc,t)) <- liftEither $ parsedToCPS f p ms [] (mainFn p) s pr
     liftIO $ mapM_ putStrLn w
     liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ n ++ " : " ++ show s)
-    compile (index+1) num mainLabel (loadModule abi api ms) fs ((p,ops):done)
-compile _ _ mainLabel ms [] done = do
-    g <- liftEither . mapLeft (fmap show) $ glueToCPS mainLabel ms
+    compile f (index+1) num mainLabel (loadModule abi api ms) fs ((p,ops):done)
+compile f _ _ mainLabel ms [] done = do
+    g <- liftEither . mapLeft (fmap show) $ glueToCPS f mainLabel ms
     liftIO $ putStr "\n"
     pure (([],g):done)
 
@@ -36,14 +36,14 @@ wordsWhen p s = case dropWhile p s of
     s' -> w : wordsWhen p s''
         where (w, s'') = break p s'
 
-build :: String -> [ModulePath] -> Build [(ModulePath,CExp)]
-build root paths = do
+build :: OptFlags -> String -> [ModulePath] -> Build [(ModulePath,CExp)]
+build f root paths = do
     fs <- load root paths
-    compile 1 (length paths) (LocalIdentifier "start") emptyServer fs []
+    compile f 1 (length paths) (LocalIdentifier "start") emptyServer fs []
 
 mainBuild :: String -> [[String]] -> [String] -> Build ()
 mainBuild root paths args = do
-    fs <- build root paths
+    fs <- build (if "--noopt" `elem` args then noopt else allopt) root paths
     if "--dump" `elem` args then
         liftIO $ mapM_ (\(n,p) -> print n >> prettyPrint p (0::Int)) fs
     else pure ()

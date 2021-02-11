@@ -1,1 +1,3 @@
-(rec x rec x)
+(fac x match x
+    (0 -> 1)
+    (_ -> * x (fac (- x 1))))

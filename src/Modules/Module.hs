@@ -43,17 +43,17 @@ parsedToCore p ser s0 s (imports,parsed) = do
 
 coreToAbst :: OptFlags -> [Identifier] -> [Identifier] -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], [(Identifier,[GPR])], Int)
 coreToAbst f k m e r c0 s0 =
-    let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
+    let (c1,(s1,_)) = cpsify k e m (untagCore c0) s0
         (c2,s2) = closureConv c1 s1
         (c3,s3) = spill r s2 (cpsOpt f c2)
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) m c3 r
     in (ops,l,s3)
 
-coreToCPS :: [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int -> (CPS.CExp,Int,CPS.CExp)
-coreToCPS k m e c0 s0 =
-    let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
+coreToCPS :: OptFlags -> [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int -> (CPS.CExp,Int,CPS.CExp)
+coreToCPS f k m e c0 s0 =
+    let (c1,(s1,_)) = cpsify k e m (untagCore c0) s0
         (c2,s2) = closureConv c1 s1
-    in (cpsOpt noopt c2,s2,c1)
+    in (cpsOpt f c2,s2,c1)
 
 parsedToAbst :: OptFlags -> ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
 parsedToAbst f p ms k m r s pr@(i,_) = do
@@ -61,8 +61,8 @@ parsedToAbst f p ms k m r s pr@(i,_) = do
     let (o,[(_,l)],_) = coreToAbst f k [m] (loadAPI a ms) r t s0
     pure (w,a,ModuleABI p m (fmap fst i) l,o, t)
 
-parsedToCPS :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, (CPS.CExp,Core Type))
-parsedToCPS p ms k m s pr@(i,_) = do
+parsedToCPS :: OptFlags -> ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, (CPS.CExp,Core Type))
+parsedToCPS f p ms k m s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
-    let (c,_,ucc) = coreToCPS k [m] (loadAPI a ms) t s0
+    let (c,_,ucc) = coreToCPS f k [m] (loadAPI a ms) t s0
     pure (w,a,ModuleABI p m (fmap fst i) [],c,(ucc,t))

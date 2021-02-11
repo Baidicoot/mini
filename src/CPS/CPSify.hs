@@ -17,13 +17,13 @@ import Data.Maybe (isJust,isNothing)
 import qualified Data.Map as Map
 
 type CPSState = (Int, [Identifier])
-type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int, Bool)
+type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int, [Identifier])
 
-mkCPSEnv :: [GADT] -> CPSEnv
-mkCPSEnv env =
+mkCPSEnv :: [Identifier] -> [GADT] -> CPSEnv
+mkCPSEnv exports env =
     let cons = Map.fromList $ concatMap (\(GADT _ _ ls) -> zip (fmap fst ls) [0..]) env
         gadts = Map.fromList $ fmap (\(GADT i _ ls) -> (i,length ls)) env
-    in (cons, gadts, True)
+    in (cons, gadts, exports)
 
 fresh :: CPSifier Name
 fresh = do
@@ -66,11 +66,8 @@ cases id = do
         Just x -> pure x
         Nothing -> error $ "catastrophic failure, leaking launch codes..."
 
-toplevel :: CPSifier Bool
-toplevel = asks (\(_,_,b)->b)
-
-notToplevel :: CPSifier a -> CPSifier a
-notToplevel = local (\(a,b,_)->(a,b,False))
+exported :: Identifier -> CPSifier Bool
+exported i = asks (\(_,_,b)->i `elem` b)
 
 contNames :: [Name]
 contNames = fmap (("k"++) . show) [0..]
@@ -83,8 +80,8 @@ type CPSifier = StateT CPSState (Reader CPSEnv)
 runCPSify :: [Identifier] -> Int -> CPSEnv -> CPSifier a -> (a, CPSState)
 runCPSify k ns e a = runReader (runStateT a (ns,k)) e
 
-cpsify :: [Identifier] -> ModuleServer -> Core.Core NoTag -> Int -> (CExp, CPSState)
-cpsify k env exp i = runCPSify k i (mkCPSEnv (gadts env)) (convert exp (\z -> pure Halt))
+cpsify :: [Identifier] -> ModuleServer -> [Identifier] -> Core.Core NoTag -> Int -> (CExp, CPSState)
+cpsify k env expo exp i = runCPSify k i (mkCPSEnv expo (gadts env)) (convert exp (\z -> pure Halt))
 
 convertNode :: Core.CoreNode NoTag -> (Value -> CPSifier CExp) -> CPSifier CExp
 convertNode (Core.Error s) c = pure (Error s)
@@ -103,10 +100,10 @@ convertNode (Core.Fix defs e) c = do
     where
         g ((n, Graph.Node _ (Core.Lam v e)):defs) = do
             w <- cont
-            bigF <- notToplevel $ convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
+            bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
             dx <- g defs
-            t <- toplevel
-            pure $ (Fun cfun{name = Just n, isexport = t} n [v, LocalIdentifier w] bigF):dx
+            ex <- exported n
+            pure $ (Fun cfun{name = Just n, isexport = ex} n [v, LocalIdentifier w] bigF):dx
         g [] = pure []
 convertNode (Core.Let n def e) c = do
     j <- fmap LocalIdentifier cont
