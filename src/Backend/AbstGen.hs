@@ -316,7 +316,7 @@ loadRegs :: [(Identifier,GPR)] -> AbstGen ()
 loadRegs args = modify (\(_,b,c) -> (Inj.fromList args,b,c))
 
 partEsc :: [CFun] -> AbstGen ([CFun], [CFun])
-partEsc (f@(CPS.Fun v _ _):fs) = do
+partEsc (f@(CPS.Fun _ v _ _):fs) = do
     (esc, _) <- ask
     (nonfn, escfn) <- partEsc fs
     if v `Set.member` esc then
@@ -326,7 +326,7 @@ partEsc (f@(CPS.Fun v _ _):fs) = do
 partEsc [] = pure ([], [])
 
 partAssigned :: [CFun] -> AbstGen ([CFun], [CFun])
-partAssigned (f@(CPS.Fun v _ _):fs) = do
+partAssigned (f@(CPS.Fun _ v _ _):fs) = do
     (_, assigned, _) <- get
     (assignedfns, otherfns) <- partAssigned fs
     if v `Map.member` assigned then
@@ -336,7 +336,7 @@ partAssigned (f@(CPS.Fun v _ _):fs) = do
 partAssigned [] = pure ([], [])
 
 genEsc :: CFun -> AbstGen ()
-genEsc (CPS.Fun id args exp) = do
+genEsc (CPS.Fun _ id args exp) = do
     emit (Comment (show id ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args [1..])))
     emit (Define id)
     loadRegs (zip args [1..])
@@ -353,7 +353,7 @@ genNonEsc fns = do
     if null assignedfns then
         genNonAssigned otherfns
     else do
-        mapM_ (\(CPS.Fun n args exp) -> do
+        mapM_ (\(CPS.Fun _ n args exp) -> do
             layout <- irrefutableGetLayout n
             emit (Comment (show n ++ concatMap (\(a,i) -> ' ':show a++":r"++show i) (zip args layout)))
             emit (Define n)

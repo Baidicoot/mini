@@ -43,7 +43,7 @@
         (_ -> + (fib (- x 1)) (fib (- x 2))))
 
 (let
-    (_ putint (fac 30))
+    (_ putint (fac 12))
     (_ IO.nl {})
-    (_ putint (fib 30))
+    (_ putint (fib 24))
     (_ IO.nl {}))

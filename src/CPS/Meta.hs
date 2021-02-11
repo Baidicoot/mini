@@ -59,7 +59,7 @@ calls (Var i) = mappend mempty {unknownCalls = Set.singleton i}
 calls _ = mappend mempty
 
 collectFunctionMeta :: CFun -> (Map.Map Identifier PerFunction, (Identifier,PerFunction))
-collectFunctionMeta (Fun i args e) =
+collectFunctionMeta (Fun _ i args e) =
     let (nested, self) = collectPerFunctionMeta e
     in (nested, (i,binds args self))
 

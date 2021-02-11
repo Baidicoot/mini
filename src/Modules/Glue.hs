@@ -48,7 +48,7 @@ glueCoreToAbst :: [Identifier] -> Identifier -> ModuleServer -> Int -> Core Type
 glueCoreToAbst k m e r c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
         (CPS.Fix defs exp,s2) = closureConv c1 s1
-        c2 = CPS.Fix (CPS.Fun m [] exp:defs) CPS.Halt
+        c2 = CPS.Fix (CPS.Fun CPS.cfun m [] exp:defs) CPS.Halt
         (c3,s3) = spill r s2 c2
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) [m] c3 r
     in (ops,l,s3)
@@ -57,7 +57,7 @@ glueCoreToCPS :: [Identifier] -> Identifier -> ModuleServer -> Core Type -> Int 
 glueCoreToCPS k m e c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
         (CPS.Fix defs exp,s2) = closureConv c1 s1
-        c2 = CPS.Fix (CPS.Fun m [] exp:defs) CPS.Halt
+        c2 = CPS.Fix (CPS.Fun CPS.cfun m [] exp:defs) CPS.Halt
     in (c2,s2)
 
 glueToCPS :: Identifier -> ModuleServer -> Either [ImportError] CPS.CExp

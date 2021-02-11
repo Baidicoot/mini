@@ -17,7 +17,7 @@ runSpill :: Int -> Int -> Spill a -> (a, Int)
 runSpill n s p = flip runReader n $ runStateT p s
 
 knownFns :: CExp -> Set.Set Name
-knownFns (Fix fs _) = Set.fromList . extractLocals $ fmap (\(Fun i _ _) -> i) fs
+knownFns (Fix fs _) = Set.fromList . extractLocals $ fmap (\(Fun _ i _ _) -> i) fs
 
 spill :: Int -> Int -> CExp -> (CExp, Int)
 spill n s e = runSpill n s $ do
@@ -131,23 +131,23 @@ spillExp r u d sc sv e = do
 
 spillFix :: CExp -> Spill CExp
 spillFix (Fix defs e) = do
-    defs' <- mapM (\(Fun i args e) -> do
+    defs' <- mapM (\(Fun d i args e) -> do
         e' <- spillExp mempty (Set.fromList args) mempty [] Nothing e
-        pure $ Fun i args e') defs
+        pure $ Fun d i args e') defs
     Fix defs' <$> spillExp mempty mempty mempty [] Nothing e
 
 overflowArgsFn :: CFun -> Spill CFun
-overflowArgsFn (Fun id args exp) = do
+overflowArgsFn (Fun d id args exp) = do
     exp' <- overflowArgs exp
     n <- ask
     if n >= length args then
-        pure $ Fun id args exp'
+        pure $ Fun d id args exp'
     else do
         c <- fresh
         let args' = take (n-1) args ++ [LocalIdentifier c]
         let incls = drop (n-1) args
         let bound = foldr (\(arg, i) exp -> Select i (Var $ LocalIdentifier c) arg exp) exp' (zip incls [0..])
-        pure $ Fun id args' bound 
+        pure $ Fun d id args' bound 
 
 overflowArgs :: CExp -> Spill CExp
 overflowArgs (Fix defs exp) = do

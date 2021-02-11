@@ -59,7 +59,8 @@ executable mini
     CPSMachine,
     Backend.C,
     CPS.Interpreter,
-    Backend.Interpreter
+    Backend.Interpreter,
+    CPS.CPSOpt
   -- other-extensions:    
   build-depends:
     base >=4.9,

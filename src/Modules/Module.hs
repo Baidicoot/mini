@@ -7,6 +7,7 @@ import TypeCheck.Check
 import Modules.Defunctorize
 import CPS.CPSify
 import CPS.ClosureConv
+import CPS.CPSOpt
 import CPS.Spill
 import CPS.Meta
 import Backend.AbstGen
@@ -18,6 +19,7 @@ import Types.Ident
 import Types.Type
 import Types.Module
 import Types.Abstract
+import Types.Build
 
 import Data.List
 
@@ -39,11 +41,11 @@ parsedToCore p ser s0 s (imports,parsed) = do
     let exportSchemes = zip exports types
     pure (fmap (render s) w0, constructAPI p exportSchemes gadts eqtns, defunc, s3)
 
-coreToAbst :: [Identifier] -> [Identifier] -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], [(Identifier,[GPR])], Int)
-coreToAbst k m e r c0 s0 =
+coreToAbst :: OptFlags -> [Identifier] -> [Identifier] -> ModuleServer -> Int -> Core Type -> Int -> ([Operator], [(Identifier,[GPR])], Int)
+coreToAbst f k m e r c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
         (c2,s2) = closureConv c1 s1
-        (c3,s3) = spill r s2 c2
+        (c3,s3) = spill r s2 (cpsOpt f c2)
         (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) m c3 r
     in (ops,l,s3)
 
@@ -51,12 +53,12 @@ coreToCPS :: [Identifier] -> [Identifier] -> ModuleServer -> Core Type -> Int ->
 coreToCPS k m e c0 s0 =
     let (c1,(s1,_)) = cpsify k e (untagCore c0) s0
         (c2,s2) = closureConv c1 s1
-    in (c2,s2,c1)
+    in (cpsOpt noopt c2,s2,c1)
 
-parsedToAbst :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
-parsedToAbst p ms k m r s pr@(i,_) = do
+parsedToAbst :: OptFlags -> ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Int -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, [Operator], Core Type)
+parsedToAbst f p ms k m r s pr@(i,_) = do
     (w,a,t,s0) <- parsedToCore p ms 0 s pr
-    let (o,[(_,l)],_) = coreToAbst k [m] (loadAPI a ms) r t s0
+    let (o,[(_,l)],_) = coreToAbst f k [m] (loadAPI a ms) r t s0
     pure (w,a,ModuleABI p m (fmap fst i) l,o, t)
 
 parsedToCPS :: ModulePath -> ModuleServer -> [Identifier] -> Identifier -> Stream -> ParseResult -> Either [String] ([String], ModuleAPI, ModuleABI, CPS.CExp, (CPS.CExp,Core Type))

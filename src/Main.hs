@@ -55,15 +55,16 @@ main = do
     --paths <- getMiniSourceFiles root
     --print paths
     let paths = parsePaths args
+    let opt = if "--noopt" `elem` args then noopt else allopt
     case mode of
         "cps" -> M.main root paths args
         "c" -> do
-            r <- runErrorsT $ build (BuildConfig root cbackend "c" args) paths
+            r <- runErrorsT $ build (BuildConfig root cbackend "c" args opt) paths
             case toEither r of
                 Left e -> mapM_ putStrLn e
                 Right _ -> putStr "\n"
         "abst" -> do
-            r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" args) paths
+            r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" args opt) paths
             case toEither r of
                 Left e -> mapM_ putStrLn e
                 Right _ -> putStr "\n"

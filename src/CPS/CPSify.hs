@@ -17,13 +17,13 @@ import Data.Maybe (isJust,isNothing)
 import qualified Data.Map as Map
 
 type CPSState = (Int, [Identifier])
-type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int)
+type CPSEnv = (Map.Map Identifier Int, Map.Map Identifier Int, Bool)
 
 mkCPSEnv :: [GADT] -> CPSEnv
 mkCPSEnv env =
     let cons = Map.fromList $ concatMap (\(GADT _ _ ls) -> zip (fmap fst ls) [0..]) env
         gadts = Map.fromList $ fmap (\(GADT i _ ls) -> (i,length ls)) env
-    in (cons, gadts)
+    in (cons, gadts, True)
 
 fresh :: CPSifier Name
 fresh = do
@@ -54,17 +54,23 @@ convVal x = pure x
 
 index :: Identifier -> CPSifier Int
 index id = do
-    (env,_) <- ask
+    (env,_,_) <- ask
     case Map.lookup id env of
         Just x -> pure x
         Nothing -> error $ "oh bees oh bees oh bees oh bees" ++ show env
 
 cases :: Identifier -> CPSifier Int
 cases id = do
-    (_,env) <- ask
+    (_,env,_) <- ask
     case Map.lookup id env of
         Just x -> pure x
         Nothing -> error $ "catastrophic failure, leaking launch codes..."
+
+toplevel :: CPSifier Bool
+toplevel = asks (\(_,_,b)->b)
+
+notToplevel :: CPSifier a -> CPSifier a
+notToplevel = local (\(a,b,_)->(a,b,False))
 
 contNames :: [Name]
 contNames = fmap (("k"++) . show) [0..]
@@ -88,7 +94,7 @@ convertNode (Core.Lam v e) c = do
     k <- cont
     bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier k)) [z])
     convC <- c (Label (LocalIdentifier f))
-    pure $ Fix [Fun (LocalIdentifier f) [v, LocalIdentifier k] bigF] convC
+    pure $ Fix [Fun cfun (LocalIdentifier f) [v, LocalIdentifier k] bigF] convC
 convertNode (Core.Fix defs e) c = do
     fixdefs (fmap fst defs) -- unique binding means that this can be a *permanent* change
     bigF <- convert e c
@@ -97,15 +103,16 @@ convertNode (Core.Fix defs e) c = do
     where
         g ((n, Graph.Node _ (Core.Lam v e)):defs) = do
             w <- cont
-            bigF <- convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
+            bigF <- notToplevel $ convert e (\z -> pure $ App (Var (LocalIdentifier w)) [z])
             dx <- g defs
-            pure $ (Fun n [v, LocalIdentifier w] bigF):dx
+            t <- toplevel
+            pure $ (Fun cfun{name = Just n, isexport = t} n [v, LocalIdentifier w] bigF):dx
         g [] = pure []
 convertNode (Core.Let n def e) c = do
     j <- fmap LocalIdentifier cont
     ce <- convert e c
     cd <- convert def (\z -> pure $ App (Label j) [z])
-    pure $ Fix [Fun j [n] ce] cd
+    pure $ Fix [Fun (cfun {islet = True, name = Just n}) j [n] ce] cd
 convertNode (Core.Cons id args) c = do
     i <- index id
     cont <- fmap (\x -> (x,NoPath)) <$> mapM convVal args
@@ -214,5 +221,5 @@ convert (Graph.App _ f e) c = do
     x <- fresh
     bigF <- convert f (\f -> convert e (\e -> (\f -> App f [e, Label (LocalIdentifier r)]) <$> convVal f))
     convC <- c (Var (LocalIdentifier x))
-    pure $ Fix [Fun (LocalIdentifier r) [LocalIdentifier x] convC] bigF
+    pure $ Fix [Fun (cfun {iscont = True}) (LocalIdentifier r) [LocalIdentifier x] convC] bigF
 convert (Graph.Node _ n) c = convertNode n c

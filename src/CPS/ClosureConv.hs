@@ -132,15 +132,15 @@ rename :: Identifier -> Identifier -> ClosureConv CExp -> ClosureConv CExp
 rename x y = local (\(a,b,c,d) -> (a,Map.insert x y b,c,d))
 
 -- split an escaping (known) function f with directly passed arguments args and closure-passed arguments extra
-splitFn :: Identifier -> Int -> Int -> ClosureConv CFun
-splitFn f nargs nextra = do
+splitFn :: CFunData -> Identifier -> Int -> Int -> ClosureConv CFun
+splitFn d f nargs nextra = do
     fs <- split f
     c <- fresh
     args <- replicateM nargs fresh
     extra <- replicateM nextra fresh
     let call = App (Label f) (fmap (Var . LocalIdentifier) $ args ++ extra)
     let body = foldr (\(i,n) -> Select i (Var $ LocalIdentifier c) (LocalIdentifier n)) call (zip [1..] extra)
-    pure (Fun fs (fmap LocalIdentifier args ++ [LocalIdentifier c]) body)
+    pure (Fun (d {issplit = True}) fs (fmap LocalIdentifier args ++ [LocalIdentifier c]) body)
 
 convertExp :: CExp -> ClosureConv CExp
 convertExp (App (Label k) args) = flip (foldr makeCls) args $ do
@@ -158,15 +158,15 @@ convertExp (App (Var u) args) = flip (foldr makeCls) args $ extractPtr u $ do
             u' <- arg (Var u)
             pure (App u' args')
 convertExp (Fix fns e) = do
-    fns' <- mapM (\(Fun i args e) -> enterfn $ do
+    fns' <- mapM (\(Fun d i args e) -> enterfn $ do
         extra <- mapM (\n -> do
             n' <- fresh
             pure (n, n')) =<< freeVars i
         let renamings = foldr (\(n,n') -> (. rename n (LocalIdentifier n'))) id extra
         e' <- renamings (convertExp e)
-        pure (Fun i (args ++ fmap (LocalIdentifier . snd) extra) e')) fns
-    splits <- mapM (\(Fun i args _) -> splitFn i (length args) . length =<< freeVars i)
-        =<< filterM (\(Fun i _ _) -> escapingFn i) fns
+        pure (Fun d i (args ++ fmap (LocalIdentifier . snd) extra) e')) fns
+    splits <- mapM (\(Fun d i args _) -> splitFn d i (length args) . length =<< freeVars i)
+        =<< filterM (\(Fun d i _ _) -> escapingFn i) fns
     e' <- convertExp e
     pure (Fix (fns' ++ splits) e')
 convertExp (Record vs n e) = flip (foldr makeCls) (fmap fst vs) $ do
@@ -243,8 +243,8 @@ convertExp x = pure x
 -}
 smash :: CExp -> ([CFun], CExp)
 smash (Fix defs exp) =
-    let defs' = concatMap (\(Fun id args exp) ->
-            let (defs, exp') = smash exp in (Fun id args exp'):defs) defs
+    let defs' = concatMap (\(Fun d id args exp) ->
+            let (defs, exp') = smash exp in (Fun d id args exp'):defs) defs
     in first (++defs') (smash exp)
 smash (Record a b exp) = second (Record a b) (smash exp)
 smash (Select a b c exp) = second (Select a b c) (smash exp)

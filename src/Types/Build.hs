@@ -5,7 +5,15 @@ import Control.Monad.Errors
 import Types.Abstract
 import Types.Ident
 
-data BuildConfig = BuildConfig { root :: String, backend :: Backend, backendName :: String, flags :: [String] }
+data OptFlags = OptFlags { cps_inline_singles :: Bool }
+
+noopt :: OptFlags
+noopt = OptFlags False
+
+allopt :: OptFlags
+allopt = OptFlags True
+
+data BuildConfig = BuildConfig { root :: String, backend :: Backend, backendName :: String, flags :: [String], opt :: OptFlags }
 
 data CachedFile = CachedFile { api :: ModuleAPI, abi :: ModuleABI, filepath :: String }
 

@@ -49,7 +49,7 @@ toEnv :: ModulePath -> [(ModulePath,CExp)] -> CPSEnv
 toEnv p fs = (p,[],Map.fromList (fns fs),mempty)
     where
         fns ((p,Fix defs _):xs) =
-            fmap (\(Fun n args exp) -> ((p,n),(args,exp))) defs
+            fmap (\(Fun _ n args exp) -> ((p,n),(args,exp))) defs
             ++ fns xs
         fns [] = []
 

@@ -11,12 +11,24 @@ import Data.Maybe (maybeToList, mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+data CFunData
+    = CFunData
+    { iscont :: Bool
+    , islet :: Bool
+    , issplit :: Bool
+    , isexport :: Bool
+    , name :: Maybe Identifier
+    } deriving(Eq)
+
+cfun :: CFunData
+cfun = CFunData False False False False Nothing
+
 data CFun
-    = Fun Identifier [Identifier] CExp
+    = Fun CFunData Identifier [Identifier] CExp
     deriving(Eq)
 
 instance Show CFun where
-    show (Fun n args exp) = show n ++ concatMap ((' ':) . show) args ++ " = " ++ show exp
+    show (Fun _ n args exp) = show n ++ concatMap ((' ':) . show) args ++ " = " ++ show exp
 
 data AccessPath
     = NoPath
@@ -99,7 +111,7 @@ data CExp
 
 getEscaping :: CExp -> Set.Set Identifier
 getEscaping (App _ vs) = Set.fromList $ extractLabels vs
-getEscaping (Fix fs e) = mconcat (getEscaping e:fmap (\(Fun _ _ e) -> getEscaping e) fs)
+getEscaping (Fix fs e) = mconcat (getEscaping e:fmap (\(Fun _ _ _ e) -> getEscaping e) fs)
 getEscaping (Record vs _ e) = Set.fromList (extractLabels $ fmap fst vs) `mappend` getEscaping e
 getEscaping (Select _ v _ e) = Set.fromList (extractLabels [v]) `mappend` getEscaping e
 getEscaping (Switch v es) = mconcat (Set.fromList (extractLabels [v]):fmap getEscaping es)
@@ -118,7 +130,7 @@ extractLabels [] = []
 
 fv :: CExp -> Set.Set Identifier
 fv (App i vs) = Set.fromList (extractIdents $ i:vs)
-fv (Fix fns exp) = flip Set.difference (Set.fromList . fmap (\(Fun id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
+fv (Fix fns exp) = flip Set.difference (Set.fromList . fmap (\(Fun _ id _ _) -> id) $ fns) $ Set.union (fv exp) . mconcat $ fmap (\(Fun _ _ args exp) -> fv exp `Set.difference` Set.fromList args) fns
 fv (Record vs n exp) = Set.delete n $ fv exp `Set.union` (Set.fromList . extractIdents $ fmap fst vs)
 fv (Select _ v n exp) = Set.delete n $ Set.fromList (extractIdents [v]) `Set.union` fv exp
 fv (Switch v exps) = mconcat (fmap fv exps) `Set.union` Set.fromList (extractIdents [v])
@@ -148,7 +160,7 @@ instance Show AccessPath where
 instance Pretty CFun Int where
     showtag _ _ = False
 
-    pretty (Fun v args exp) n = intercalate " " (show v:fmap show args) ++ " = " ++ pretty exp (n+4)
+    pretty (Fun _ v args exp) n = intercalate " " (show v:fmap show args) ++ " = " ++ pretty exp (n+4)
 
 instance Pretty CExp Int where
     showtag _ _ = False

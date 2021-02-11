@@ -183,7 +183,7 @@ interpretOps (_:xs) = interpretOps xs
 interpretOps [] = fatal "instruction underflow"
 
 operInterp :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
-operInterp (BuildConfig _ (Backend _ r s) _ _) xs glue = do
+operInterp BuildConfig{backend = Backend _ r s} xs glue = do
     let fs = ([],glue):fmap (\(p,Right ops)->(p,ops)) xs
     -- liftIO $ forM_ fs $ \(p,ops) -> writeFile (root ++ "test." ++ intercalate "." p ++ ".txt") (show ops)
     liftIO $ putStr "\n"

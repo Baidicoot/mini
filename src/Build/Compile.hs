@@ -17,12 +17,10 @@ import Control.Monad.IO.Class
 
 import Data.List
 
-import Types.Pretty
-
-compile :: Int -> Int -> BuildConfig -> ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,Either CachedFile [Operator])] -> Build ()
+compile :: Int -> Int -> BuildConfig ->  ModuleServer -> [(ModulePath,Either CachedFile (ParseResult,Stream))] -> [(ModulePath,Either CachedFile [Operator])] -> Build ()
 compile index num cfg ms ((p,Right (pr,s)):fs) done = do
     liftIO . putStrLn $ "\ncompiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
-    (w,api,abi,ops,_) <- liftEither $ parsedToAbst p ms [] (mainFn p) (registers $ backend cfg) s pr
+    (w,api,abi,ops,_) <- liftEither $ parsedToAbst (opt cfg) p ms [] (mainFn p) (registers $ backend cfg) s pr
     liftIO $ mapM_ putStrLn w
     liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ n ++ " : " ++ show s)
     compile (index+1) num cfg (loadModule abi api ms) fs ((p,Right ops):done)
