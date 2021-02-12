@@ -190,4 +190,4 @@ operInterp BuildConfig{backend = Backend _ r s} xs glue = do
     interpret fs r [] s
 
 interpreter :: Int -> Backend
-interpreter r = Backend operInterp r (LocalIdentifier "start")
+interpreter r = Backend operInterp r (LocalIdentifier (Symb "start"))

@@ -2,9 +2,18 @@ module Types.Ident where
 import Data.List (intercalate)
 import Control.Monad (replicateM)
 
-type Name = String
+data Name
+    = User String
+    | Gen String Int
+    | Symb String
+    deriving(Eq,Ord)
 
-type ModulePath = [Name]
+instance Show Name where
+    show (User s) = s
+    show (Gen s n) = s ++ show n
+    show (Symb s) = s
+
+type ModulePath = [String]
 
 data Identifier
     = ExternalIdentifier ModulePath Name
@@ -21,5 +30,5 @@ discardPath (LocalIdentifier n) = n
 discardPath (ExternalIdentifier p n) = n
 
 instance Show Identifier where
-    show (ExternalIdentifier ms n) = intercalate "." ms ++ "." ++ n
-    show (LocalIdentifier n) = n
+    show (ExternalIdentifier ms n) = intercalate "." ms ++ "." ++ show n
+    show (LocalIdentifier n) = show n

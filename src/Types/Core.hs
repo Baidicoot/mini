@@ -22,7 +22,7 @@ data PatternBinding
     deriving(Eq, Ord)
 
 instance Show PatternBinding where
-    show (ConsPattern id ns) = "(" ++ show id ++ concatMap (' ':) ns ++ ")"
+    show (ConsPattern id ns) = "(" ++ show id ++ concatMap ((' ':) . show) ns ++ ")"
     show (LiteralPattern l) = show l
     show WildcardPattern = "_"
 

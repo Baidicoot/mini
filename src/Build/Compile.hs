@@ -22,7 +22,7 @@ compile index num cfg ms ((p,Right (pr,s)):fs) done = do
     liftIO . putStrLn $ "\ncompiling " ++ intercalate "." p ++ "... (" ++ show index ++ " of " ++ show num ++ ")"
     (w,api,abi,ops,_) <- liftEither $ parsedToAbst (opt cfg) p ms [] (mainFn p) (registers $ backend cfg) s pr
     liftIO $ mapM_ putStrLn w
-    liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ n ++ " : " ++ show s)
+    liftIO . forM_ (moduleAPITerms api) $ \(n,s) -> putStrLn ("defined " ++ show n ++ " : " ++ show s)
     compile (index+1) num cfg (loadModule abi api ms) fs ((p,Right ops):done)
 compile index num cfg ms ((p,Left c):fs) done = compile (index+1) num cfg (loadModule (abi c) (api c) ms) fs ((p,Left c):done)
 compile _ _ cfg ms [] done = do

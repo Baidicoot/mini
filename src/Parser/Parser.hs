@@ -102,7 +102,7 @@ apps s o p (x:xs) = p x >>= internal xs
 typeexp :: ExprParser SourceType
 typeexp (SExpr _ (x:SNode p Arr:xs)) = uncurry (\a b -> App p (App p (Node p FunctionType) a) b) <$> both typeexp typeexp (x, SExpr p xs)
 typeexp (SRcrd p xs) = Node p . Product <$> many typeexp xs
-typeexp (SNode p (Ident (LocalIdentifier i@(c:_))))
+typeexp (SNode p (Ident (LocalIdentifier i@(User (c:_)))))
     | isLower c = Right (Node p (TypeVar i))
 typeexp (SNode p (Ident i)) = Right (Node p (NamedType i))
 typeexp (SNode p (LitTy t)) = Right (Node p (Builtin t))
@@ -126,8 +126,8 @@ args (SExpr p xs) = many1 "name" p name xs
 args x = Left [Expecting "arguments" "nothing" (getPos x)]
 
 path :: ExprParser ModulePath
-path (SNode _ (Ident (LocalIdentifier i))) = Right [i]
-path (SNode _ (Ident (ExternalIdentifier is i))) = Right (is ++ [i])
+path (SNode _ (Ident (LocalIdentifier (User i)))) = Right [i]
+path (SNode _ (Ident (ExternalIdentifier is (User i)))) = Right (is ++ [i])
 path x = Left [Expecting "module path" (show x) (getPos x)]
 
 caseexp :: ExprParser (SourcePattern, Expr)

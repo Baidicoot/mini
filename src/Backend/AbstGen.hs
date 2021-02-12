@@ -116,7 +116,7 @@ primop op vs _ exps | switchOp op = do
     vs' <- mapM getOp vs
     -- using the placeholder register
     a <- getReg (mconcat (fmap CPS.fv exps) `mappend` Set.fromList (CPS.extractIdents vs))
-    lbls <- mapM (fmap (LocalIdentifier . ("switch_"++) . show) . const caseLabel) exps
+    lbls <- mapM (fmap (LocalIdentifier . Gen "switch_") . const caseLabel) exps
     emit (SwitchOp op (GPR a) vs' (fmap ImmLabel lbls))
     emit (Jmp (r a))
     (regs,_,_) <- get
@@ -176,8 +176,8 @@ switch :: Value -> [CExp] -> AbstGen ()
 switch v exps = do
     emit (Comment $ "switch " ++ show v)
     o <- getOp v
-    lbls <- mapM (fmap (LocalIdentifier . ("case_"++) . show) . const caseLabel) exps
-    table <- fmap (LocalIdentifier . ("table_"++) . show) caseLabel
+    lbls <- mapM (fmap (LocalIdentifier . Gen "case_") . const caseLabel) exps
+    table <- fmap (LocalIdentifier . Gen "table_") caseLabel
     emit (Fetch ar (ImmLabel table) o)
     emit (Jmp ar)
     emit (Table table (fmap ImmLabel lbls))

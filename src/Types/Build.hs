@@ -5,13 +5,25 @@ import Control.Monad.Errors
 import Types.Abstract
 import Types.Ident
 
-data OptFlags = OptFlags { cps_inline_singles :: Bool }
+data OptFlags = OptFlags
+    { cps_inline_singles :: Bool
+    , cps_inline_sized :: Bool
+    , cps_inline_size :: Int }
+
+cps_size_inline :: Int
+cps_size_inline = 0
+
+cps_normal_inline :: Int
+cps_normal_inline = 4
+
+cps_max_inline :: Int
+cps_max_inline = 8
 
 noopt :: OptFlags
-noopt = OptFlags False
+noopt = OptFlags False False 0
 
 allopt :: OptFlags
-allopt = OptFlags True
+allopt = OptFlags True True cps_normal_inline
 
 data BuildConfig = BuildConfig { root :: String, backend :: Backend, backendName :: String, flags :: [String], opt :: OptFlags }
 

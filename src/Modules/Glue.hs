@@ -23,7 +23,7 @@ import Data.List
 import Control.Monad.Errors
 
 modName :: ModulePath -> Identifier
-modName m = ExternalIdentifier m "mod"
+modName m = ExternalIdentifier m (Symb "mod")
 
 glueLExp :: ModuleServer -> [ModuleABI] -> [(ModulePath, Type)] -> Core Type
 glueLExp s [] _ = Node unitty $ Tuple []
@@ -52,16 +52,18 @@ glueCoreToAbst f k m e r c0 s0 =
     let (c1,(s1,_)) = cpsify k e [] (untagCore c0) s0
         (CPS.Fix defs exp,s2) = closureConv c1 s1
         c2 = CPS.Fix (CPS.Fun CPS.cfun{CPS.isexport=True} m [] exp:defs) CPS.Halt
-        (c3,s3) = spill r s2 (cpsOpt f c2)
-        (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) [m] c3 r
-    in (ops,l,s3)
+        (c3,s3) = cpsOpt s2 f c2
+        (c4,s4) = spill r s3 c3
+        (l,ops) = generateAbstract (filter ((`elem` k) . fst) (regLayouts e)) [m] c4 r
+    in (ops,l,s4)
 
 glueCoreToCPS :: OptFlags -> [Identifier] -> Identifier -> ModuleServer -> Core Type -> Int -> (CPS.CExp, Int)
 glueCoreToCPS f k m e c0 s0 =
     let (c1,(s1,_)) = cpsify k e [] (untagCore c0) s0
         (CPS.Fix defs exp,s2) = closureConv c1 s1
         c2 = CPS.Fix (CPS.Fun CPS.cfun m [] exp:defs) CPS.Halt
-    in (cpsOpt f c2,s2)
+        (c3,s3) = cpsOpt s2 f c2
+    in (c3,s3)
 
 glueToCPS :: OptFlags -> Identifier -> ModuleServer -> Either [ImportError] CPS.CExp
 glueToCPS f main ms = do

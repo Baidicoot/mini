@@ -81,4 +81,4 @@ assembleX86 cfg files glue = do
     liftIO $ putStrLn ("main-is: " ++ root cfg ++ "cache-x86_64-linux-textual/" ++ "glue.asm")
 
 x86_64_linuxTextualBackend :: Backend
-x86_64_linuxTextualBackend = Backend assembleX86 nregs (LocalIdentifier "__start")
+x86_64_linuxTextualBackend = Backend assembleX86 nregs (LocalIdentifier (Symb "__start"))

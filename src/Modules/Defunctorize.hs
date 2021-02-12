@@ -8,7 +8,7 @@ import Types.Graph
 import Types.Prim
 
 fresh :: Int -> (Int,Name)
-fresh i = (i+1,'i':show i)
+fresh i = (i+1,Gen "imprt" i)
 
 importAPI :: Int -> Name -> ModuleAPI -> Core Type -> (Int,Core Type)
 importAPI s f m e =

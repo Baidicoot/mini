@@ -152,7 +152,7 @@ fresh :: Checker Name
 fresh = do
     (n,s) <- get
     put (n+1,s)
-    pure ('t':show n)
+    pure (Gen "tv" n)
 
 freshTV :: Checker Type
 freshTV = Node NoTag . TypeVar <$> fresh

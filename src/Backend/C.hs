@@ -28,8 +28,8 @@ sanitize = concatMap (\case
     c -> [c])
 
 mangle :: ModulePath -> Label -> String
-mangle p (LocalIdentifier l) = concatMap (++"_") p ++ sanitize l
-mangle p (ExternalIdentifier m l) = concatMap (++"_") m ++ sanitize l
+mangle p (LocalIdentifier l) = concatMap (++"_") p ++ sanitize (show l)
+mangle p (ExternalIdentifier m l) = concatMap (++"_") m ++ sanitize (show l)
 
 data Offset
     = POff AccessPath
@@ -143,4 +143,4 @@ cgen cfg fs glue = do
     liftIO $ putStrLn "main is: c-build/main.c"
 
 cbackend :: Backend
-cbackend = Backend cgen 100 (LocalIdentifier "start")
+cbackend = Backend cgen 100 (LocalIdentifier (Symb "start"))

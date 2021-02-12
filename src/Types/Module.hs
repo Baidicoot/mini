@@ -12,7 +12,7 @@ import Control.Monad
 import Control.Monad.Errors
 
 mainFn :: ModulePath -> Identifier
-mainFn p = ExternalIdentifier p "main"
+mainFn p = ExternalIdentifier p (Symb "main")
 
 data ModuleABI = ModuleABI
     { moduleABIPath :: ModulePath

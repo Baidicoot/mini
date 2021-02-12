@@ -61,19 +61,21 @@ fresh :: ClosureConv Name
 fresh = do
     (n, s) <- get
     put (n+1, s)
-    pure ('c':show n)
+    pure (Gen "cls" n)
 
 split :: Identifier -> ClosureConv Identifier
 split i = do
     (_, splits) <- get
     case Map.lookup i splits of
-        Just n  -> pure n
+        Just v  -> pure v
         Nothing -> do
-            f <- case i of
-                LocalIdentifier n -> pure ("split_" ++ n)
-                ExternalIdentifier _ n -> pure ("split_" ++ n)
-            modify (second (Map.insert i (LocalIdentifier f)))
-            pure (LocalIdentifier f)
+            let f = case discardPath i of
+                    User n -> "split_" ++ n
+                    Gen n _ -> "split_" ++ n
+                    Symb n -> "split_" ++ n
+            (n,_) <- get
+            modify (second (Map.insert i (LocalIdentifier (Gen f n))))
+            pure (LocalIdentifier (Gen f n))
 
 freeVars :: Identifier -> ClosureConv [Identifier]
 freeVars i = do

@@ -29,13 +29,13 @@ fresh :: CPSifier Name
 fresh = do
     (n,known) <- get
     put (n+1,known)
-    pure ('v':show n)
+    pure (Gen "v" n)
 
 func :: CPSifier Name
 func = do
     (n,known) <- get
-    put (n+1,LocalIdentifier ('f':show n):known)
-    pure ('f':show n)
+    put (n+1,LocalIdentifier (Gen "f" n):known)
+    pure (Gen "f" n)
 
 fixdefs :: [Identifier] -> CPSifier ()
 fixdefs ids = modify (second (ids++))
@@ -43,8 +43,8 @@ fixdefs ids = modify (second (ids++))
 cont :: CPSifier Name
 cont = do
     (n,known) <- get
-    put (n+1,LocalIdentifier ('k':show n):known)
-    pure ('k':show n)
+    put (n+1,LocalIdentifier (Gen "k" n):known)
+    pure (Gen "k" n)
 
 convVal :: Value -> CPSifier Value
 convVal (Var i) = do
@@ -68,12 +68,6 @@ cases id = do
 
 exported :: Identifier -> CPSifier Bool
 exported i = asks (\(_,_,b)->i `elem` b)
-
-contNames :: [Name]
-contNames = fmap (("k"++) . show) [0..]
-
-cpsNames :: [Name]
-cpsNames = fmap (("c"++) . show) [0..]
 
 type CPSifier = StateT CPSState (Reader CPSEnv)
 

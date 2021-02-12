@@ -67,7 +67,7 @@ instance Show (TypeNode t) where
     show FunctionType = "(⟶)"
     show KindStar = "★"
     show (NamedType s) = show s
-    show (TypeVar s) = s
+    show (TypeVar s) = show s
     show (Builtin t) = show t
     show (Product ts) = "{" ++ intercalate "," (fmap show ts) ++ "}"
 
@@ -108,7 +108,7 @@ untagScheme :: PolyScheme a -> Scheme
 untagScheme (Forall x t) = Forall x (untagType t)
 
 instance Show (PolyScheme t) where
-    show (Forall ns t) = "∀" ++ unwords (Set.toList ns) ++ ". " ++ show t
+    show (Forall ns t) = "∀" ++ unwords (fmap show (Set.toList ns)) ++ ". " ++ show t
 
 type Subst = Map.Map Name Type
 
@@ -153,10 +153,10 @@ data UnifyError
     deriving(Eq)
 
 instance Show UnifyError where
-    show (OccursUE n t) = "the metavariable '" ++ n ++ "' occurs in '" ++ show t ++ "'"
+    show (OccursUE n t) = "the metavariable '" ++ show n ++ "' occurs in '" ++ show t ++ "'"
     show (MatchUE _ t1 t2) = "could not match '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
     show (UnifyUE t1 t2) = "could not unify '" ++ show t1 ++ "' with '" ++ show t2 ++ "'"
-    show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ n ++ "'"
+    show (RigidUE n t) = "could not match '" ++ show t ++ "' with the rigid variable '" ++ show n ++ "'"
     show (ProdUE as bs) = "could not match the variables " ++ show as ++ "with the variables " ++ show bs
 
 data Eqtn = Eqtn Type Type
@@ -271,8 +271,8 @@ infixr 9 -->
 (-->) :: Type -> Type -> Type
 a --> b = App NoTag (App NoTag (Node NoTag FunctionType) a) b
 
-tv :: Name -> Type
-tv = Node NoTag . TypeVar
+tv :: String -> Type
+tv = Node NoTag . TypeVar . User
 
 arity :: PolyType t -> Int
 arity (App _ (App _ (Node _ FunctionType) _) b) = 1 + arity b

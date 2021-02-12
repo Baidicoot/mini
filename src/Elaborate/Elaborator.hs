@@ -59,10 +59,16 @@ fresh :: Elaborator Name
 fresh = do
     n <- get
     put (n+1)
-    pure ('v':show n)
+    pure (Gen "val" n)
 
 fork :: Name -> Elaborator Name
-fork i = do
-    n <- get
-    put (n+1)
-    pure (i ++ "_" ++ show n)
+fork x = case x of
+    Gen i _ -> go i
+    User i -> go i
+    Symb i -> go i
+    where
+        go :: String -> Elaborator Name
+        go i = do
+            n <- get
+            put (n+1)
+            pure (Gen i n)

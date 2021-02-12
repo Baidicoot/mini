@@ -28,7 +28,7 @@ fresh :: Spill Name
 fresh = do
     n <- get
     put (n+1)
-    pure ('s':show n)
+    pure (Gen "spl" n)
 
 maybeToSet :: Maybe a -> Set.Set a
 maybeToSet (Just a) = Set.singleton a
