@@ -30,12 +30,6 @@ data ModuleAPI = ModuleAPI
     , moduleAPIEqtns :: [Eqtn]
     } deriving(Show)
 
-data GADT = GADT
-    { gadtName :: Identifier
-    , gadtKind :: Kind
-    , gadtCons :: [(Identifier, Scheme)]
-    } deriving(Show)
-
 data ModuleServer = ModuleServer
     { abis :: [ModuleABI]
     , apis :: [ModuleAPI]

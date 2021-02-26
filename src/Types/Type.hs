@@ -13,6 +13,12 @@ import qualified Data.Map as Map
 
 import Text.Parsec.Pos
 
+data GADT = GADT
+    { gadtName :: Identifier
+    , gadtKind :: Kind
+    , gadtCons :: [(Identifier, Scheme)]
+    } deriving(Show)
+
 data TypeNode t
     = FunctionType
     | KindStar
