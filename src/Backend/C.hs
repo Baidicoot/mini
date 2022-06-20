@@ -106,10 +106,17 @@ translate d p (DataOp op r [o1,o2]) =
     showOp True p (Reg r) ++ " = " ++ showArith op ("(uintptr_t)" ++ showOp True p o1) ("(uintptr_t)" ++ showOp True p o2) ++ ";\n"
 translate d p x = "/* unknown `" ++ show x ++ "` in " ++ intercalate "." p ++ " */\n"
 
-preheader :: Bool -> String
-preheader b = unlines
-    [ if b then "#define GC_MALLOC malloc" else "#include \"gc.h\""
-    , "#include \"mem.h\""
+preheader :: Bool -> Int -> String
+preheader b n = unlines
+    [ if b then "#define GC_MALLOC malloc" else "#include <gc.h>"
+    , "#include <stdlib.h>"
+    , "#include <stdio.h>"
+    , "#include <stdint.h>"
+    , "#define NREGS " ++ show n
+    , "#define UNTAG(val) ((uintptr_t)val - 1) >> 1"
+    , "#define TAG(i) ((i << 1) | 1)"
+    , "uintptr_t reg_gpr[NREGS];"
+    , "uintptr_t reg_arith;"
     , "int main() {"
     ]
 
@@ -126,11 +133,13 @@ moveStatic = partition (\case
     Table _ _ -> True
     _ -> False)
 
-data CConfig = CConfig {nogc :: Bool}
+data CConfig = CConfig {nogc :: Bool, nregs :: Int}
 
 parseArgs :: [String] -> CConfig
-parseArgs [] = CConfig False
-parseArgs ("--nogc":xs) = (parseArgs xs) {nogc = True}
+parseArgs [] = CConfig False 1000
+parseArgs (('-':'-':c):xs)
+    | c == "nogc" = (parseArgs xs) {nogc = True}
+    | take 5 c == "nregs" = (parseArgs xs) {nregs = read (drop 5 c)}
 parseArgs (_:xs) = parseArgs xs
 
 cgen :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
@@ -139,8 +148,8 @@ cgen cfg fs glue = do
     let (a,b) = unzip $ fmap (\(p,ops) -> let (static,ins) = moveStatic ops in ((p,static),(p,ins))) (([],glue):fmap (\(p,Right ops)->(p,ops)) fs)
     let statics = concatMap (\(p,s)->concatMap (translate False p) s) a
     let ins = concatMap (\(p,o)->concatMap (translate False p) o) b
-    liftIO $ writeFile "c-build/main.c" (preheader (nogc ccfg) ++ statics ++ postheader ++ ins ++ footer)
+    liftIO $ writeFile "c-build/main.c" (preheader (nogc ccfg) (nregs ccfg) ++ statics ++ postheader ++ ins ++ footer)
     liftIO $ putStrLn "main is: c-build/main.c"
 
 cbackend :: Backend
-cbackend = Backend cgen 100 (LocalIdentifier (Symb "start"))
+cbackend = Backend cgen 1000 (LocalIdentifier (Symb "start"))

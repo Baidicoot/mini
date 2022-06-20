@@ -1,0 +1,9 @@
+(include List)
+(include IO)
+
+(let (hello cons 'h' (cons 'e' (cons 'l' (cons 'l' (cons 'o' nil))))))
+
+(let
+    (_ putstr hello)
+    (_ putstr (+ hello 3))
+    (_ (lam x x x) (lam x x x)))

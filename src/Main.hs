@@ -64,7 +64,7 @@ main = do
                 Left e -> mapM_ putStrLn e
                 Right _ -> putStr "\n"
         "abst" -> do
-            r <- runErrorsT $ build (BuildConfig root (interpreter 20) "interpret" args opt) paths
+            r <- runErrorsT $ build (BuildConfig root (interpreter 100) "interpret" args opt) paths
             case toEither r of
                 Left e -> mapM_ putStrLn e
                 Right _ -> putStr "\n"

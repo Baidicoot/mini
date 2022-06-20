@@ -1,0 +1,6 @@
+(fac x match x
+    (0 -> 1)
+    (_ -> * x (fac (- x 1))))
+
+(let
+    (_ putint (fac 6)))

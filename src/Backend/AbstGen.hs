@@ -45,7 +45,9 @@ emit op = tell [op]
 unused :: AbstGen GPR
 unused = do
     (env,_,_) <- get
+    (_,n) <- ask
     let (Just a) = find (not . flip Inj.memberInv env) [0..]
+    if a > n then error "NOT ENOUGH REGISTERS SPILLS NOT YET IMPLEMENTED" else pure ()
     pure a
 
 allUnused :: AbstGen [GPR]

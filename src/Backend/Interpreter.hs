@@ -18,6 +18,10 @@ data CVal
     | CPtr GlobalIdent
     deriving(Show)
 
+debugIndex :: String -> [a] -> Int -> a
+debugIndex _ xs n | n < length xs = xs !! n
+debugIndex s _ _ = error s
+
 type GlobalIdent = (ModulePath,Identifier)
 
 showGlob :: GlobalIdent -> String
@@ -71,7 +75,7 @@ convOperConst m (ImmLabel l) = CPtr (m,l)
 convOperConst m (ImmLit l) = CLit l
 
 convOper :: Operand -> Interpreter CVal
-convOper (Reg (GPR i)) = asks (fst . fst . (\(_,_,_,_,rs,_)->rs !! i))
+convOper (Reg (GPR i)) = asks (fst . fst . (\(_,_,_,_,rs,_)->debugIndex (show i) rs i))
 convOper (Reg Arith) = asks (\(_,_,_,_,_,ar)->ar)
 convOper (ImmLabel l) = CPtr <$> getGlobalLabel l
 convOper (ImmLit l) = pure (CLit l)
@@ -108,7 +112,7 @@ fatal s = do
 
 access :: CVal -> AccessPath -> Interpreter CVal
 access v NoPath = pure v
-access (CRecord vs) (SelPath i p) = access (vs !! i) p
+access (CRecord vs) (SelPath i p) = access (debugIndex "access" vs i) p
 access v p = fatal ("tried to access component " ++ show p ++ " of " ++ show v) >> undefined
 
 getArithOp :: Primop -> Int -> Int -> Int
@@ -140,12 +144,20 @@ interpretOps (DataOp p r [o1,o2]:k) = do
     b' <- convOper o2
     case (a',b') of
         (CLit (Int a),CLit (Int b)) -> withReg r (CLit . Int $ getArithOp p a b) (interpretOps k)
+        _ -> fatal $ "tried to " ++ show p ++ " " ++ show (a', b')
 interpretOps (EffectOp p [o]:k) = do
     getIOOp p =<< convOper o
     interpretOps k
 interpretOps (DataOp p r [o]:k) = do
     v <- getCoerceOp p =<< convOper o
     withReg r v (interpretOps k)
+interpretOps (SwitchOp EqInt r [a,b] [eq,ne]:k) = do
+    a' <- convOper a
+    b' <- convOper b
+    case (a', b') of
+        (CLit (Int a), CLit (Int b)) | a == b -> (\e -> withReg r e (interpretOps k)) =<< convOper eq
+        (CLit (Int a), CLit (Int b)) | a /= b -> (\e -> withReg r e (interpretOps k)) =<< convOper ne
+        _ -> fatal $ "tried to integer equate" ++ show (a', b')
 interpretOps (SwitchOp CmpInt r [a,b] [eq,gt,lt]:k) = do
     a' <- convOper a
     b' <- convOper b
@@ -171,7 +183,7 @@ interpretOps (Fetch r o1 o2:k) = do
     tbls <- asks (\(_,_,t,_,_,_)->t)
     case (l,o) of
         (CPtr g, CLit (Int i)) -> case Map.lookup g tbls of
-            Just x -> withReg r (x !! i) (interpretOps k)
+            Just x -> withReg r (debugIndex "fetch" x i) (interpretOps k)
             Nothing -> fatal $ "table " ++ show g ++ " does not exist"
         _ -> fatal $ "tried to access table with " ++ show (l,o)
 interpretOps (Move r o:k) = do
@@ -183,9 +195,9 @@ interpretOps (_:xs) = interpretOps xs
 interpretOps [] = fatal "instruction underflow"
 
 operInterp :: BuildConfig -> [(ModulePath,Either CachedFile [Operator])] -> [Operator] -> Build ()
-operInterp BuildConfig{backend = Backend _ r s} xs glue = do
+operInterp BuildConfig{root = root, backend = Backend _ r s} xs glue = do
     let fs = ([],glue):fmap (\(p,Right ops)->(p,ops)) xs
-    -- liftIO $ forM_ fs $ \(p,ops) -> writeFile (root ++ "test." ++ intercalate "." p ++ ".txt") (show ops)
+    liftIO $ forM_ fs $ \(p,ops) -> writeFile (root ++ "test." ++ intercalate "." p ++ ".txt") (show ops)
     liftIO $ putStr "\n"
     interpret fs r [] s
 

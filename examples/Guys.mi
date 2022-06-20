@@ -1,0 +1,15 @@
+(fac x match x
+    (0 -> 1)
+    (_ -> * x (fac (- x 1))))
+
+(countdown x match x
+    (0 -> {})
+    (_ -> let
+        (_ putint x)
+        (_ countdown (- x 1))
+        {}))
+
+(let
+    (_ putint (+ 1 (+ 2 3)))
+    (_ putint (fac 6))
+    (_ countdown 10))
